@@ -2,6 +2,14 @@
 
 Una webapp in italiano per organizzare le finanze e la vita quotidiana in uno spazio condiviso. Ogni persona ha un account personale; i membri della stessa famiglia vedono gli stessi dati.
 
+## Installazione sul dispositivo
+
+Dal sito pubblicato, usa **Installa app** nel browser Android/desktop oppure **Condividi → Aggiungi alla schermata Home** in Safari su iPhone. Il nome è **Family Hub** e l'apertura avviene in una finestra dedicata. Serve una connessione per accedere ai dati condivisi.
+
+Il manifest e il titolo per iOS fissano il nome indipendentemente dalla sezione aperta. `public/family-hub.svg` è il logo condiviso da interfaccia e favicon: quadrato verde inclinato di 12° e casa bianca dritta. Le icone PNG di installazione sono esportate dallo stesso SVG, con una variante che lascia spazio al ritaglio delle icone Android.
+
+Un'installazione precedente può conservare nome e icona: in quel caso rimuovila e aggiungila nuovamente dal sito. I dati restano nell'account sul server.
+
 ## Entrate, uscite e ripartizione budget
 
 Il menu mostra **Panoramica**, **Ripartizione budget**, **Entrate**, **Uscite**, poi le altre sezioni della casa.

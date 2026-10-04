@@ -1,0 +1,17 @@
+{
+  "id": "/",
+  "name": "Family Hub",
+  "short_name": "Family Hub",
+  "description": "Il tuo spazio per organizzare il budget, gli obiettivi e la vita di famiglia.",
+  "lang": "it",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8faf5",
+  "theme_color": "#176854",
+  "icons": [
+    { "src": "/family-hub-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/family-hub-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/family-hub-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
