@@ -141,11 +141,32 @@ test('a family can manage money, goals, shopping and pinned files on desktop and
       const amounts = row.querySelector('.legend-amounts')!.getBoundingClientRect();
       const bounds = row.getBoundingClientRect();
       const spans = Array.from(row.querySelectorAll('.legend-amounts > *'));
-      return amounts.top >= category.bottom && amounts.right <= bounds.right + 1 && spans.every(item => item.getBoundingClientRect().right <= bounds.right + 1);
+      return amounts.left >= category.right && amounts.right <= bounds.right + 1 && spans.every(item => item.getBoundingClientRect().right <= bounds.right + 1);
     }))).toBe(true);
+    const quickActions = page.locator('.dashboard-quick-actions .button');
+    const incomeAction = await quickActions.nth(0).boundingBox();
+    const expenseAction = await quickActions.nth(1).boundingBox();
+    // Hover can lift a button by 1 px; both actions must still share the same row.
+    expect(Math.abs(incomeAction!.y - expenseAction!.y)).toBeLessThanOrEqual(2);
+    expect(await quickActions.nth(0).evaluate(button => getComputedStyle(button).backgroundColor)).not.toBe(await quickActions.nth(1).evaluate(button => getComputedStyle(button).backgroundColor));
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath(`panoramica-${width}.png`), fullPage: true });
   }
   await page.setViewportSize(viewport);
+  for (const [index, target] of [[0, 'incomes'], [1, 'expenses'], [2, 'budget'], [3, 'goals']] as const) {
+    await page.locator('.stat-card').nth(index).focus();
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(new RegExp(`#${target}$`));
+    await go(page, 'Panoramica');
+  }
+  await page.locator('.spending-panel .donut').click();
+  await expect(page).toHaveURL(/#budget$/);
+  await go(page, 'Panoramica');
+  await page.locator('.overview-bottom .compact-goals').click();
+  await expect(page).toHaveURL(/#goals$/);
+  await go(page, 'Panoramica');
+  await page.locator('.overview-bottom .transaction-description').first().click();
+  await expect(page).toHaveURL(/#expenses$/);
+  await go(page, 'Panoramica');
   expect(errors).toEqual([]);
 });

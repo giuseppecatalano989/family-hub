@@ -31,6 +31,6 @@ export function Empty({ icon, title, description, action, onAction }: { icon: Re
 export function Progress({ value, color = 'var(--green)' }: { value: number; color?: string }) {
   return <div className="progress" role="progressbar" aria-valuenow={Math.round(Math.max(0, value))} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${Math.max(0, Math.min(100, value))}%`, background: color }} /></div>;
 }
-export function SectionHeading({ title, action, onAction }: { title: string; action?: string; onAction?: () => void }) {
+export function SectionHeading({ title, action, onAction }: { title: ReactNode; action?: string; onAction?: () => void }) {
   return <div className="section-heading"><h2>{title}</h2>{action && <button className="text-button" onClick={onAction}>{action}<ArrowUpRight size={16} /></button>}</div>;
 }

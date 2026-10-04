@@ -36,7 +36,7 @@ Le Scadenze sono promemoria con eventuale pagamento manuale: evita di registrare
 
 ## Dashboard e consultazione degli appunti
 
-**Dove vanno le nostre uscite** mostra per ogni categoria la spesa effettiva e il massimale del mese, calcolato sulle entrate e sulla ripartizione attuale. Gli importi hanno una riga dedicata; sul telefono il grafico precede la legenda per lasciare spazio ai valori.
+**Dove vanno le nostre uscite** mostra per ogni categoria la spesa effettiva e il massimale del mese, calcolato sulle entrate e sulla ripartizione attuale. Categoria e importi restano affiancati nella legenda; il grafico a sinistra si adatta agli schermi piccoli. Nuova entrata e Nuova uscita rimangono sulla stessa riga, con colori jade e coral. Le card delle entrate, uscite, saldo e risparmi aprono rispettivamente Entrate, Uscite, Ripartizione budget e Obiettivi. Anche i riquadri di ripartizione, traguardi e movimenti aprono le relative sezioni; i pulsanti di creazione mantengono la loro azione.
 
 **La vita di casa** offre, senza separatori, Lista della spesa, Menu settimanale, Conferimento rifiuti, Scadenze e Lavagna di famiglia. La lavagna appare solo come collegamento. I prossimi traguardi precedono gli ultimi movimenti.
 
