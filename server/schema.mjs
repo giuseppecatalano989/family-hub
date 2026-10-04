@@ -122,3 +122,26 @@ export const WASTE_SCHEMA = `
   );
 `;
 TABLES.push('waste_schedules');
+
+export const DEADLINE_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS deadlines (
+    id TEXT PRIMARY KEY, household_id TEXT NOT NULL REFERENCES households(id), name TEXT NOT NULL,
+    start_date TEXT NOT NULL, due_day INTEGER NOT NULL CHECK(due_day BETWEEN 1 AND 31), frequency TEXT NOT NULL CHECK(frequency IN ('once','monthly','yearly')),
+    requires_payment INTEGER NOT NULL CHECK(requires_payment IN (0,1)),
+    amount INTEGER, category_id TEXT REFERENCES categories(id),
+    reminder_days INTEGER NOT NULL CHECK(reminder_days BETWEEN 0 AND 30), active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    CHECK((requires_payment = 0 AND amount IS NULL AND category_id IS NULL) OR
+          (requires_payment = 1 AND amount IS NOT NULL AND amount > 0 AND category_id IS NOT NULL))
+  );
+  CREATE TABLE IF NOT EXISTS deadline_receipts (
+    id TEXT PRIMARY KEY, deadline_id TEXT NOT NULL REFERENCES deadlines(id), month TEXT NOT NULL,
+    due_date TEXT NOT NULL, handled_date TEXT NOT NULL, author_id TEXT NOT NULL REFERENCES users(id),
+    transaction_id TEXT UNIQUE REFERENCES transactions(id) ON DELETE CASCADE,
+    UNIQUE(deadline_id, month)
+  );
+  CREATE TABLE IF NOT EXISTS deadline_migrations (
+    household_id TEXT PRIMARY KEY REFERENCES households(id)
+  );
+`;
+TABLES.push('deadlines', 'deadline_receipts', 'deadline_migrations');

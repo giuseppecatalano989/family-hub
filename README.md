@@ -10,7 +10,7 @@ In **Movimenti ricorrenti**, configura affitto/mutuo, alimentari, bollette, rate
 
 Una modifica alla ricorrenza ha un mese di validità: aggiorna le registrazioni automatiche da quel mese, conserva lo storico precedente e rispetta le correzioni manuali. Rimuovere un movimento lo salta soltanto per quel mese e non lo fa ricomparire. **Sospendi** interrompe la ricorrenza dal mese selezionato; per riprenderla, modifica la voce e attiva nuovamente la casella. Fino a 100 ricorrenze per famiglia; mese iniziale fino a dieci anni prima. Il cron cloud quotidiano le sincronizza prima del backup e l'apertura dell'app recupera eventuali mesi mancanti.
 
-Le bollette restano promemoria con pagamento manuale: evita di registrare un pagamento per una spesa già inserita tra le ricorrenze, o verrebbe conteggiata due volte. Anche un reddito già registrato manualmente può duplicarsi se crei la sua fonte dallo stesso mese: scegli un mese iniziale successivo o rimuovi il duplicato.
+Le Scadenze sono promemoria con eventuale pagamento manuale: evita di registrare un pagamento per una spesa già inserita tra le ricorrenze, o verrebbe conteggiata due volte. Anche un reddito già registrato manualmente può duplicarsi se crei la sua fonte dallo stesso mese: scegli un mese iniziale successivo o rimuovi il duplicato.
 
 Il **Budget familiare** offre sei template condivisi:
 
@@ -40,7 +40,7 @@ Le voci sono condivise e modificabili dai membri della stessa famiglia; altre fa
 - **Panoramica:** entrate, uscite e saldo del mese, distribuzione delle spese, avvisi di sforamento e riepilogo degli obiettivi.
 - **Movimenti:** inserimento, modifica ed eliminazione di entrate e uscite, selezione del mese, ricerca, filtri per tipo e categoria ed esportazione CSV di tutti i mesi.
 - **Budget:** nomi delle categorie e percentuali personalizzabili, totale obbligatorio del 100%, importi calcolati sulle entrate effettivamente registrate. Schema iniziale e modello 50/30/20 come punti di partenza.
-- **Bollette e scadenze:** ricorrenze mensili, scadenze con giorni di promemoria personalizzabili, filtro per pagate e da pagare, modifica e archivio. Registrare un pagamento crea una sola uscita collegata, anche in caso di richieste contemporanee.
+- **Scadenze:** impegni singoli, mensili o annuali, con promemoria, modifica e archivio. Il pagamento è facoltativo: segnare una scadenza come gestita crea una sola uscita se previsto, anche con richieste contemporanee. Annullare la gestione rimuove l’uscita collegata. Gli addebiti automatici vanno nei Movimenti ricorrenti. Le vecchie bollette e i loro pagamenti sono conservati come scadenze.
 - **Menu settimanale:** pranzo e cena per ogni giorno, porzioni, ingredienti e note di preparazione. Trasferimento degli ingredienti nella spesa senza duplicati dello stesso pasto; gli ingredienti già collegati e ancora da acquistare seguono le modifiche del menu.
 - **Backup:** copie automatiche dell’app ogni 24 ore (ultime sette conservate), esportazione ZIP della propria famiglia e strumenti di verifica e ripristino in una nuova directory.
 - **Obiettivi:** breve, medio e lungo termine, importo da raggiungere, scadenza facoltativa, risparmio iniziale, contributi successivi, modifica ed eliminazione.
@@ -144,7 +144,7 @@ npm test
 npm run test:e2e
 ```
 
-I 27 test Node verificano account e sessioni, inviti, condivisione e isolamento tra famiglie, CSRF, movimenti e mesi, budget, obiettivi, allegati, esportazione e persistenza dopo il riavvio, pagamenti senza duplicati, menu collegato alla spesa, limiti di mese e settimana, integrità dei backup, ripristino completo e conservazione delle ultime sette copie e segnalazione degli errori senza perdita dei dati. Verificano anche ricorrenze senza duplicati, modifiche datate, mesi saltati e ripristino dei template. Gli otto test browser percorrono le sezioni di base con due account e i flussi di bollette, menu, spesa, backup ZIP, redditi, ricorrenze, template e conferimento rifiuti, su desktop e su un viewport mobile. Verificano anche i download, il contenuto dell’archivio, l’assenza di errori JavaScript e di scorrimento orizzontale.
+I 30 test Node verificano account e sessioni, inviti, condivisione e isolamento tra famiglie, CSRF, movimenti e mesi, budget, obiettivi, allegati, esportazione e persistenza dopo il riavvio, pagamenti senza duplicati, menu collegato alla spesa, limiti di mese e settimana, integrità dei backup, ripristino completo e conservazione delle ultime sette copie e segnalazione degli errori senza perdita dei dati. Verificano anche ricorrenze senza duplicati, modifiche datate, mesi saltati e ripristino dei template. Gli otto test browser percorrono le sezioni di base con due account e i flussi di scadenze con e senza pagamento, menu, spesa, backup ZIP, redditi, ricorrenze, template e conferimento rifiuti, su desktop e su un viewport mobile. Verificano anche i download, il contenuto dell’archivio, l’assenza di errori JavaScript e di scorrimento orizzontale, oltre alla barra fissa durante lo scorrimento.
 
 I test usano database temporanei separati, rimossi alla fine: non modificano `.data`. I risultati del browser rimangono in `test-results`, ignorato da Git.
 
@@ -164,11 +164,11 @@ Lo schema percentuale è unico per famiglia e si applica anche consultando i mes
 
 Le password vengono derivate con scrypt e un salt casuale. Le sessioni durano 14 giorni e usano cookie HttpOnly, SameSite e Secure su HTTPS. Le API verificano l’appartenenza alla famiglia; gli allegati sono serviti come download, non come pagine eseguibili. I codici invito vengono conservati come hash. Il CSV neutralizza i prefissi interpretati dai fogli di calcolo come formule.
 
-### Bollette e menu
+### Scadenze e menu
 
-Le bollette sono ricorrenze **mensili**. Un giorno 29, 30 o 31 viene adattato all’ultimo giorno dei mesi più corti. Il promemoria compare nella panoramica e nello scadenziario, in relazione alla data odierna: non invia email o notifiche esterne.
+Le scadenze possono essere singole, mensili o annuali. Il giorno 29, 30 o 31 si adatta all’ultimo giorno dei mesi più corti; un anniversario del 29 febbraio cade il 28 negli anni non bisestili. Il promemoria compare nella panoramica e nello scadenziario: non invia email o notifiche esterne.
 
-L’importo previsto non modifica le uscite. “Segna pagata” crea un movimento alla data e all’importo effettivi scelti; “Annulla pagamento” elimina quel movimento. Eliminare un movimento collegato rende nuovamente non pagata la relativa scadenza. Il saldo dopo le scadenze è una previsione basata sul saldo dei movimenti del mese selezionato meno le scadenze ancora da pagare. Archiviare una ricorrenza conserva i pagamenti precedenti.
+Il pagamento è facoltativo e l’importo previsto non modifica le uscite. “Segna gestita” registra la gestione; se è previsto un pagamento, crea un’uscita alla data e all’importo scelti. “Annulla gestione” elimina la gestione e l’eventuale uscita. Eliminare direttamente un movimento collegato rende nuovamente da gestire la scadenza. Modifica e archivio conservano gestioni e pagamenti precedenti. La conversione delle vecchie bollette avviene una sola volta per famiglia e conserva i movimenti esistenti. Le bollette con addebito automatico vanno configurate come Movimenti ricorrenti per evitare doppie registrazioni.
 
 Il menu mostra settimane dal lunedì alla domenica e consente un pranzo e una cena al giorno. Le quantità sono testo libero e si riferiscono alle porzioni dichiarate; cambiare il numero di porzioni non ricalcola automaticamente le quantità. Due pasti distinti possono aggiungere lo stesso prodotto: non vengono sommate quantità con unità diverse. Ripetere l’aggiunta **dello stesso pasto** non duplica i suoi ingredienti finché gli elementi sono ancora in lista. Gli elementi acquistati non vengono modificati da un successivo cambio del menu. Eliminare un pasto conserva ciò che è già stato aggiunto alla lista.
 
@@ -197,7 +197,8 @@ La directory predefinita `.data-backups` è ignorata da Git. Se scegli un altro 
 src/                Interfaccia React e calcoli del budget
 server/app.mjs      API Express, autorizzazione e SQLite
 server/index.mjs    Avvio, pianificazione backup e arresto
-server/workflows.mjs Bollette, menu e collegamenti alla spesa
+server/deadlines.mjs Scadenze e gestioni con eventuale uscita
+server/workflows.mjs Menu, collegamenti alla spesa e compatibilità bollette
 server/backups.mjs  Snapshot, ZIP familiare, verifica e ripristino
 server/postgres.mjs Persistenza PostgreSQL per Neon
 server/cloud.mjs    Backend condiviso per il deployment serverless
@@ -218,3 +219,5 @@ public/             Icona dell’app
 4. Recupero della password, verifica email e gestione dei membri.
 
 La prima versione non include collegamenti alle banche, pagamenti, invio email, notifiche push o recupero password. Il deployment gratuito è configurato e richiede il collegamento dei propri account Vercel e Neon; la pubblicazione dell’ambiente Codex non pubblica la webapp.
+
+La richiesta di integrazione bancaria futura, esclusivamente di lettura dei movimenti e senza saldi né pagamenti, è annotata in [docs/banking-integration.md](docs/banking-integration.md).

@@ -6,6 +6,7 @@ import { mkdirSync, existsSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { installWaste } from './waste.mjs';
 import { installPlanning } from './planning.mjs';
+import { installDeadlines } from './deadlines.mjs';
 import { installWorkflows } from './workflows.mjs';
 import { createBackupManager, streamFamilyBackup } from './backups.mjs';
 import { BASE_SCHEMA } from './schema.mjs';
@@ -239,6 +240,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         res.json({ code, expiresAt: new Date(expires).toISOString() });
     });
     const workflows = installWorkflows(app, { db, one, all, run, atomic, owned, fail, text, cents, date, now });
+    const deadlines = installDeadlines(app, { db, one, all, run, atomic, owned, fail, text, cents, date, now });
     const planning = installPlanning(app, { db, one, all, run, atomic, owned, fail, text, cents, now });
     const waste = installWaste(app, { db, all, run, owned, fail, text });
     const backups = cloudBackups || createBackupManager({ db, dataDir, backupDir, enabled: automaticBackups });
@@ -259,6 +261,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         const notes = await all('SELECT n.*, u.name AS author FROM notes n JOIN users u ON u.id = n.author_id WHERE n.household_id = ? ORDER BY pinned DESC, updated_at DESC', hid);
         const attachments = await all('SELECT a.* FROM attachments a JOIN notes n ON n.id = a.note_id WHERE n.household_id = ?', hid);
         res.json({
+            deadlines: await deadlines.state(req.user, month),
             waste: await waste.state(hid),
             ...await planning.state(req.user, month),
             ...await workflows.state(req.user, month, req.query.week),
@@ -298,6 +301,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         if (values[0] !== 'expense' && await one('SELECT id FROM bill_payments WHERE transaction_id = ?', req.params.id))
             fail('Il pagamento di una bolletta deve rimanere un’uscita.');
         await atomic(async () => {
+            if (values[0] !== 'expense' && await one('SELECT id FROM deadline_receipts WHERE transaction_id = ?', req.params.id)) fail('Il pagamento di una scadenza deve rimanere un’uscita.');
             const occurrence = await one('SELECT o.*, r.kind FROM recurring_occurrences o JOIN recurring_rules r ON r.id = o.rule_id WHERE o.transaction_id = ?', req.params.id);
             if (occurrence && (values[0] !== occurrence.kind || values[4].slice(0, 7) !== occurrence.month)) fail('Un movimento ricorrente deve conservare il tipo e il mese di origine.');
             await run('UPDATE transactions SET kind = ?, amount = ?, category_id = ?, description = ?, date = ? WHERE id = ? AND household_id = ?', ...values, req.params.id, req.user.household_id);

@@ -127,6 +127,11 @@ test('daily cloud backups retain seven verified snapshots and restore exact acco
   await json(await request(`/budget-templates/${preset.id}/apply`, { method:'POST', session:owner })); const note = await create('/notes', { title: 'Copia', content: 'Test', color: 'mint', pinned: false }, owner);
   const bytes = Buffer.from('allegato da ripristinare'); const file = await attach(owner, note, bytes);
   const wasteSchedule = await create('/waste', { name:'Carta', days:[0,4], timeWindow:'20:00–22:00', notes:'Cartoni piegati', color:'#8099b0' }, owner);
+  const categoryId = (await state(owner)).categories[0].id;
+  const deadline = await create('/deadlines', { name:'Scadenza da ripristinare', startDate:'2026-10-14', frequency:'once', requiresPayment:true, amount:990, categoryId, reminderDays:3 }, owner);
+  const receipt = await create(`/deadlines/${deadline.id}/manage`, { month:'2026-10', handledDate:'2026-10-14' }, owner);
+  const free = await create('/deadlines', { name:'Appuntamento', startDate:'2026-10-15', frequency:'once', requiresPayment:false, reminderDays:0 }, owner);
+  await create(`/deadlines/${free.id}/manage`, { month:'2026-10', handledDate:'2026-10-15' }, owner);
   let stamp = Date.UTC(2026, 9, 4);
   const manager = createCloudBackups(instance.db, { scheduled: true, clock: () => stamp });
   assert.equal((await request('/internal/backup')).status, 401);
@@ -162,6 +167,10 @@ test('daily cloud backups retain seven verified snapshots and restore exact acco
         assert.deepEqual(JSON.parse((await restored.db.prepare('SELECT days FROM waste_schedules WHERE id = ?').get(wasteSchedule.id)).days), [0,4]);
         assert.equal((await restored.db.prepare('SELECT active_template_id FROM budget_settings').get()).active_template_id, preset.id);
         assert.deepEqual(await restored.db.files.get(file.id), bytes);
+        assert.equal((await restored.db.prepare('SELECT COUNT(*) AS count FROM deadlines').get()).count, 2);
+        assert.equal((await restored.db.prepare('SELECT COUNT(*) AS count FROM deadline_receipts').get()).count, 2);
+        assert.equal((await restored.db.prepare('SELECT transaction_id FROM deadline_receipts WHERE deadline_id = ?').get(deadline.id)).transaction_id, receipt.transactionId);
+        assert.equal((await restored.db.prepare('SELECT transaction_id FROM deadline_receipts WHERE deadline_id = ?').get(free.id)).transaction_id, null);
       } finally { await restored.close(); }
     } finally { await pool.query('DROP DATABASE IF EXISTS casa_restore_test'); await pool.end(); }
   } finally { rmSync(temp, { recursive: true, force: true }); }
@@ -223,4 +232,32 @@ test('waste calendars persist across cloud instances and are isolated by family'
   assert.equal((await request(`/waste/${schedule.id}`,{method:'PUT',session:stranger,body,target:second.base})).status,404);
   const exported=await request('/backups/export',{session:owner,target:second.base});const zip=unzipSync(new Uint8Array(await exported.arrayBuffer()));assert.equal(JSON.parse(Buffer.from(zip['casa.json'])).data.waste_schedules[0].id,schedule.id);
   await json(await request(`/waste/${schedule.id}`,{method:'DELETE',session:owner,target:second.base}));assert.equal((await state(owner)).waste.length,0);
+});
+
+
+test('deadline management is atomic across cloud instances, optional and private in family backups', async () => {
+  const owner = await register(); const stranger = await register('deadline-stranger@example.test');
+  const categoryId = (await instance.db.prepare('SELECT id FROM categories WHERE household_id = ? ORDER BY position').get(owner.user.householdId)).id;
+  const legacy = await create('/bills', { name:'Storica', amount:2500, categoryId, dueDay:31, startMonth:'2026-02', reminderDays:3 }, owner);
+  const oldPayment = await create(`/bills/${legacy.id}/payments`, { month:'2026-10', paymentDate:'2026-10-03', amount:2490 }, owner);
+  const second = await start();
+  const migrations = await Promise.all([base,second.base].map(target => request('/state?month=2026-10', { session:owner, target }).then(r => json(r))));
+  for (const current of migrations) { assert.equal(current.deadlines.length,1); assert.equal(current.deadlines[0].managed.transaction_id, oldPayment.transactionId); }
+  const paid = await create('/deadlines', { name:'Revisione', startDate:'2026-10-03', frequency:'once', requiresPayment:true, amount:8000, categoryId, reminderDays:3 }, owner);
+  const results = await Promise.all([base,second.base].map(target => request(`/deadlines/${paid.id}/manage`, { method:'POST', body:{month:'2026-10',handledDate:'2026-10-03'}, session:owner, target })));
+  assert.deepEqual(results.map(r=>r.status).sort(),[201,409]);
+  const receipt = await results.find(r=>r.status===201).json();
+  assert.equal((await state(owner)).transactions.length,2);
+  const free = await create('/deadlines', { name:'Appuntamento', startDate:'2026-10-03', frequency:'once', requiresPayment:false, reminderDays:3 }, owner);
+  assert.equal((await create(`/deadlines/${free.id}/manage`, { month:'2026-10',handledDate:'2026-10-03',amount:7000 }, owner)).transactionId,null);
+  assert.equal((await request(`/deadlines/${paid.id}/manage/2026-10`,{method:'DELETE',session:stranger})).status,404);
+  assert.equal((await state(stranger)).deadlines.length,0);
+  const exported = await request('/backups/export',{session:owner,target:second.base}); assert.equal(exported.status,200);
+  const zip = unzipSync(new Uint8Array(await exported.arrayBuffer())); const payload = JSON.parse(Buffer.from(zip['casa.json']));
+  assert.equal(payload.data.deadlines.length,3); assert.equal(payload.data.deadline_receipts.length,3);
+  await json(await request(`/deadlines/${paid.id}/manage/2026-10`,{method:'DELETE',session:owner,target:second.base}));
+  assert.equal((await state(owner)).transactions.some(t=>t.id===receipt.transactionId),false);
+  assert.equal((await state(owner)).deadlines.find(d=>d.id===paid.id).managed,null);
+  await json(await request(`/deadlines/${legacy.id}/manage/2026-10`,{method:'DELETE',session:owner,target:second.base}));
+  assert.equal((await state(owner)).deadlines.find(d=>d.id===legacy.id).managed,null);
 });

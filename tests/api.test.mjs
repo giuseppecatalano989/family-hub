@@ -409,3 +409,71 @@ test('waste schedules support multiple days, validation, family sharing and priv
   assert.equal(payload.data.waste_schedules.length,1);assert.equal(payload.data.waste_schedules[0].name,'Carta');
   assert.equal((await request(`/waste/${schedule.id}`,{method:'DELETE',session:member})).status,200);assert.equal((await state(owner)).waste.length,0);
 });
+
+test('deadlines support optional payments, safe undo, expense deletion and family isolation', async () => {
+  const owner = await register(); const categoryId = (await state(owner)).categories[0].id;
+  const stranger = await register('stranger@example.it');
+  const free = await create('/deadlines', { name: 'Rinnovo documento', startDate: '2026-10-14', frequency: 'once', requiresPayment: false, reminderDays: 3, amount: 9000, categoryId }, owner);
+  let deadline = (await state(owner)).deadlines[0]; assert.equal(deadline.amount, null); assert.equal(deadline.category_id, null);
+  const handled = await create(`/deadlines/${free.id}/manage`, { month: '2026-10', handledDate: '2026-10-14', amount: 9000 }, owner);
+  assert.equal(handled.transactionId, null); assert.equal((await state(owner)).transactions.length, 0);
+  assert.ok((await state(owner)).deadlines[0].managed);
+  assert.equal((await request(`/deadlines/${free.id}/manage`, { method: 'POST', body: { month: '2026-10', handledDate: '2026-10-14' }, session: owner })).status, 409);
+  assert.equal((await request(`/deadlines/${free.id}/manage/2026-10`, { method: 'DELETE', session: stranger })).status, 404);
+  assert.equal((await state(stranger)).deadlines.length, 0);
+  assert.equal((await request(`/deadlines/${free.id}/manage/2026-10`, { method: 'DELETE', session: owner })).status, 200);
+  assert.equal((await state(owner)).deadlines[0].managed, null);
+  assert.equal((await state(owner, '2026-11')).deadlines.length, 0);
+  const paid = await create('/deadlines', { name: 'Revisione auto', startDate: '2026-10-31', frequency: 'monthly', dueDay: 31, requiresPayment: true, amount: 7990, categoryId, reminderDays: 3 }, owner);
+  assert.equal((await request(`/deadlines/${paid.id}/manage`, { method: 'POST', body: { month: '2026-10', handledDate: '2026-10-14', amount: 0 }, session: owner })).status, 400);
+  assert.equal((await state(owner)).deadlines.find(d => d.id === paid.id).managed, null);
+  const payments = await Promise.all([1,2].map(() => request(`/deadlines/${paid.id}/manage`, { method: 'POST', body: { month: '2026-10', handledDate: '2026-11-02', amount: 8000 }, session: owner })));
+  assert.deepEqual(payments.map(p => p.status).sort(), [201,409]);
+  const transactionId = (await payments.find(p => p.status === 201).json()).transactionId;
+  assert.equal((await state(owner)).transactions.length, 0);
+  assert.equal((await state(owner, '2026-11')).transactions[0].amount, 8000);
+  assert.equal((await state(owner)).deadlines.find(d => d.id === paid.id).managed.amount, 8000);
+  assert.equal((await request(`/transactions/${transactionId}`, { method: 'PUT', body: { kind: 'income', amount: 8000, description: 'No', date: '2026-11-02' }, session: owner })).status, 400);
+  assert.equal((await request(`/deadlines/${paid.id}/manage/2026-10`, { method: 'DELETE', session: owner })).status, 200);
+  assert.equal((await state(owner, '2026-11')).transactions.length, 0);
+  const again = await create(`/deadlines/${paid.id}/manage`, { month: '2026-10', handledDate: '2026-10-30' }, owner);
+  assert.equal((await request(`/transactions/${again.transactionId}`, { method: 'DELETE', session: owner })).status, 200);
+  assert.equal((await state(owner)).deadlines.find(d => d.id === paid.id).managed, null);
+  assert.equal((await request(`/deadlines/${paid.id}`, { method: 'DELETE', session: owner })).status, 200);
+  assert.equal((await state(owner)).deadlines.some(d => d.id === paid.id), false);
+});
+
+test('deadlines validate payment data, clamp recurring dates and preserve managed history on edits', async () => {
+  const owner = await register(); const categoryId = (await state(owner)).categories[0].id;
+  const stranger = await register('elsewhere@example.it'); const otherCategory = (await state(stranger)).categories[0].id;
+  const input = { name: 'Rinnovo', startDate: '2028-02-29', frequency: 'yearly', requiresPayment: true, amount: 1000, categoryId, reminderDays: 3 };
+  for (const change of [{ amount: 0 }, { amount: 1.5 }, { startDate: '2028-02-30' }, { reminderDays: 31 }, { frequency: 'weekly' }, { requiresPayment: 'false' }]) {
+    assert.equal((await request('/deadlines', { method: 'POST', body: { ...input, ...change }, session: owner })).status, 400);
+  }
+  assert.equal((await request('/deadlines', { method: 'POST', body: { ...input, categoryId: otherCategory }, session: owner })).status, 404);
+  const annual = await create('/deadlines', input, owner);
+  assert.equal((await state(owner, '2027-02')).deadlines.length, 0);
+  assert.equal((await state(owner, '2029-03')).deadlines.length, 0);
+  assert.equal((await state(owner, '2029-02')).deadlines[0].due_date, '2029-02-28');
+  const payment = await create(`/deadlines/${annual.id}/manage`, { month: '2029-02', handledDate: '2029-02-28' }, owner);
+  assert.equal((await request(`/deadlines/${annual.id}`, { method: 'PUT', body: { ...input, requiresPayment: false, startDate: '2029-03-01' }, session: owner })).status, 200);
+  const history = (await state(owner, '2029-02')).deadlines[0]; assert.equal(history.due_date, '2029-02-28'); assert.equal(history.managed.amount, 1000);
+  assert.equal(history.managed.transaction_id, payment.transactionId); assert.equal(history.managed.category_id, categoryId);
+  assert.equal((await request(`/deadlines/${annual.id}/manage`, { method: 'POST', body: { month: '2029-04', handledDate: '2029-04-01' }, session: owner })).status, 400);
+});
+
+test('existing bills migrate once without duplicating expenses or resurrecting undone receipts', async () => {
+  const owner = await register(); const categoryId = instance.db.prepare('SELECT id FROM categories WHERE household_id = ? ORDER BY position').get(owner.user.householdId).id;
+  const bill = await create('/bills', { name: 'Storica', amount: 2500, categoryId, dueDay: 31, startMonth: '2026-02', reminderDays: 3 }, owner);
+  const payment = await create(`/bills/${bill.id}/payments`, { month: '2026-10', paymentDate: '2026-10-30', amount: 2490 }, owner);
+  let current = await state(owner); assert.equal(current.deadlines.length, 1); assert.equal(current.transactions.length, 1);
+  assert.equal(current.deadlines[0].managed.transaction_id, payment.transactionId);
+  assert.equal(current.deadlines[0].start_date, '2026-02-28'); assert.equal(current.deadlines[0].due_day, 31);
+  assert.equal((await state(owner, '2026-03')).deadlines[0].due_date, '2026-03-31');
+  const exported = await request('/backups/export', { session: owner });
+  const zip = unzipSync(new Uint8Array(await exported.arrayBuffer())); const data = JSON.parse(Buffer.from(zip['casa.json'])).data;
+  assert.equal(data.deadlines.length, 1); assert.equal(data.deadline_receipts[0].transaction_id, payment.transactionId);
+  assert.equal((await request(`/deadlines/${bill.id}/manage/2026-10`, { method: 'DELETE', session: owner })).status, 200);
+  current = await state(owner); assert.equal(current.deadlines[0].managed, null); assert.equal(current.transactions.length, 0);
+  assert.equal((await state(owner)).deadlines[0].managed, null);
+});

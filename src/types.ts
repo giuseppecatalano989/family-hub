@@ -18,7 +18,7 @@ export interface FamilyState {
   members: { id: string; name: string; role: string }[];
   recurring: RecurringRule[]; budgetTemplates: BudgetTemplate[]; activeTemplateId: string | null;
   categories: Category[]; transactions: Transaction[]; goals: Goal[]; shopping: ShoppingItem[]; notes: Note[];
-  waste: WasteSchedule[]; bills: Bill[]; meals: Meal[]; week: string; backups: BackupStatus | null;
+  deadlines: Deadline[]; waste: WasteSchedule[]; bills: Bill[]; meals: Meal[]; week: string; backups: BackupStatus | null;
 }
 export interface RecurringRule {
   id: string; kind: 'income' | 'expense'; start_month: string; effective_month: string;
@@ -31,3 +31,10 @@ export interface BudgetTemplate {
 }
 
 export interface WasteSchedule { id: string; name: string; days: number[]; time_window: string; notes: string; color: string }
+
+export interface Deadline {
+  id: string; name: string; start_date: string; due_day: number; due_date: string;
+  frequency: 'once' | 'monthly' | 'yearly'; requires_payment: number; amount: number | null;
+  category_id: string | null; reminder_days: number; active: number;
+  managed: { transaction_id: string | null; amount: number | null; category_id: string | null; handled_date: string; author: string } | null;
+}

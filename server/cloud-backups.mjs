@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ZipArchive } from 'archiver';
-import { BASE_SCHEMA, WORKFLOW_SCHEMA, TABLES, PLANNING_SCHEMA, WASTE_SCHEMA } from './schema.mjs';
+import { BASE_SCHEMA, WORKFLOW_SCHEMA, TABLES, PLANNING_SCHEMA, WASTE_SCHEMA, DEADLINE_SCHEMA } from './schema.mjs';
 import { snapshotInstance, streamFamilyBackup } from './backups.mjs';
 
 const conditions = {
@@ -12,6 +12,7 @@ const conditions = {
   sessions: 'user_id IN (SELECT id FROM users WHERE household_id = ?)',
   contributions: 'goal_id IN (SELECT id FROM goals WHERE household_id = ?)',
   attachments: 'note_id IN (SELECT id FROM notes WHERE household_id = ?)',
+  deadline_receipts: 'deadline_id IN (SELECT id FROM deadlines WHERE household_id = ?)',
   bill_payments: 'bill_id IN (SELECT id FROM bills WHERE household_id = ?)',
   recurring_versions: 'rule_id IN (SELECT id FROM recurring_rules WHERE household_id = ?)',
   recurring_occurrences: 'rule_id IN (SELECT id FROM recurring_rules WHERE household_id = ?)',
@@ -26,7 +27,7 @@ async function portableCopy(db, householdId) {
   mkdirSync(path.join(dataDir, 'uploads'), { mode: 0o700 });
   const copy = new DatabaseSync(path.join(dataDir, 'casa.sqlite'));
   try {
-    copy.exec(BASE_SCHEMA); copy.exec(WORKFLOW_SCHEMA); copy.exec(PLANNING_SCHEMA); copy.exec(WASTE_SCHEMA);
+    copy.exec(BASE_SCHEMA); copy.exec(WORKFLOW_SCHEMA); copy.exec(PLANNING_SCHEMA); copy.exec(WASTE_SCHEMA); copy.exec(DEADLINE_SCHEMA);
     await db.atomic(async () => {
       copy.exec('BEGIN');
       for (const table of TABLES) {

@@ -8,7 +8,7 @@ async function go(page: Page, label: string) {
   await page.getByRole('navigation').getByRole('button', { name: label, exact: true }).click();
 }
 
-test('bills create one expense, weekly meals update shopping and family backup downloads safely', async ({ page }, testInfo) => {
+test('deadlines have optional payments, weekly meals update shopping and family backup downloads safely', async ({ page }, testInfo) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto('/');
   await page.getByLabel('Il tuo nome').fill('Anna');
@@ -19,25 +19,54 @@ test('bills create one expense, weekly meals update shopping and family backup d
   await expect(page.getByRole('heading', { name: 'La nostra casa, in ordine.' })).toBeVisible();
   const today = await page.evaluate(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; });
 
-  await go(page, 'Bollette e scadenze');
-  await page.getByRole('button', { name: 'Nuova bolletta' }).click();
+  await expect(page.locator('.page-greeting .eyebrow')).toHaveText('CIAO ANNA');
+  const daily = page.locator('.daily-panel');
+  for (const label of ['Conferimento rifiuti', 'Menu settimanale', 'Scadenze']) await expect(daily.getByRole('button', { name: label, exact: true })).toBeVisible();
+  await daily.getByRole('button', { name: 'Conferimento rifiuti', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Ogni rifiuto, nel giorno giusto.' })).toBeVisible();
+  await go(page, 'Panoramica');
+  await page.locator('.daily-panel').getByRole('button', { name: 'Scadenze', exact: true }).click();
+  await expect(page.locator('.breadcrumb')).toContainText('Scadenze');
+  await page.getByRole('button', { name: 'Nuova scadenza' }).click();
   let dialog = page.getByRole('dialog');
-  await dialog.getByLabel('Nome della bolletta').fill('Internet');
-  await dialog.getByLabel('Importo previsto (€)').fill('29,90');
-  await dialog.getByLabel('Giorno di scadenza').fill(String(Number(today.slice(-2))));
-  await dialog.getByRole('button', { name: 'Aggiungi bolletta' }).click();
-  await expect(page.locator('.bill-row')).toContainText('Scade oggi');
-  await page.getByRole('button', { name: 'Segna pagata' }).click();
+  await dialog.getByLabel('Nome della scadenza').fill('Rinnovo documento');
+  await dialog.getByLabel('Data di scadenza').fill(`${today.slice(0, 7)}-15`);
+  await dialog.getByLabel('Ripetizione').selectOption('monthly');
+  await expect(dialog.getByLabel('Giorno del mese')).toHaveValue('15');
+  await dialog.getByLabel('Ripetizione').selectOption('once');
+  await dialog.getByLabel('Data di scadenza').fill(today);
+  await expect(dialog.getByLabel('Importo previsto (€)')).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Aggiungi scadenza' }).click();
+  const freeRow = page.locator('.bill-row').filter({ hasText: 'Rinnovo documento' });
+  await expect(freeRow).toContainText('Senza pagamento');
+  await freeRow.getByRole('button', { name: 'Segna gestita' }).click();
+  await expect(page.getByRole('dialog')).toContainText('senza creare movimenti');
+  await page.getByRole('button', { name: 'Conferma gestione' }).click();
+  await expect(freeRow).toContainText('Gestita il');
+  await page.getByRole('button', { name: 'Nuova scadenza' }).click();
   dialog = page.getByRole('dialog');
-  await dialog.getByLabel('Importo pagato (€)').fill('30,00');
-  await dialog.getByRole('button', { name: 'Registra pagamento' }).click();
-  await expect(page.locator('.bill-row')).toContainText('Pagata il');
-  await expect(page.getByRole('button', { name: 'Segna pagata' })).toHaveCount(0);
-  await page.screenshot({ path: testInfo.outputPath('bollette.png'), fullPage: true });
+  await dialog.getByLabel('Nome della scadenza').fill('Revisione auto');
+  await dialog.getByLabel('Data di scadenza').fill(today);
+  await dialog.getByLabel('Prevede un pagamento').check();
+  await dialog.getByLabel('Importo previsto (€)').fill('79,90');
+  await dialog.getByRole('button', { name: 'Aggiungi scadenza' }).click();
+  const paidRow = page.locator('.bill-row').filter({ hasText: 'Revisione auto' });
+  await expect(paidRow).toContainText('Scade oggi');
+  await paidRow.getByRole('button', { name: 'Segna gestita' }).click();
+  dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Importo pagato (€)').fill('80,00');
+  await dialog.getByRole('button', { name: 'Conferma gestione' }).click();
+  await expect(paidRow).toContainText('Gestita il');
+  await expect(page.getByRole('button', { name: 'Segna gestita' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Modifica scadenza Revisione auto' }).click();
+  await page.getByRole('dialog').getByLabel('Importo previsto (€)').fill('85,00');
+  await page.getByRole('button', { name: 'Salva scadenza' }).click();
+  await expect(paidRow).toContainText('80,00');
+  await page.screenshot({ path: testInfo.outputPath('scadenze.png'), fullPage: true });
   await go(page, 'Movimenti');
   await expect(page.locator('.transaction-row')).toHaveCount(1);
-  await expect(page.locator('.transaction-row')).toContainText(`Internet · ${today.slice(0, 7)}`);
-  await expect(page.locator('.transaction-row')).toContainText('30,00');
+  await expect(page.locator('.transaction-row')).toContainText(`Revisione auto · ${today}`);
+  await expect(page.locator('.transaction-row')).toContainText('80,00');
 
   await go(page, 'Menu settimanale');
   await page.getByRole('button', { name: 'Pianifica pasto', exact: true }).click();
@@ -64,6 +93,9 @@ test('bills create one expense, weekly meals update shopping and family backup d
   await page.getByRole('button', { name: 'Settimana precedente' }).click();
   await expect(page.getByRole('heading', { name: 'Pasta al pomodoro', exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.evaluate(() => window.scrollTo(0, 500));
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(50);
+  await expect.poll(() => page.locator('.topbar').evaluate(el => Math.round(el.getBoundingClientRect().top))).toBe(0);
   await page.screenshot({ path: testInfo.outputPath('menu.png'), fullPage: true });
   await go(page, 'Lista della spesa');
   await expect(page.locator('.shopping-row')).toHaveCount(2);
@@ -86,7 +118,7 @@ test('bills create one expense, weekly meals update shopping and family backup d
   const zip = unzipSync(readFileSync((await download.path())!));
   const contents = new TextDecoder().decode(zip['casa.json']); const payload = JSON.parse(contents);
   expect(payload.household.name).toBe('Casa delle piccole cose');
-  expect(payload.data.bills).toHaveLength(1); expect(payload.data.meals).toHaveLength(1); expect(payload.data.transactions).toHaveLength(1);
+  expect(payload.data.deadlines).toHaveLength(2); expect(payload.data.deadline_receipts).toHaveLength(2); expect(payload.data.meals).toHaveLength(1); expect(payload.data.transactions).toHaveLength(1);
   expect(payload.data.shopping).toHaveLength(2); expect(payload.data.attachments).toHaveLength(1);
   expect(new TextDecoder().decode(zip[payload.data.attachments[0].file])).toBe('Allegato da conservare');
   expect(contents).not.toContain('password_hash'); expect(contents).not.toContain('token_hash');

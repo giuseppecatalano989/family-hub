@@ -25,3 +25,6 @@
 - Gli upload dell’interfaccia usano parti da 2 MB; conserva il limite di 10 MB per file. Il limite complessivo cloud è 40 MB per lasciare spazio ai sette backup.
 - I backup cloud sono riservati nel database; il cron Vercel giornaliero richiede `CRON_SECRET`. Non esporre gli archivi dell’istanza via HTTP. Il ripristino richiede un nuovo database senza schema `casa`.
 - `npm run test:cloud` richiede `CASA_TEST_DATABASE_URL` su PostgreSQL temporaneo locale con permesso di creare database: cancella lo schema `casa` e crea/rimuove `casa_restore_test`. Non usare dati reali. TLS verificato per Neon; la modalità senza TLS è ammessa soltanto nei test su loopback.
+
+- Le Scadenze usano `server/deadlines.mjs`: gestione e uscita facoltativa sono atomiche e uniche per scadenza e mese. Le gestioni senza pagamento non creano transazioni. Annullare la gestione rimuove l'eventuale uscita, eliminare l'uscita rimuove la gestione collegata.
+- La migrazione dalle bollette è additiva e avviene una sola volta per famiglia; conserva giorno mensile e movimenti esistenti. Includi scadenze, gestioni e marcatori della migrazione nei backup completi e filtra le esportazioni per famiglia.
