@@ -54,6 +54,33 @@ async function attach(session, note, bytes) {
   return create(`/notes/${note.id}/uploads/${upload.id}/complete`, undefined, session);
 }
 
+test('upload responses wait for the PostgreSQL transaction to commit', async () => {
+  const owner = await register();
+  const note = await create('/notes', { title: 'Commit', content: '', color: 'mint', pinned: false }, owner);
+  const bytes = Buffer.from('salvato prima della conferma');
+  async function committedRequest(route, options, status) {
+    const original = instance.db.atomic;
+    let release, entered;
+    const gate = new Promise(resolve => { release = resolve; });
+    const callbackFinished = new Promise(resolve => { entered = resolve; });
+    instance.db.atomic = callback => original(async () => {
+      const result = await callback(); entered(); await gate; return result;
+    });
+    let responded = false;
+    const pending = request(route, { ...options, session: owner }).then(response => { responded = true; return response; });
+    try {
+      await callbackFinished;
+      await new Promise(resolve => setTimeout(resolve, 50));
+      assert.equal(responded, false, 'HTTP success must wait for COMMIT');
+    } finally { release(); instance.db.atomic = original; }
+    return json(await pending, status);
+  }
+  const upload = await committedRequest(`/notes/${note.id}/uploads`, { method: 'POST', body: { name: 'commit.txt', size: bytes.length } }, 201);
+  await committedRequest(`/notes/${note.id}/uploads/${upload.id}/chunks/0`, { method: 'PUT', body: bytes }, 200);
+  const file = await committedRequest(`/notes/${note.id}/uploads/${upload.id}/complete`, { method: 'POST' }, 201);
+  assert.deepEqual(await instance.db.files.get(file.id), bytes);
+});
+
 test('PostgreSQL preserves accounts, sharing, financial workflows and isolation across instances', async () => {
   const owner = await register(); const invitation = await json(await request('/invitation', { method: 'POST', session: owner }));
   const member = await register('member@example.test', invitation.code); const stranger = await register('stranger@example.test');

@@ -18,7 +18,7 @@ export function installChunkUploads(app, { db, atomic, owned, fail, dataDir }) {
     return record;
   }
   app.post('/api/notes/:id/uploads', async (req, res) => {
-    await atomic(async () => {
+    const result = await atomic(async () => {
       await owned('notes', req.params.id, req.user);
       if ((await one('SELECT COUNT(*) AS count FROM attachments WHERE note_id = ?', req.params.id)).count >= 5) fail('Puoi aggiungere al massimo 5 file a un appunto.');
       const { name, size, mime = 'application/octet-stream' } = req.body;
@@ -27,11 +27,12 @@ export function installChunkUploads(app, { db, atomic, owned, fail, dataDir }) {
       const id = randomUUID();
       const safeName = path.basename(name.replace(/\\/g, '/')).replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200) || 'allegato';
       await run('INSERT INTO file_uploads VALUES (?, ?, ?, ?, ?, ?, ?)', id, req.params.id, req.user.id, safeName, mime, size, Date.now() + 3600_000);
-      res.status(201).json({ id });
+      return { id };
     });
+    res.status(201).json(result);
   });
   app.put('/api/notes/:id/uploads/:uploadId/chunks/:index', express.raw({ type: 'application/octet-stream', limit: CHUNK }), async (req, res) => {
-    await atomic(async () => {
+    const result = await atomic(async () => {
       const record = await upload(req);
       const index = Number(req.params.index);
       const count = Math.max(1, Math.ceil(record.size / CHUNK));
@@ -41,24 +42,25 @@ export function installChunkUploads(app, { db, atomic, owned, fail, dataDir }) {
       const prior = await one('SELECT data FROM file_upload_chunks WHERE upload_id = ? AND chunk_index = ?', record.id, index);
       if (prior) {
         if (!Buffer.from(prior.data).equals(bytes)) fail('Parte del file già caricata con un contenuto diverso.', 409);
-        return res.json({ ok: true });
+        return { ok: true };
       }
       if (db.cloud) {
         const { used } = await one('SELECT (COALESCE((SELECT SUM(octet_length(data)) FROM files), 0) + COALESCE((SELECT SUM(octet_length(data)) FROM file_upload_chunks), 0))::bigint AS used');
         if (used + bytes.length > 40 * 1024 * 1024) fail('Spazio allegati esaurito (40 MB totali). Rimuovi i file che non servono.', 413);
       }
       await run('INSERT INTO file_upload_chunks VALUES (?, ?, ?)', record.id, index, bytes);
-      res.json({ ok: true });
+      return { ok: true };
     });
+    res.json(result);
   });
   app.post('/api/notes/:id/uploads/:uploadId/complete', async (req, res) => {
     const file = path.join(dataDir, 'uploads', req.params.uploadId);
     let written = false;
     try {
-      await atomic(async () => {
+      const result = await atomic(async () => {
         await owned('notes', req.params.id, req.user);
         const existing = await one('SELECT id FROM attachments WHERE id = ? AND note_id = ?', req.params.uploadId, req.params.id);
-        if (existing) return res.status(201).json({ id: existing.id });
+        if (existing) return { id: existing.id };
         const record = await upload(req);
         if ((await one('SELECT COUNT(*) AS count FROM attachments WHERE note_id = ?', req.params.id)).count >= 5) fail('Puoi aggiungere al massimo 5 file a un appunto.');
         const chunks = await all('SELECT chunk_index, data FROM file_upload_chunks WHERE upload_id = ? ORDER BY chunk_index', record.id);
@@ -69,8 +71,9 @@ export function installChunkUploads(app, { db, atomic, owned, fail, dataDir }) {
         else { writeFileSync(file, bytes, { mode: 0o600, flag: 'wx' }); written = true; }
         await run('INSERT INTO attachments VALUES (?, ?, ?, ?, ?, ?)', record.id, req.params.id, record.name, record.id, record.mime, record.size);
         await run('DELETE FROM file_uploads WHERE id = ?', record.id);
-        res.status(201).json({ id: record.id });
+        return { id: record.id };
       });
+      res.status(201).json(result);
     } catch (error) { if (written) await unlink(file); throw error; }
   });
 }

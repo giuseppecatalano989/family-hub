@@ -2,7 +2,7 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { House, X, Plus, ArrowUpRight } from 'lucide-react';
 
 export function Logo({ small = false }: { small?: boolean }) {
-  return <div className={`logo ${small ? 'small' : ''}`}><span className="logo-mark"><House size={23} strokeWidth={1.8} /></span><span>casa<span className="logo-dot">.</span></span></div>;
+  return <div className={`logo ${small ? 'small' : ''}`}><span className="logo-mark"><House size={23} strokeWidth={1.8} /></span><span>Family Hub<span className="logo-dot">.</span></span></div>;
 }
 export function Modal({ title, subtitle, children, onClose }: { title: string; subtitle?: string; children: ReactNode; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
