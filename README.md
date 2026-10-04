@@ -2,28 +2,35 @@
 
 Una webapp in italiano per organizzare le finanze e la vita quotidiana in uno spazio condiviso. Ogni persona ha un account personale; i membri della stessa famiglia vedono gli stessi dati.
 
-## Redditi, ricorrenze e template
+## Entrate, uscite e ripartizione budget
 
-In **Redditi familiari**, crea una fonte per ogni stipendio, pensione o altra entrata mensile. Importo, giorno, mese iniziale e termine facoltativo sono condivisi. Le entrate occasionali restano disponibili. Il saldo mensile somma tutte le entrate e sottrae le uscite, comprese quelle ricorrenti.
+Il menu mostra **Panoramica**, **Ripartizione budget**, **Entrate**, **Uscite**, poi le altre sezioni della casa.
 
-In **Movimenti ricorrenti**, configura affitto/mutuo, alimentari, bollette, rate e abbonamenti con i vostri importi. Ogni voce produce un solo movimento per mese. Il giorno 31 viene adattato ai mesi più corti. Le ricorrenze recuperano i mesi mancanti fino a quello corrente; visualizzare un mese futuro crea le registrazioni pianificate di quel mese. Il totale mensile include l'intero mese, anche quando il giorno di registrazione deve ancora arrivare. Non vengono eseguiti incassi o pagamenti bancari.
+Entrate e Uscite hanno lo stesso flusso: il pulsante superiore aggiunge una registrazione occasionale; selezionando **Ricorrente (ogni mese)** compaiono giorno, mese iniziale e termine facoltativo. Il modulo è dedicato al tipo di movimento della sezione. Le ricorrenze e le registrazioni del mese sono mostrate in due sezioni separate.
 
-Una modifica alla ricorrenza ha un mese di validità: aggiorna le registrazioni automatiche da quel mese, conserva lo storico precedente e rispetta le correzioni manuali. Rimuovere un movimento lo salta soltanto per quel mese e non lo fa ricomparire. **Sospendi** interrompe la ricorrenza dal mese selezionato; per riprenderla, modifica la voce e attiva nuovamente la casella. Fino a 100 ricorrenze per famiglia; mese iniziale fino a dieci anni prima. Il cron cloud quotidiano le sincronizza prima del backup e l'apertura dell'app recupera eventuali mesi mancanti.
+Ogni ricorrenza produce un solo movimento per mese. Il giorno 31 viene adattato ai mesi più corti. Le ricorrenze recuperano i mesi mancanti fino a quello corrente; visualizzare un mese futuro crea le registrazioni pianificate di quel mese. Il totale mensile include l'intero mese. Non vengono eseguiti incassi o pagamenti bancari.
 
-Le Scadenze sono promemoria con eventuale pagamento manuale: evita di registrare un pagamento per una spesa già inserita tra le ricorrenze, o verrebbe conteggiata due volte. Anche un reddito già registrato manualmente può duplicarsi se crei la sua fonte dallo stesso mese: scegli un mese iniziale successivo o rimuovi il duplicato.
+Una modifica alla ricorrenza ha un mese di validità e conserva lo storico precedente e le correzioni manuali. Eliminare un singolo movimento ricorrente lo salta soltanto per quel mese. **Sospendi** interrompe la ricorrenza dal mese scelto. **Elimina ricorrenza**, dopo conferma, rimuove la regola e tutti i suoi movimenti collegati, inclusi quelli precedenti o modificati a mano: serve a correggere inserimenti errati. Le altre registrazioni rimangono invariate. Fino a 100 ricorrenze per famiglia; mese iniziale fino a dieci anni prima.
 
-Il **Budget familiare** offre sei template condivisi:
+Le Scadenze sono promemoria con eventuale pagamento manuale: evita di registrare lo stesso pagamento anche tra le uscite ricorrenti. Un reddito già registrato può duplicarsi creando la sua ricorrenza dallo stesso mese: scegli il mese successivo o rimuovi il duplicato.
 
-| Template | Casa e bollette | Alimentari | Trasporti | Salute e famiglia | Svago | Risparmio |
+**Ripartizione budget → Modifica schema** offre quattro schemi fissi e **Pers.**, il solo modificabile:
+
+| Schema | Casa e bollette | Alimentari | Trasporti | Salute e famiglia | Svago | Risparmio |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | Conservativa | 30% | 15% | 10% | 5% | 5% | 35% |
 | Prudente | 35% | 20% | 10% | 10% | 10% | 15% |
 | Equilibrata | 35% | 15% | 10% | 5% | 15% | 20% |
 | Svago | 30% | 15% | 10% | 5% | 30% | 10% |
-| 50 / 30 / 20 | 25% | 15% | 5% | 5% | 30% | 20% |
-| Personalizzato | Composizione iniziale della famiglia | | | | | |
+| Pers. | Composizione della famiglia | | | | | |
 
-Ogni template permette di cambiare nomi e percentuali (totale esattamente 100%). **Salva template** conserva il modello; **Applica** aggiorna la ripartizione usando gli stessi identificativi delle categorie, preservando i movimenti e le ricorrenze. **Modifica schema** salva e applica il Personalizzato. **Reimposta template** ripristina tutti i predefiniti, conservando il Personalizzato e il budget attuale. Una modifica a un modello applicato rimuove il suo indicatore “Applicato” finché non viene applicato di nuovo.
+**Salva schema** applica la scelta. Nei predefiniti, nomi e percentuali sono fissi anche lato server. In Pers. sono modificabili e devono sommare esattamente il 100%. Applicare un predefinito conserva Pers. e gli identificativi delle categorie, quindi non cambia i movimenti. Le precedenti modifiche ai predefiniti tornano ai valori di fabbrica senza cambiare automaticamente la ripartizione attuale. Lo schema 50/30/20 non è più proposto; i suoi eventuali dati storici restano nei backup.
+
+## Account e famiglia
+
+Il pulsante account nella barra superiore o il nome nella barra laterale apre **Il tuo account**. È possibile modificare nome, email, password e, per l'amministratore, nome della casa. Cambiare email richiede la password attuale; email e password aggiornate disconnettono gli altri accessi allo stesso account. Le impostazioni e gli inviti rimangono riservati alla propria famiglia.
+
+La sezione **Famiglia e inviti** genera un link valido sette giorni, oltre al codice. Il link usa un frammento URL, che non viene inviato al server, apre la registrazione con il codice già compilato e viene ripulito dalla barra degli indirizzi. Generare un nuovo invito sostituisce il precedente. Il logout è il pulsante con freccia accanto al nome nella barra laterale.
 
 Le nuove tabelle sono create in modo additivo, senza modificare o cancellare i dati esistenti. Ricorrenze, versioni, mesi saltati e template fanno parte dei backup dell'istanza, del ripristino cloud e dell'esportazione familiare. I backup precedenti alle nuove tabelle possono ancora essere ripristinati in un nuovo database.
 
@@ -40,7 +47,7 @@ Le voci sono condivise e modificabili dai membri della stessa famiglia; altre fa
 - **Panoramica:** entrate, uscite e saldo del mese, distribuzione delle spese, avvisi di sforamento e riepilogo degli obiettivi.
 - **Movimenti:** inserimento, modifica ed eliminazione di entrate e uscite, selezione del mese, ricerca, filtri per tipo e categoria ed esportazione CSV di tutti i mesi.
 - **Budget:** nomi delle categorie e percentuali personalizzabili, totale obbligatorio del 100%, importi calcolati sulle entrate effettivamente registrate. Schema iniziale e modello 50/30/20 come punti di partenza.
-- **Scadenze:** impegni singoli, mensili o annuali, con promemoria, modifica e archivio. Il pagamento è facoltativo: segnare una scadenza come gestita crea una sola uscita se previsto, anche con richieste contemporanee. Annullare la gestione rimuove l’uscita collegata. Gli addebiti automatici vanno nei Movimenti ricorrenti. Le vecchie bollette e i loro pagamenti sono conservati come scadenze.
+- **Scadenze:** impegni singoli, mensili o annuali, con promemoria, modifica e archivio. Il pagamento è facoltativo: segnare una scadenza come gestita crea una sola uscita se previsto, anche con richieste contemporanee. Annullare la gestione rimuove l’uscita collegata. Gli addebiti automatici vanno nelle Uscite ricorrenti. Le vecchie bollette e i loro pagamenti sono conservati come scadenze.
 - **Menu settimanale:** pranzo e cena per ogni giorno, porzioni, ingredienti e note di preparazione. Trasferimento degli ingredienti nella spesa senza duplicati dello stesso pasto; gli ingredienti già collegati e ancora da acquistare seguono le modifiche del menu.
 - **Backup:** copie automatiche dell’app ogni 24 ore (ultime sette conservate), esportazione ZIP della propria famiglia e strumenti di verifica e ripristino in una nuova directory.
 - **Obiettivi:** breve, medio e lungo termine, importo da raggiungere, scadenza facoltativa, risparmio iniziale, contributi successivi, modifica ed eliminazione.
@@ -144,7 +151,7 @@ npm test
 npm run test:e2e
 ```
 
-I 31 test Node verificano account e sessioni, inviti, condivisione e isolamento tra famiglie, CSRF, movimenti e mesi, budget, obiettivi, allegati, esportazione e persistenza dopo il riavvio, pagamenti senza duplicati, menu collegato alla spesa, limiti di mese e settimana, integrità dei backup, ripristino completo e conservazione delle ultime sette copie e segnalazione degli errori senza perdita dei dati. Verificano anche ricorrenze senza duplicati, modifiche datate, mesi saltati e ripristino dei template. Gli otto test browser percorrono le sezioni di base con due account e i flussi di scadenze con e senza pagamento, menu, spesa, backup ZIP, redditi, ricorrenze, template e conferimento rifiuti, su desktop e su un viewport mobile. Verificano anche i download, il contenuto dell’archivio, l’assenza di errori JavaScript e di scorrimento orizzontale, oltre alla barra fissa durante lo scorrimento.
+I test Node verificano account e sessioni, inviti, condivisione e isolamento tra famiglie, CSRF, movimenti e mesi, budget, obiettivi, allegati, esportazione e persistenza dopo il riavvio, pagamenti senza duplicati, menu collegato alla spesa, limiti di mese e settimana, integrità dei backup, ripristino completo e conservazione delle ultime sette copie e segnalazione degli errori senza perdita dei dati. Verificano anche ricorrenze senza duplicati, modifiche datate, mesi saltati ed eliminazione delle ricorrenze, schemi fissi e impostazioni account. I test browser percorrono le sezioni di base con due account e i flussi di scadenze con e senza pagamento, menu, spesa, backup ZIP, redditi, ricorrenze, template e conferimento rifiuti, su desktop e su un viewport mobile. Verificano anche i download, il contenuto dell’archivio, l’assenza di errori JavaScript e di scorrimento orizzontale, oltre alla barra fissa durante lo scorrimento.
 
 I test usano database temporanei separati, rimossi alla fine: non modificano `.data`. I risultati del browser rimangono in `test-results`, ignorato da Git.
 
@@ -168,7 +175,7 @@ Le password vengono derivate con scrypt e un salt casuale. Le sessioni durano 14
 
 Le scadenze possono essere singole, mensili o annuali. Il giorno 29, 30 o 31 si adatta all’ultimo giorno dei mesi più corti; un anniversario del 29 febbraio cade il 28 negli anni non bisestili. Il promemoria compare nella panoramica e nello scadenziario: non invia email o notifiche esterne.
 
-Il pagamento è facoltativo e l’importo previsto non modifica le uscite. “Segna gestita” registra la gestione; se è previsto un pagamento, crea un’uscita alla data e all’importo scelti. “Annulla gestione” elimina la gestione e l’eventuale uscita. Eliminare direttamente un movimento collegato rende nuovamente da gestire la scadenza. Modifica e archivio conservano gestioni e pagamenti precedenti. La conversione delle vecchie bollette avviene una sola volta per famiglia e conserva i movimenti esistenti. Le bollette con addebito automatico vanno configurate come Movimenti ricorrenti per evitare doppie registrazioni.
+Il pagamento è facoltativo e l’importo previsto non modifica le uscite. “Segna gestita” registra la gestione; se è previsto un pagamento, crea un’uscita alla data e all’importo scelti. “Annulla gestione” elimina la gestione e l’eventuale uscita. Eliminare direttamente un movimento collegato rende nuovamente da gestire la scadenza. Modifica e archivio conservano gestioni e pagamenti precedenti. La conversione delle vecchie bollette avviene una sola volta per famiglia e conserva i movimenti esistenti. Le bollette con addebito automatico vanno configurate come Uscite ricorrenti per evitare doppie registrazioni.
 
 Il menu mostra settimane dal lunedì alla domenica e consente un pranzo e una cena al giorno. Le quantità sono testo libero e si riferiscono alle porzioni dichiarate; cambiare il numero di porzioni non ricalcola automaticamente le quantità. Due pasti distinti possono aggiungere lo stesso prodotto: non vengono sommate quantità con unità diverse. Ripetere l’aggiunta **dello stesso pasto** non duplica i suoi ingredienti finché gli elementi sono ancora in lista. Gli elementi acquistati non vengono modificati da un successivo cambio del menu. Eliminare un pasto conserva ciò che è già stato aggiunto alla lista.
 

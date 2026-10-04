@@ -369,26 +369,31 @@ test('recurring records validate dates, categories and family ownership and stop
   assert.equal((await state(stranger,current)).recurring.length,0);
 });
 
-test('budget templates are editable, applied atomically and reset without changing custom or current budget', async () => {
+test('budget presets stay fixed, custom remains editable and applying presets preserves the custom schema', async () => {
   const owner=await register();const stranger=await register('other@example.it');let view=await state(owner);
-  assert.equal(view.budgetTemplates.length,6);
-  for(const t of view.budgetTemplates)assert.equal(t.entries.reduce((s,e)=>s+e.percentage,0),10000);
+  assert.equal(view.budgetTemplates.length,5); assert.equal(view.budgetTemplates.some(t=>t.template_key==='50-30-20'),false);
+  for(const t of view.budgetTemplates)assert.equal(t.entries.reduce((sum,e)=>sum+e.percentage,0),10000);
   const custom=view.budgetTemplates.find(t=>t.template_key==='custom');const conservative=view.budgetTemplates.find(t=>t.template_key==='conservative');
   const customEntries=custom.entries.map((e,i)=>({...e,name:i===0?'La nostra casa':e.name,percentage:[4000,2000,1000,1000,1000,1000][i]}));
   assert.equal((await request(`/budget-templates/${custom.id}`,{method:'PUT',session:owner,body:{entries:customEntries}})).status,200);
   const changed=conservative.entries.map((e,i)=>({...e,percentage:[2000,1500,1000,500,500,4500][i]}));
-  await request(`/budget-templates/${conservative.id}`,{method:'PUT',session:owner,body:{entries:changed}});
+  assert.equal((await request(`/budget-templates/${conservative.id}`,{method:'PUT',session:owner,body:{entries:changed}})).status,403);
   assert.equal((await request(`/budget-templates/${conservative.id}/apply`,{method:'POST',session:stranger})).status,404);
-  assert.equal((await request(`/budget-templates/${conservative.id}`,{method:'PUT',session:owner,body:{entries:changed.map(e=>({...e,percentage:100}))}})).status,400);
-  await request(`/budget-templates/${conservative.id}/apply`,{method:'POST',session:owner});
-  const applied=(await state(owner)).categories;
-  assert.deepEqual(applied.map(c=>c.percentage),changed.map(e=>e.percentage));
-  await request('/budget-templates/reset',{method:'POST',session:owner});view=await state(owner);
+  assert.equal((await request(`/budget-templates/${custom.id}`,{method:'PUT',session:owner,body:{entries:changed.map(e=>({...e,percentage:100}))}})).status,400);
+  const previousCategories=view.categories;
+  // Previously edited presets become factory defaults without overwriting the active budget.
+  instance.db.prepare('UPDATE budget_templates SET entries = ? WHERE id = ?').run(JSON.stringify(changed),conservative.id);
+  view=await state(owner);assert.deepEqual(view.categories,previousCategories);
+  assert.deepEqual(view.budgetTemplates.find(t=>t.id===conservative.id).entries,conservative.entries);
+  assert.equal((await request(`/budget-templates/${conservative.id}/apply`,{method:'POST',session:owner})).status,200);
+  view=await state(owner);assert.deepEqual(view.categories.map(c=>c.percentage),[3000,1500,1000,500,500,3500]);
   assert.deepEqual(view.budgetTemplates.find(t=>t.template_key==='custom').entries,customEntries);
-  assert.deepEqual(view.budgetTemplates.find(t=>t.template_key==='conservative').entries.map(e=>e.percentage),[3000,1500,1000,500,500,3500]);
-  assert.deepEqual(view.categories,applied);assert.equal(view.activeTemplateId,null);
+  assert.equal((await request(`/budget-templates/${custom.id}/apply`,{method:'POST',session:owner})).status,200);
+  view=await state(owner);assert.equal(view.categories[0].name,'La nostra casa');assert.equal(view.categories[0].percentage,4000);
+  await request('/budget-templates/reset',{method:'POST',session:owner});view=await state(owner);
+  assert.deepEqual(view.budgetTemplates.find(t=>t.template_key==='custom').entries,customEntries);assert.equal(view.activeTemplateId,custom.id);
   const exported=await request('/backups/export',{session:owner});const zip=unzipSync(new Uint8Array(await exported.arrayBuffer()));const payload=JSON.parse(Buffer.from(zip['casa.json']));
-  assert.equal(payload.data.budget_templates.length,6);assert.equal(payload.data.recurring_versions.length,0);
+  assert.equal(payload.data.budget_templates.length,5);assert.equal(payload.data.recurring_versions.length,0);
 });
 
 test('waste schedules support multiple days, validation, family sharing and private backup exports', async () => {
@@ -499,4 +504,54 @@ test('old and new browser tabs share deadline writes and cannot record the same 
   assert.equal((await state(owner)).deadlines[0].managed,null);
   assert.equal((await request(`/bills/${legacy.id}`,{method:'DELETE',session:owner})).status,200);
   assert.equal((await state(owner)).deadlines.length,0);
+});
+
+test('account and household settings update only the authenticated user and authorized family', async () => {
+  const owner = await register(); const stranger = await register('stranger@example.it');
+  const invitation = await (await request('/invitation', { method:'POST',session:owner })).json();
+  const member = await register('member@example.it', { inviteCode:invitation.code });
+  const profile = await request('/account',{method:'PUT',session:owner,body:{name:'Giuseppe Catalano',email:'alice@example.it',id:stranger.user.id}});
+  assert.equal(profile.status,200);assert.equal((await profile.json()).user.name,'Giuseppe Catalano');
+  assert.equal((await (await request('/session',{session:owner})).json()).user.name,'Giuseppe Catalano');
+  assert.equal((await (await request('/session',{session:stranger})).json()).user.name,'Alice');
+  assert.equal((await request('/household',{method:'PUT',session:member,body:{name:'Non autorizzata'}})).status,403);
+  assert.equal((await request('/household',{method:'PUT',session:owner,body:{name:'Casa Catalano',id:stranger.user.householdId}})).status,200);
+  assert.equal((await state(member)).household.name,'Casa Catalano');assert.equal((await state(stranger)).household.name,'Casa Rossi');
+  assert.equal((await request('/account',{method:'PUT',session:owner,body:{name:'',email:'alice@example.it'}})).status,400);
+  assert.equal((await request('/household',{method:'PUT',session:owner,body:{name:' '}})).status,400);
+});
+
+test('email and password changes require the current password and revoke other sessions', async () => {
+  const owner = await register();await register('taken@example.it');
+  const login = async email => { const response=await request('/auth/login',{method:'POST',body:{email,password:'password-test-123'}});assert.equal(response.status,200);return {cookie:response.headers.get('set-cookie').split(';')[0],csrf:(await response.json()).csrf}; };
+  let other = await login('alice@example.it');
+  const body = {name:'Alice',email:'updated@example.it'};
+  assert.equal((await request('/account',{method:'PUT',session:owner,body})).status,400);
+  assert.equal((await request('/account',{method:'PUT',session:owner,body:{...body,currentPassword:'incorrect'}})).status,400);
+  assert.equal((await request('/account',{method:'PUT',session:owner,body:{...body,email:'taken@example.it',currentPassword:'password-test-123'}})).status,409);
+  assert.equal((await request('/account',{method:'PUT',session:owner,body:{...body,currentPassword:'password-test-123'}})).status,200);
+  assert.equal((await request('/state?month=2026-10',{session:other})).status,401);
+  other = await login('updated@example.it');
+  assert.equal((await request('/account/password',{method:'PUT',session:owner,body:{currentPassword:'wrong',newPassword:'new-password-456'}})).status,400);
+  assert.equal((await request('/account/password',{method:'PUT',session:owner,body:{currentPassword:'password-test-123',newPassword:'short'}})).status,400);
+  assert.equal((await request('/account/password',{method:'PUT',session:owner,body:{currentPassword:'password-test-123',newPassword:'new-password-456'}})).status,200);
+  assert.equal((await request('/state?month=2026-10',{session:other})).status,401);assert.equal((await request('/state?month=2026-10',{session:owner})).status,200);
+  assert.equal((await request('/auth/login',{method:'POST',body:{email:'updated@example.it',password:'password-test-123'}})).status,401);
+  assert.equal((await request('/auth/login',{method:'POST',body:{email:'updated@example.it',password:'new-password-456'}})).status,200);
+});
+
+test('deleting mistaken recurring rules removes their history and occurrences without affecting other records', async () => {
+  const owner=await register();const stranger=await register('stranger@example.it');const categoryId=(await state(owner)).categories[0].id;
+  const rule=await create('/recurring',{kind:'expense',name:'Errore',amount:1000,day:1,startMonth:'2026-09',categoryId,enabled:true},owner);
+  const occasional=await create('/transactions',{kind:'expense',description:'Da conservare',amount:500,categoryId,date:'2026-10-05'},owner);
+  await state(owner,'2026-11');
+  const transaction=(await state(owner)).transactions.find(t=>t.recurring_id===rule.id);
+  await request(`/transactions/${transaction.id}`,{method:'PUT',session:owner,body:{kind:'expense',description:'Correzione',amount:1200,categoryId,date:'2026-10-05'}});
+  assert.equal((await request(`/recurring/${rule.id}`,{method:'DELETE',session:stranger})).status,404);
+  assert.equal((await request(`/recurring/${rule.id}`,{method:'DELETE',session:owner})).status,200);
+  const view=await state(owner);assert.equal(view.recurring.length,0);assert.deepEqual(view.transactions.map(t=>t.id),[occasional.id]);
+  assert.equal((await state(owner,'2026-09')).transactions.length,0);assert.equal((await state(owner,'2026-11')).transactions.length,0);
+  assert.equal(instance.db.prepare('SELECT COUNT(*) AS count FROM recurring_versions').get().count,0);
+  assert.equal(instance.db.prepare('SELECT COUNT(*) AS count FROM recurring_occurrences').get().count,0);
+  assert.equal((await request(`/recurring/${rule.id}`,{method:'DELETE',session:owner})).status,404);
 });

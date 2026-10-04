@@ -1,21 +1,17 @@
 import { useState, type FormEvent } from 'react';
-import { Copy, Check, Plus, Paperclip, Trash2, Users } from 'lucide-react';
+import { Check, Paperclip, Trash2 } from 'lucide-react';
+import BudgetDialog from './BudgetDialog';
 import { Modal } from './components';
-import { api } from './api';
-import { localDate, money, parseMoney, toInput } from './finance';
+import { money, parseMoney, toInput } from './finance';
 import type { Dialog } from './pages';
-import type { FamilyState, User } from './types';
+import type { FamilyState } from './types';
 
-type Props = { dialog: Exclude<Dialog, null>; data: FamilyState; user: User; onClose: () => void; mutate: <T>(path: string, method: string, body?: unknown) => Promise<T> };
-export default function Dialogs({ dialog, data, user, onClose, mutate }: Props) {
+type Props = { dialog: Exclude<Dialog, null>; data: FamilyState; onClose: () => void; mutate: <T>(path: string, method: string, body?: unknown) => Promise<T> };
+export default function Dialogs({ dialog, data, onClose, mutate }: Props) {
   const [pending, setPending] = useState(false); const [error, setError] = useState('');
-  const [kind, setKind] = useState(dialog.type === 'transaction' ? dialog.transaction?.kind || dialog.kind || 'expense' : 'expense');
-  const [budget, setBudget] = useState(data.categories.map(c => ({ id: c.id, name: c.name, percentage: String(c.percentage / 100) })));
   const [color, setColor] = useState(dialog.type === 'note' ? dialog.note?.color || 'amber' : 'amber');
   const [files, setFiles] = useState<File[]>([]);
   const [noteId, setNoteId] = useState(dialog.type === 'note' ? dialog.note?.id : undefined);
-  const [invitation, setInvitation] = useState<{ code: string; expiresAt: string } | null>(null);
-  const [copied, setCopied] = useState(false);
   const [removed, setRemoved] = useState<string[]>([]);
   async function save(action: () => Promise<void>, close = true) {
     setPending(true); setError('');
@@ -26,19 +22,7 @@ export default function Dialogs({ dialog, data, user, onClose, mutate }: Props) 
   const footer = (label = 'Salva') => <div className="modal-footer"><button type="button" className="button secondary" onClick={onClose} disabled={pending}>Annulla</button><button className="button primary" disabled={pending}>{pending ? 'Salvataggio…' : label}</button></div>;
   const errors = error && <div className="form-error" role="alert">{error}</div>;
   const submit = (event: FormEvent<HTMLFormElement>, action: (form: FormData) => Promise<void>) => { event.preventDefault(); const form = new FormData(event.currentTarget); void save(() => action(form)); };
-  if (dialog.type === 'transaction') {
-    const t = dialog.transaction;
-    return <Modal title={t ? 'Modifica movimento' : 'Un nuovo movimento'} subtitle="Le piccole abitudini fanno la differenza." onClose={onClose}><form onSubmit={e => submit(e, async form => {
-      await mutate(t ? `/transactions/${t.id}` : '/transactions', t ? 'PUT' : 'POST', { kind, amount: parseMoney(String(form.get('amount'))), description: form.get('description'), date: form.get('date'), categoryId: form.get('categoryId') });
-    })}><div className="segmented"><button type="button" className={kind === 'expense' ? 'active' : ''} onClick={() => setKind('expense')}>Uscita</button><button type="button" className={kind === 'income' ? 'active' : ''} onClick={() => setKind('income')}>Entrata</button></div><label>Descrizione<input name="description" defaultValue={t?.description} placeholder={kind === 'income' ? 'Ad esempio: stipendio' : 'Ad esempio: spesa al supermercato'} required maxLength={200} /></label><div className="form-columns"><label>Importo (€)<input name="amount" type="text" inputMode="decimal" pattern="[0-9]+([.,][0-9]{1,2})?" defaultValue={t ? toInput(t.amount) : undefined} placeholder="0,00" required /></label><label>Data<input name="date" type="date" defaultValue={t?.date || localDate()} min="1900-01-01" max="2199-12-31" required /></label></div>{kind === 'expense' && <label>Categoria<select name="categoryId" defaultValue={t?.category_id || data.categories[0]?.id} required>{data.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>}{errors}{footer(t ? 'Salva modifiche' : 'Aggiungi movimento')}</form></Modal>;
-  }
-  if (dialog.type === 'budget') {
-    const sum = budget.reduce((sum, c) => sum + Number(c.percentage.replace(',', '.')), 0);
-    const valid = Math.abs(sum - 100) < 0.000001 && budget.every(c => c.name.trim() && /^\d+(?:[.,]\d{1,2})?$/.test(c.percentage) && Number(c.percentage.replace(',', '.')) <= 100);
-    return <Modal title="Un budget a misura di famiglia" subtitle="Lo schema si applica alle entrate di ogni mese e viene salvato nel template Personalizzato." onClose={onClose}><form onSubmit={e => submit(e, async () => {
-      await mutate('/budget', 'PUT', { categories: budget.map(c => ({ id: c.id, name: c.name, percentage: parseMoney(c.percentage) })) });
-    })}><div className="preset-buttons"><span>Usa un template salvato:</span>{data.budgetTemplates.map(t => <button key={t.id} type="button" onClick={() => setBudget(t.entries.map(c => ({ ...c, percentage: String(c.percentage / 100) })))}>{t.name}</button>)}</div>{budget.map((c, i) => <div className="budget-edit-row" key={c.id}><span className="category-dot" style={{ background: data.categories[i].color }} /><input aria-label={`Nome categoria ${i + 1}`} value={c.name} onChange={e => setBudget(budget.map(row => row.id === c.id ? { ...row, name: e.target.value } : row))} required maxLength={60} /><div><input aria-label={`Percentuale ${c.name}`} value={c.percentage} onChange={e => setBudget(budget.map(row => row.id === c.id ? { ...row, percentage: e.target.value } : row))} inputMode="decimal" required /><span>%</span></div></div>)}<div className={`budget-total ${valid ? '' : 'negative'}`}><span>Totale assegnato</span><strong>{Number.isFinite(sum) ? Number(sum.toFixed(2)) : '—'}%</strong></div><p className="form-hint">Il salvataggio aggiorna la ripartizione attuale e il template Personalizzato. I modelli predefiniti restano disponibili nella pagina Budget.</p>{errors}<div className="modal-footer"><button type="button" className="button secondary" onClick={onClose}>Annulla</button><button className="button primary" disabled={pending || !valid}>{pending ? 'Salvataggio…' : 'Salva schema'}</button></div></form></Modal>;
-  }
+  if (dialog.type === 'budget') return <BudgetDialog data={data} onClose={onClose} mutate={mutate} />;
   if (dialog.type === 'goal') return <Modal title={dialog.goal ? 'Modifica il vostro progetto' : 'Un nuovo progetto, insieme'} subtitle="Dategli un nome e una meta da raggiungere." onClose={onClose}><form onSubmit={e => submit(e, async form => {
     await mutate(dialog.goal ? `/goals/${dialog.goal.id}` : '/goals', dialog.goal ? 'PUT' : 'POST', { title: form.get('title'), horizon: form.get('horizon'), target: parseMoney(String(form.get('target'))), saved: parseMoney(String(form.get('saved') || '0')), dueDate: form.get('dueDate') || null });
   })}><label>Nome dell’obiettivo<input name="title" defaultValue={dialog.goal?.title} placeholder="Ad esempio: il nostro prossimo viaggio" required maxLength={120} /></label><label>Orizzonte<select name="horizon" defaultValue={dialog.goal?.horizon}><option value="short">Breve termine · fino a 1 anno</option><option value="medium">Medio termine · da 1 a 5 anni</option><option value="long">Lungo termine · oltre 5 anni</option></select></label><div className="form-columns"><label>Importo da raggiungere (€)<input name="target" defaultValue={dialog.goal ? toInput(dialog.goal.target) : undefined} inputMode="decimal" placeholder="0,00" pattern="[0-9]+([.,][0-9]{1,2})?" required /></label>{!dialog.goal && <label>Già accantonato (€)<input name="saved" inputMode="decimal" defaultValue="0" pattern="[0-9]+([.,][0-9]{1,2})?" /></label>}</div><label>Entro quando? <span className="optional">facoltativo</span><input name="dueDate" defaultValue={dialog.goal?.due_date || undefined} type="date" min="1900-01-01" max="2199-12-31" /></label>{errors}{footer(dialog.goal ? 'Salva modifiche' : 'Crea obiettivo')}</form></Modal>;
@@ -63,5 +47,5 @@ export default function Dialogs({ dialog, data, user, onClose, mutate }: Props) 
       setError(''); setFiles([...files, ...selected]); e.target.value = '';
     }} /></label><span>Fino a 5 file · 10 MB ciascuno</span></div>{existingFiles.map(file => <div className="attachment-row" key={file.id}><Paperclip size={14} /><a href={`/api/attachments/${file.id}`}>{file.original_name}</a><button type="button" className="icon-button danger" aria-label={`Rimuovi allegato ${file.original_name}`} disabled={pending} onClick={() => { if (confirm('Rimuovere questo allegato?')) void save(async () => { await mutate(`/attachments/${file.id}`, 'DELETE'); setRemoved([...removed, file.id]); }, false); }}><Trash2 size={14} /></button></div>)}{files.map((file, index) => <div className="attachment-row" key={`${file.name}-${index}`}><Paperclip size={14} /><span>{file.name}</span><small>da caricare</small><button type="button" className="icon-button danger" aria-label={`Rimuovi file ${file.name}`} disabled={pending} onClick={() => setFiles(files.filter((_, i) => i !== index))}><Trash2 size={14} /></button></div>)}{errors}{footer(note ? 'Salva modifiche' : 'Pubblica sulla lavagna')}</form></Modal>;
   }
-  return <Modal title="La famiglia, nello stesso spazio" subtitle="Account personali. Una casa condivisa." onClose={onClose}><div className="share-members">{data.members.map(member => <div key={member.id}><span className="avatar">{member.name.slice(0, 1)}</span><strong>{member.name}{member.id === user.id ? ' (tu)' : ''}</strong><span>{member.role === 'admin' ? 'Amministratore' : 'Membro'}</span></div>)}</div>{user.role === 'admin' ? <div className="invitation-box"><Users size={24} /><h3>Invita chi vive casa con te</h3><p>Condividi il codice con la tua famiglia. Ogni persona potrà creare il proprio account scegliendo “Ho un invito”.</p>{invitation && <><div className="invitation-code"><input aria-label="Codice invito" value={invitation.code} readOnly onFocus={e => e.target.select()} /><button className="icon-button" aria-label="Copia codice" onClick={() => void save(async () => { await navigator.clipboard.writeText(invitation.code); setCopied(true); }, false)}>{copied ? <Check size={18} /> : <Copy size={18} />}</button></div><small>Valido fino al {new Date(invitation.expiresAt).toLocaleDateString('it-IT')}. Un nuovo codice sostituisce il precedente.</small></>}<button className="button primary full-width" disabled={pending} onClick={() => void save(async () => { setInvitation(await api('/invitation', 'POST')); setCopied(false); }, false)}><Plus size={17} />{pending ? 'Generazione…' : invitation ? 'Genera un nuovo codice' : 'Genera codice invito'}</button></div> : <p className="form-hint">Chi ha creato lo spazio può generare un codice per invitare altri membri.</p>}{errors}<div className="modal-footer"><button className="button secondary" onClick={onClose}>Chiudi</button></div></Modal>;
+  return null;
 }

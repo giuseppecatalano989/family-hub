@@ -28,3 +28,7 @@
 
 - Le Scadenze usano `server/deadlines.mjs`: gestione e uscita facoltativa sono atomiche e uniche per scadenza e mese. Le gestioni senza pagamento non creano transazioni. Annullare la gestione rimuove l'eventuale uscita, eliminare l'uscita rimuove la gestione collegata.
 - La migrazione dalle bollette è additiva e avviene una sola volta per famiglia; conserva giorno mensile e movimenti esistenti. Includi scadenze, gestioni e marcatori della migrazione nei backup completi e filtra le esportazioni per famiglia.
+
+- La navigazione finanziaria espone soltanto Entrate e Uscite; i rispettivi moduli non permettono di cambiare il tipo. Una nuova registrazione può essere occasionale o ricorrente. Eliminare una ricorrenza, dopo conferma dell’interfaccia, rimuove atomicamente anche tutti i movimenti collegati, incluse correzioni manuali.
+- In Ripartizione budget sono fissi Conservativa, Prudente, Equilibrata e Svago; soltanto Pers. è modificabile. Applicare un predefinito conserva il personalizzato. Non riproporre 50/30/20 né la galleria di template.
+- Gli account possono modificare solo il proprio profilo. Cambio email e password richiedono la password attuale e revocano gli altri accessi. Solo l’amministratore rinomina la casa e genera inviti; i link usano un frammento URL ripulito all’apertura.

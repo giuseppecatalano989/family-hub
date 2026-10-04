@@ -163,7 +163,7 @@ test('daily cloud backups retain seven verified snapshots and restore exact acco
         assert.equal((await restored.db.prepare('SELECT COUNT(*) AS count FROM users').get()).count, 1);
         assert.equal((await restored.db.prepare('SELECT COUNT(*) AS count FROM recurring_rules').get()).count, 1);
         assert.equal((await restored.db.prepare('SELECT COUNT(*) AS count FROM recurring_occurrences').get()).count, 1);
-        assert.equal((await restored.db.prepare('SELECT COUNT(*) AS count FROM budget_templates').get()).count, 6);
+        assert.equal((await restored.db.prepare('SELECT COUNT(*) AS count FROM budget_templates').get()).count, 5);
         assert.deepEqual(JSON.parse((await restored.db.prepare('SELECT days FROM waste_schedules WHERE id = ?').get(wasteSchedule.id)).days), [0,4]);
         assert.equal((await restored.db.prepare('SELECT active_template_id FROM budget_settings').get()).active_template_id, preset.id);
         assert.deepEqual(await restored.db.files.get(file.id), bytes);
@@ -219,7 +219,7 @@ test('recurrences synchronize concurrent cloud instances and templates remain fa
   const shared=await json(await request(`/state?month=${current}`,{session:owner,target:second.base}));
   assert.equal(shared.activeTemplateId,template.id);assert.equal(shared.categories[0].percentage,3500);
   const exported=await request('/backups/export',{session:owner});const zip=unzipSync(new Uint8Array(await exported.arrayBuffer()));const data=JSON.parse(Buffer.from(zip['casa.json'])).data;
-  assert.equal(data.recurring_rules.length,2);assert.equal(data.recurring_versions.length,2);assert.equal(data.recurring_occurrences.length,4);assert.equal(data.budget_templates.length,6);
+  assert.equal(data.recurring_rules.length,2);assert.equal(data.recurring_versions.length,2);assert.equal(data.recurring_occurrences.length,4);assert.equal(data.budget_templates.length,5);
   assert.equal((await state(stranger)).recurring.length,0);
 });
 
@@ -268,4 +268,27 @@ test('deadline management is atomic across cloud instances, optional and private
   ]);
   assert.deepEqual(mixed.map(r=>r.status).sort(),[201,409]);
   assert.equal((await state(owner)).transactions.length,1);
+});
+
+test('account settings and recurring deletion stay isolated and consistent across cloud instances', async () => {
+  const owner=await register();const stranger=await register('settings-stranger@example.test');const second=await start();
+  await json(await request('/account',{method:'PUT',session:owner,body:{name:'Giuseppe Catalano',email:owner.user.email},target:second.base}));
+  assert.equal((await json(await request('/session',{session:owner}))).user.name,'Giuseppe Catalano');
+  await json(await request('/household',{method:'PUT',session:owner,body:{name:'Casa Catalano'},target:second.base}));
+  assert.equal((await state(owner)).household.name,'Casa Catalano');assert.equal((await state(stranger)).household.name,'Famiglia test cloud');
+  const loginResponse=await request('/auth/login',{method:'POST',body:{email:owner.user.email,password:'test-password-123'},target:second.base});const login=await json(loginResponse);
+  const other={cookie:loginResponse.headers.get('set-cookie').split(';')[0],csrf:login.csrf};
+  await json(await request('/account/password',{method:'PUT',session:owner,body:{currentPassword:'test-password-123',newPassword:'replacement-password-456'}}));
+  assert.equal((await request('/state?month=2026-10',{session:other,target:second.base})).status,401);
+  const view=await state(owner);const template=view.budgetTemplates.find(t=>t.template_key==='conservative');
+  assert.equal((await request(`/budget-templates/${template.id}`,{method:'PUT',session:owner,body:{entries:template.entries},target:second.base})).status,403);
+  const current=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Rome',year:'numeric',month:'2-digit'}).format(new Date());
+  const rule=await create('/recurring',{kind:'income',name:'Entrata errata',amount:5000,day:1,startMonth:current,enabled:true},owner);
+  assert.equal((await request(`/recurring/${rule.id}`,{method:'DELETE',session:stranger,target:second.base})).status,404);
+  const results=await Promise.all([
+    request(`/state?month=${current}`,{session:owner,target:second.base}),
+    request(`/recurring/${rule.id}`,{method:'DELETE',session:owner}),
+  ]);for(const r of results)await json(r);
+  const final=await json(await request(`/state?month=${current}`,{session:owner,target:second.base}));assert.equal(final.recurring.length,0);assert.equal(final.transactions.length,0);
+  assert.equal((await instance.db.prepare('SELECT COUNT(*) AS count FROM recurring_occurrences').get()).count,0);
 });

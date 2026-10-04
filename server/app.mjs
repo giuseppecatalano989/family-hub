@@ -155,7 +155,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         res.json(session ? { user: publicUser(session), csrf: session.csrf } : { user: null });
     });
     const attempts = new Map();
-    app.use('/api/auth', async (req, res, next) => {
+    app.use(['/api/auth', '/api/account'], async (req, res, next) => {
         if (database) {
             if (!await database.checkAuthAttempt(req.ip)) return res.status(429).json({ error: 'Troppi tentativi. Riprova tra 15 minuti.' });
             return next();
@@ -229,6 +229,42 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
     app.post('/api/logout', async (req, res) => {
         await run('DELETE FROM sessions WHERE token_hash = ?', req.user.token_hash);
         res.clearCookie('casa_session', { path: '/' });
+        res.json({ ok: true });
+    });
+    app.put('/api/account', async (req, res) => {
+        const name = text(req.body.name, 'Nome', 80);
+        const email = text(req.body.email, 'Email', 254).toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail('Email non valida.');
+        let updated;
+        await atomic(async () => {
+            const user = await one('SELECT * FROM users WHERE id = ?', req.user.id);
+            if (email !== user.email) {
+                if (!passwordMatches(text(req.body.currentPassword, 'Password attuale', 128), user.password_hash)) fail('Password attuale non corretta.', 400);
+                if (await one('SELECT id FROM users WHERE email = ? AND id <> ?', email, user.id)) fail('Questa email è già registrata.', 409);
+                await run('DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?', user.id, req.user.token_hash);
+            }
+            await run('UPDATE users SET name = ?, email = ? WHERE id = ?', name, email, user.id);
+            updated = publicUser({ ...user, name, email });
+        });
+        res.json({ user: updated });
+    });
+    app.put('/api/account/password', async (req, res) => {
+        const current = text(req.body.currentPassword, 'Password attuale', 128);
+        const password = text(req.body.newPassword, 'Nuova password', 128);
+        if (password.length < 10) fail('Usa una password di almeno 10 caratteri.');
+        const encoded = passwordHash(password);
+        await atomic(async () => {
+            const user = await one('SELECT password_hash FROM users WHERE id = ?', req.user.id);
+            if (!passwordMatches(current, user.password_hash)) fail('Password attuale non corretta.', 400);
+            await run('UPDATE users SET password_hash = ? WHERE id = ?', encoded, req.user.id);
+            await run('DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?', req.user.id, req.user.token_hash);
+        });
+        res.json({ ok: true });
+    });
+    app.put('/api/household', async (req, res) => {
+        if (req.user.role !== 'admin') fail('Solo l’amministratore può modificare il nome della casa.', 403);
+        const name = text(req.body.name, 'Nome della casa', 80);
+        await run('UPDATE households SET name = ? WHERE id = ?', name, req.user.household_id);
         res.json({ ok: true });
     });
     app.post('/api/invitation', async (req, res) => {

@@ -26,7 +26,7 @@ test('deadlines have optional payments, weekly meals update shopping and family 
   await expect(page.getByRole('heading', { name: 'Ogni rifiuto, nel giorno giusto.' })).toBeVisible();
   await go(page, 'Panoramica');
   await page.locator('.daily-panel').getByRole('button', { name: 'Scadenze', exact: true }).click();
-  await expect(page.locator('.breadcrumb')).toContainText('Scadenze');
+  await expect(page).toHaveTitle('Scadenze · Family Hub');
   await page.getByRole('button', { name: 'Nuova scadenza' }).click();
   let dialog = page.getByRole('dialog');
   await dialog.getByLabel('Nome della scadenza').fill('Rinnovo documento');
@@ -63,7 +63,7 @@ test('deadlines have optional payments, weekly meals update shopping and family 
   await page.getByRole('button', { name: 'Salva scadenza' }).click();
   await expect(paidRow).toContainText('80,00');
   await page.screenshot({ path: testInfo.outputPath('scadenze.png'), fullPage: true });
-  await go(page, 'Movimenti');
+  await go(page, 'Uscite');
   await expect(page.locator('.transaction-row')).toHaveCount(1);
   await expect(page.locator('.transaction-row')).toContainText(`Revisione auto · ${today}`);
   await expect(page.locator('.transaction-row')).toContainText('80,00');

@@ -8,7 +8,6 @@ export const BUDGET_PRESETS = [
   { key: 'prudent', name: 'Prudente', description: 'Priorità alle necessità, con una riserva regolare.', percentages: [35, 20, 10, 10, 10, 15] },
   { key: 'balanced', name: 'Equilibrata', description: 'Un equilibrio tra quotidianità, piaceri e progetti.', percentages: [35, 15, 10, 5, 15, 20] },
   { key: 'leisure', name: 'Svago', description: 'Più spazio al tempo libero, mantenendo un risparmio.', percentages: [30, 15, 10, 5, 30, 10] },
-  { key: '50-30-20', name: '50 / 30 / 20', description: '50% necessità, 30% svago e 20% risparmio.', percentages: [25, 15, 5, 5, 30, 20] },
 ];
 export const currentMonth = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit' }).format(new Date());
 function nextMonth(value) {
@@ -93,6 +92,16 @@ export function installPlanning(app, { db, one, all, run, atomic, owned, fail, t
     });
     res.json({ ok: true });
   });
+  app.delete('/api/recurring/:id', async (req, res) => {
+    await atomic(async () => {
+      const rule = await owned('recurring_rules', req.params.id, req.user);
+      await run('DELETE FROM transactions WHERE household_id = ? AND id IN (SELECT transaction_id FROM recurring_occurrences WHERE rule_id = ?)', req.user.household_id, rule.id);
+      await run('DELETE FROM recurring_occurrences WHERE rule_id = ?', rule.id);
+      await run('DELETE FROM recurring_versions WHERE rule_id = ?', rule.id);
+      await run('DELETE FROM recurring_rules WHERE id = ? AND household_id = ?', rule.id, req.user.household_id);
+    });
+    res.json({ ok: true });
+  });
   // Stopping a rule is a dated revision, retaining both prior months and manual corrections.
   app.post('/api/recurring/:id/stop', async (req, res) => {
     await atomic(async () => {
@@ -109,7 +118,9 @@ export function installPlanning(app, { db, one, all, run, atomic, owned, fail, t
     const categories = await all('SELECT * FROM categories WHERE household_id = ? ORDER BY position', hid);
     for (const preset of [...BUDGET_PRESETS, { key: 'custom', name: 'Personalizzato', description: 'La vostra composizione, conservata anche dopo il ripristino.' }]) {
       const entries = categories.map((c, i) => ({ id: c.id, name: preset.key === 'custom' ? c.name : labels[i], percentage: preset.key === 'custom' ? c.percentage : preset.percentages[i] * 100 }));
-      await run('INSERT INTO budget_templates VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(household_id, template_key) DO NOTHING', randomUUID(), hid, preset.key, preset.name, preset.description, JSON.stringify(entries));
+      const conflict = preset.key === 'custom' ? 'DO NOTHING' : `DO UPDATE SET name = excluded.name, description = excluded.description, entries = excluded.entries
+        WHERE budget_templates.entries <> excluded.entries OR budget_templates.name <> excluded.name OR budget_templates.description <> excluded.description`;
+      await run(`INSERT INTO budget_templates VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(household_id, template_key) ${conflict}`, randomUUID(), hid, preset.key, preset.name, preset.description, JSON.stringify(entries));
     }
   }
   async function validatedEntries(entries, hid) {
@@ -125,6 +136,7 @@ export function installPlanning(app, { db, one, all, run, atomic, owned, fail, t
   app.put('/api/budget-templates/:id', async (req, res) => {
     await atomic(async () => {
       const template = await owned('budget_templates', req.params.id, req.user);
+      if (template.template_key !== 'custom') fail('Gli schemi predefiniti sono fissi. Modifica Pers. per creare la vostra ripartizione.', 403);
       const entries = await validatedEntries(req.body.entries, req.user.household_id);
       await run('UPDATE budget_templates SET entries = ? WHERE id = ?', JSON.stringify(entries), template.id);
       await run('DELETE FROM budget_settings WHERE household_id = ? AND active_template_id = ?', req.user.household_id, template.id);
@@ -133,7 +145,9 @@ export function installPlanning(app, { db, one, all, run, atomic, owned, fail, t
   });
   app.post('/api/budget-templates/:id/apply', async (req, res) => {
     await atomic(async () => {
+      await ensureTemplates(req.user.household_id);
       const template = await owned('budget_templates', req.params.id, req.user);
+      if (template.template_key === '50-30-20') fail('Questo schema non è più disponibile. Scegli un altro schema.', 400);
       for (const row of await validatedEntries(JSON.parse(template.entries), req.user.household_id)) await run('UPDATE categories SET name = ?, percentage = ? WHERE id = ? AND household_id = ?', row.name, row.percentage, row.id, req.user.household_id);
       await run('INSERT INTO budget_settings VALUES (?, ?) ON CONFLICT(household_id) DO UPDATE SET active_template_id = excluded.active_template_id', req.user.household_id, template.id);
     });
@@ -161,7 +175,7 @@ export function installPlanning(app, { db, one, all, run, atomic, owned, fail, t
       const versions = await all('SELECT v.* FROM recurring_versions v JOIN recurring_rules r ON r.id = v.rule_id WHERE r.household_id = ? ORDER BY v.effective_month', user.household_id);
       return {
         recurring: rules.map(r => { const history = versions.filter(v => v.rule_id === r.id); const v = versionFor(history, target) || history[0]; return { ...r, ...v, id: r.id, active: !!v.enabled && target >= r.start_month && target >= v.effective_month && (!v.end_month || target <= v.end_month) }; }),
-        budgetTemplates: (await all('SELECT * FROM budget_templates WHERE household_id = ? ORDER BY template_key', user.household_id)).map(t => ({ ...t, entries: JSON.parse(t.entries) })),
+        budgetTemplates: (await all("SELECT * FROM budget_templates WHERE household_id = ? AND template_key <> '50-30-20' ORDER BY template_key", user.household_id)).map(t => ({ ...t, entries: JSON.parse(t.entries) })),
         activeTemplateId: (await one('SELECT active_template_id FROM budget_settings WHERE household_id = ?', user.household_id))?.active_template_id || null,
       };
     },
