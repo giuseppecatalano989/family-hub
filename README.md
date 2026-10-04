@@ -36,11 +36,23 @@ Le Scadenze sono promemoria con eventuale pagamento manuale: evita di registrare
 
 ## Dashboard e consultazione degli appunti
 
-**Dove vanno le nostre uscite** mostra per ogni categoria la spesa effettiva e il massimale del mese, calcolato sulle entrate e sulla ripartizione attuale. Categoria e importi restano affiancati nella legenda; il grafico a sinistra si adatta agli schermi piccoli. Nuova entrata e Nuova uscita rimangono sulla stessa riga, con colori jade e coral. Le card delle entrate, uscite, saldo e risparmi aprono rispettivamente Entrate, Uscite, Ripartizione budget e Obiettivi. Anche i riquadri di ripartizione, traguardi e movimenti aprono le relative sezioni; i pulsanti di creazione mantengono la loro azione.
+**Dove vanno le nostre uscite** mostra per ogni categoria la spesa effettiva e il massimale del mese, calcolato sulle entrate e sulla ripartizione attuale. Categoria e importi restano affiancati nella legenda; il grafico a sinistra si adatta agli schermi piccoli. Nuova entrata e Nuova uscita rimangono sulla stessa riga, con colori jade e coral, rispettivamente + e −. I testi sono ingranditi di circa il 4%. Le card delle entrate, uscite, saldo e risparmi aprono rispettivamente Entrate, Uscite, Ripartizione budget e Obiettivi. Anche i riquadri di ripartizione, traguardi e movimenti aprono le relative sezioni; i pulsanti di creazione mantengono la loro azione.
 
 **La vita di casa** offre, senza separatori, Lista della spesa, Menu settimanale, Conferimento rifiuti, Scadenze e Lavagna di famiglia. La lavagna appare solo come collegamento. I prossimi traguardi precedono gli ultimi movimenti.
 
 Toccare una nota nella lavagna apre il testo completo e gli allegati in sola lettura; il titolo è anche un pulsante accessibile da tastiera. La matita apre la modifica. Evidenziare una nota o scaricare un allegato dalla scheda conserva la propria azione senza aprire la consultazione.
+
+## Recupero password via email
+
+In **Accedi → Password dimenticata?** inserisci l'email del tuo account. Il messaggio di conferma è identico anche per indirizzi non registrati. Il link è monouso, vale 30 minuti e si trova nel frammento URL, ripulito quando si apre la pagina. Scegli e conferma una nuova password di almeno 10 caratteri, poi accedi di nuovo. Il cambio disconnette tutti gli accessi precedenti di quell'account e conserva i dati della famiglia.
+
+Un nuovo link sostituisce il precedente; l'invio allo stesso indirizzo è limitato a uno al minuto. Cambio email o password annullano i link pendenti. Il database conserva soltanto l'hash della chiave; le copie di backup non ripristinano link attivi. Nessun link viene mostrato nella risposta pubblica o nei log. Su Vercel l'invio continua con `waitUntil` dopo la risposta, senza far dipendere la conferma dalla presenza dell'account o dai tempi del servizio email.
+
+Per l'invio gratuito **senza acquistare un dominio**, usa Brevo: crea un mittente con nome Family Hub e un tuo indirizzo email, poi verificalo con il codice ricevuto. Nelle variabili private **Production** di Vercel configura `EMAIL_PROVIDER=brevo`, `BREVO_API_KEY` e `EMAIL_FROM=Family Hub <indirizzo-verificato>`. Non usare prefissi `VITE_` e non salvare le chiavi nel repository.
+
+In alternativa, Resend richiede un dominio che puoi verificare tramite DNS: imposta `EMAIL_PROVIDER=resend`, `RESEND_API_KEY` ed `EMAIL_FROM`. Il dominio `vercel.app` non fornisce il controllo DNS del mittente; `onboarding@resend.dev` consente solo invii di prova all'indirizzo dell'account Resend.
+
+Senza credenziali di invio, il recupero restituisce un messaggio di indisponibilità. La scelta del provider non cambia la conservazione dei dati e delle password. In locale i test iniettano un mittente simulato e non inviano email reali.
 
 ## Account e famiglia
 
@@ -239,8 +251,10 @@ public/             Icona dell’app
 1. Ricorrenze annuali o trimestrali e notifiche esterne.
 2. Confronto tra mesi, budget storici e categorie aggiuntive.
 3. Copie automatiche verso uno spazio esterno al server e importazione del ZIP familiare.
-4. Recupero della password, verifica email e gestione dei membri.
+4. Verifica email e gestione dei membri dall’interfaccia.
 
-La prima versione non include collegamenti alle banche, pagamenti, invio email, notifiche push o recupero password. Il deployment gratuito è configurato e richiede il collegamento dei propri account Vercel e Neon; la pubblicazione dell’ambiente Codex non pubblica la webapp.
+La prima versione non include collegamenti alle banche, pagamenti o notifiche push. Il recupero password richiede la configurazione del servizio email descritta sopra. Il deployment gratuito richiede il collegamento dei propri account Vercel e Neon; la pubblicazione dell’ambiente Codex non pubblica la webapp. Il comando di build Vercel è `npm run build`, impostato nel progetto (o ricavato dal framework Vite).
+
+La rimozione di un membro richiesta al gestore usa esclusivamente il comando privato `server/member-removal-cli.mjs`, con `DATABASE_URL` backend e argomenti `--request-id`, `--member` e `--admin`. Richiede una corrispondenza univoca dei nomi nella stessa famiglia, conserva una copia privata prima della rimozione, revoca gli accessi e trasferisce i record condivisi all’amministratore. Non rimuove amministratori né dati familiari. Riutilizzare lo stesso identificativo di richiesta non elimina un account ricreato. Il comando non è esposto via HTTP e non fa parte della build ordinaria; può essere eseguito con un comando di build specifico di un singolo deployment.
 
 La richiesta di integrazione bancaria futura, esclusivamente di lettura dei movimenti e senza saldi né pagamenti, è annotata in [docs/banking-integration.md](docs/banking-integration.md).

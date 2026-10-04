@@ -22,9 +22,12 @@ export function snapshotInstance(db, dataDir, destination, createdAt = new Date(
   try {
     const database = path.join(destination, 'casa.sqlite');
     db.prepare('VACUUM INTO ?').run(database); chmodSync(database, 0o600);
-    const snapshot = new DatabaseSync(database, { readOnly: true });
+    const snapshot = new DatabaseSync(database);
     let attachments;
-    try { attachments = snapshot.prepare('SELECT storage_name FROM attachments').all(); }
+    try {
+      if (snapshot.prepare("SELECT name FROM sqlite_master WHERE name = 'password_resets'").get()) snapshot.exec('DELETE FROM password_resets; VACUUM;');
+      attachments = snapshot.prepare('SELECT storage_name FROM attachments').all();
+    }
     finally { snapshot.close(); }
     mkdirSync(path.join(destination, 'uploads'), { mode: 0o700 });
     const files = attachments.map(({ storage_name }) => {

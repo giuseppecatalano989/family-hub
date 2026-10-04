@@ -21,6 +21,7 @@
     "cloud:backup": "node --env-file-if-exists=.env server/cloud-backup-cli.mjs"
   },
   "dependencies": {
+    "@vercel/functions": "^3.9.11",
     "archiver": "^8.0.0",
     "express": "^5.2.1",
     "lucide-react": "^1.52.0",

@@ -11,12 +11,13 @@ import { createCloudBackups } from '../server/cloud-backups.mjs';
 import { verifyInstanceBackup, restoreInstanceBackup } from '../server/backups.mjs';
 import { openPostgres } from '../server/postgres.mjs';
 import { restoreCloudBackup } from '../server/cloud-backup-cli.mjs';
+import { removeMember } from '../server/member-removal.mjs';
 
 const connectionString = process.env.CASA_TEST_DATABASE_URL;
 if (!connectionString || !['127.0.0.1', 'localhost', '[::1]'].includes(new URL(connectionString).hostname)) throw new Error('I test cloud richiedono CASA_TEST_DATABASE_URL su un PostgreSQL temporaneo locale. Non usare un database reale.');
 let instances, servers, instance, base;
-async function start() {
-  const app = await createCloudApp({ connectionString, local: true, cronSecret: 'test-cron-local-only' });
+async function start(options = {}) {
+  const app = await createCloudApp({ connectionString, local: true, cronSecret: 'test-cron-local-only', ...options });
   const server = app.app.listen(0, '127.0.0.1'); await new Promise(r => server.once('listening', r));
   instances.push(app); servers.push(server);
   return { app, base: `http://127.0.0.1:${server.address().port}/api` };
@@ -291,4 +292,68 @@ test('account settings and recurring deletion stay isolated and consistent acros
   ]);for(const r of results)await json(r);
   const final=await json(await request(`/state?month=${current}`,{session:owner,target:second.base}));assert.equal(final.recurring.length,0);assert.equal(final.transactions.length,0);
   assert.equal((await instance.db.prepare('SELECT COUNT(*) AS count FROM recurring_occurrences').get()).count,0);
+});
+
+test('email password resets commit across instances and can only be consumed once', async () => {
+  const owner = await register(); const member = await register('member@example.test', (await json(await request('/invitation', { method: 'POST', session: owner }))).code);
+  const messages = [];
+  const second = await start({ resetMailer: async message => messages.push(message) });
+  const known = await json(await request('/auth/forgot-password', { method: 'POST', body: { email: 'member@example.test' }, target: second.base }));
+  const unknown = await json(await request('/auth/forgot-password', { method: 'POST', body: { email: 'unknown@example.test' }, target: second.base }));
+  assert.deepEqual(known, unknown); assert.equal(messages.length, 1);
+  const stored = await instance.db.prepare('SELECT token_hash FROM password_resets WHERE user_id = ?').get(member.user.id);
+  assert.notEqual(stored.token_hash, messages[0].token);
+  const body = { token: messages[0].token, newPassword: 'recovered-password-123' };
+  const responses = await Promise.all([request('/auth/reset-password', { method: 'POST', body }), request('/auth/reset-password', { method: 'POST', body, target: second.base })]);
+  assert.deepEqual(responses.map(r => r.status).sort(), [200, 400]);
+  assert.equal((await json(await request('/session', { session: member }))).user, null);
+  assert.equal((await request('/state?month=2026-10', { session: owner })).status, 200);
+  assert.equal((await request('/auth/login', { method: 'POST', body: { email: 'member@example.test', password: 'test-password-123' } })).status, 401);
+  assert.equal((await request('/auth/login', { method: 'POST', body: { email: 'member@example.test', password: 'recovered-password-123' } })).status, 200);
+});
+
+test('operator member removal preserves shared records, requires a backup and never removes a recreated account on retry', async () => {
+  const owner = await register();
+  await json(await request('/account', { method: 'PUT', session: owner, body: { name: 'Giuseppe Catalano', email: owner.user.email } }));
+  const invitation = await json(await request('/invitation', { method: 'POST', session: owner }));
+  const member = await register('simona@example.test', invitation.code);
+  await json(await request('/account', { method: 'PUT', session: member, body: { name: 'Simona Biscardi', email: member.user.email } }));
+  const stranger = await register('stranger@example.test');
+  const categoryId = (await state(owner)).categories[0].id;
+  const transaction = await create('/transactions', { kind: 'expense', amount: 1234, categoryId, description: 'Da preservare', date: '2026-10-05' }, member);
+  const goal = await create('/goals', { title: 'Viaggio', horizon: 'medium', target: 50000, saved: 0 }, member);
+  await create(`/goals/${goal.id}/contributions`, { amount: 1000 }, member);
+  await create('/shopping', { name: 'Pane', quantity: '1', section: 'Altro' }, member);
+  const note = await create('/notes', { title: 'Condivisa', content: 'Da preservare', color: 'mint', pinned: true }, member);
+  const bytes = Buffer.from('conservare il file');
+  const attachment = await attach(member, note, bytes);
+  const upload = await create(`/notes/${note.id}/uploads`, { name: 'incompleto.txt', size: 4 }, member);
+  await json(await request(`/notes/${note.id}/uploads/${upload.id}/chunks/0`, { method: 'PUT', body: Buffer.from('test'), session: member }));
+  await create('/meals', { date: '2026-10-05', slot: 'lunch', title: 'Pasta', servings: 2, ingredients: [], notes: '' }, member);
+  await create('/recurring', { kind: 'income', name: 'Reddito', amount: 150000, day: 1, startMonth: '2026-10', enabled: true }, member);
+  const deadline = await create('/deadlines', { name: 'Appuntamento', startDate: '2026-10-05', frequency: 'once', requiresPayment: false, reminderDays: 0 }, member);
+  await create(`/deadlines/${deadline.id}/manage`, { month: '2026-10', handledDate: '2026-10-05' }, member);
+  await instance.db.prepare('INSERT INTO password_resets VALUES (?, ?, ?)').run('test-hash', member.user.id, Date.now() + 10000);
+  const options = { db: instance.db, requestId: 'test-member-removal-once', memberName: 'Simona Biscardi', adminName: 'Giuseppe Catalano', takeBackup: () => instance.backups.take() };
+  await assert.rejects(removeMember({ ...options, adminName: 'Wrong family' }), /non identificato/);
+  await assert.rejects(removeMember({ ...options, memberName: 'Giuseppe Catalano' }), /non identificato/);
+  await assert.rejects(removeMember({ ...options, takeBackup: async () => { throw new Error('backup unavailable'); } }), /backup unavailable/);
+  assert.ok(await instance.db.prepare('SELECT id FROM users WHERE id = ?').get(member.user.id));
+  const result = await removeMember(options);
+  assert.equal(result.removed, true);
+  assert.ok(result.preservedRecords >= 7);
+  assert.ok(await instance.db.prepare('SELECT id FROM backup_archives WHERE id = ?').get(result.backupId));
+  assert.equal(await instance.db.prepare('SELECT id FROM users WHERE id = ?').get(member.user.id), undefined);
+  for (const table of ['sessions', 'password_resets', 'file_uploads']) assert.equal((await instance.db.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE user_id = ?`).get(member.user.id)).count, 0);
+  assert.equal((await instance.db.prepare('SELECT COUNT(*) AS count FROM file_upload_chunks').get()).count, 0);
+  for (const table of ['transactions', 'contributions', 'shopping', 'notes', 'meals', 'recurring_rules', 'deadline_receipts']) assert.equal((await instance.db.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE author_id = ?`).get(member.user.id)).count, 0);
+  assert.equal((await instance.db.prepare('SELECT author_id FROM transactions WHERE id = ?').get(transaction.id)).author_id, owner.user.id);
+  assert.deepEqual(await instance.db.files.get(attachment.id), bytes);
+  assert.equal((await json(await request('/session', { session: member }))).user, null);
+  assert.equal((await state(owner)).notes[0].content, 'Da preservare');
+  assert.equal((await state(stranger)).transactions.length, 0);
+  const recreated = await register('simona@example.test', invitation.code);
+  await json(await request('/account', { method: 'PUT', session: recreated, body: { name: 'Simona Biscardi', email: recreated.user.email } }));
+  assert.equal((await removeMember(options)).repeated, true);
+  assert.ok(await instance.db.prepare('SELECT id FROM users WHERE id = ?').get(recreated.user.id));
 });

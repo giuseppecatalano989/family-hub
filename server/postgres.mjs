@@ -1,5 +1,6 @@
 import { Pool, types } from 'pg';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { RECOVERY_SCHEMA } from './recovery.mjs';
 import { BASE_SCHEMA, WORKFLOW_SCHEMA, UPLOAD_SCHEMA, PLANNING_SCHEMA, WASTE_SCHEMA, DEADLINE_SCHEMA } from './schema.mjs';
 
 // Epoch milliseconds and COUNT(*) fit safely in the application's integer range.
@@ -55,6 +56,7 @@ export async function openPostgres(connectionString, { local = false, requireEmp
       if (requireEmptySchema && (await query("SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'casa') AS exists")).rows[0].exists) throw new Error('Il database di destinazione contiene già lo schema casa. Usa un nuovo database per preservare i dati esistenti.');
       await query('CREATE SCHEMA IF NOT EXISTS casa');
       await query(BASE_SCHEMA.replace(/\s*PRAGMA[^;]*;/g, '').replace('invite_expires INTEGER', 'invite_expires BIGINT').replace('expires INTEGER', 'expires BIGINT'));
+      await query(RECOVERY_SCHEMA);
       await query(WORKFLOW_SCHEMA);
       await query(PLANNING_SCHEMA);
       await query(WASTE_SCHEMA);

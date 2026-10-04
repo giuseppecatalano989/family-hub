@@ -10,6 +10,8 @@ import { installDeadlines } from './deadlines.mjs';
 import { installWorkflows } from './workflows.mjs';
 import { createBackupManager, streamFamilyBackup } from './backups.mjs';
 import { BASE_SCHEMA } from './schema.mjs';
+import { RECOVERY_SCHEMA, createRecovery } from './recovery.mjs';
+import { resetEmailSender, DEFAULT_APP_URL } from './reset-email.mjs';
 import { installChunkUploads } from './uploads.mjs';
 const MAX_CENTS = 1000000000;
 const COLORS = ['mint', 'amber', 'blue', 'rose', 'neutral'];
@@ -51,7 +53,7 @@ function passwordMatches(password, stored) {
     const candidate = scryptSync(password, salt, 64);
     return timingSafeEqual(candidate, Buffer.from(key, 'hex'));
 }
-export function createApp({ dataDir, production = false, trustProxy = false, distDir, automaticBackups = false, backupDir, database, cloudBackups, cronSecret } = {}) {
+export function createApp({ dataDir, production = false, trustProxy = false, distDir, automaticBackups = false, backupDir, database, cloudBackups, cronSecret, resetMailer = resetEmailSender(), appUrl = DEFAULT_APP_URL, scheduleResetDelivery } = {}) {
     if (!dataDir)
         throw new Error('dataDir is required');
     mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -59,7 +61,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
     mkdirSync(uploadDir, { recursive: true, mode: 0o700 });
     const db = database || new DatabaseSync(path.join(dataDir, 'casa.sqlite'));
     if (!database)
-        db.exec(BASE_SCHEMA);
+        db.exec(BASE_SCHEMA + RECOVERY_SCHEMA);
     const run = (sql, ...args) => db.prepare(sql).run(...args);
     const one = (sql, ...args) => db.prepare(sql).get(...args);
     const all = (sql, ...args) => db.prepare(sql).all(...args);
@@ -172,6 +174,10 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             return res.status(429).json({ error: 'Troppi tentativi. Riprova tra 15 minuti.' });
         next();
     });
+    const recovery = createRecovery({ run, one, atomic, fail, text, passwordHash, mailer: resetMailer, appUrl, scheduleDelivery: scheduleResetDelivery });
+    app.get('/api/auth/recovery-status', (req, res) => res.json({ available: !!resetMailer }));
+    app.post('/api/auth/forgot-password', recovery.forgot);
+    app.post('/api/auth/reset-password', recovery.reset);
     app.post('/api/auth/register', async (req, res) => {
         const name = text(req.body.name, 'Nome', 80);
         const email = text(req.body.email, 'Email', 254).toLowerCase();
@@ -242,6 +248,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
                 if (!passwordMatches(text(req.body.currentPassword, 'Password attuale', 128), user.password_hash)) fail('Password attuale non corretta.', 400);
                 if (await one('SELECT id FROM users WHERE email = ? AND id <> ?', email, user.id)) fail('Questa email è già registrata.', 409);
                 await run('DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?', user.id, req.user.token_hash);
+                await recovery.invalidate(user.id);
             }
             await run('UPDATE users SET name = ?, email = ? WHERE id = ?', name, email, user.id);
             updated = publicUser({ ...user, name, email });
@@ -257,6 +264,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             const user = await one('SELECT password_hash FROM users WHERE id = ?', req.user.id);
             if (!passwordMatches(current, user.password_hash)) fail('Password attuale non corretta.', 400);
             await run('UPDATE users SET password_hash = ? WHERE id = ?', encoded, req.user.id);
+            await recovery.invalidate(req.user.id);
             await run('DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?', req.user.id, req.user.token_hash);
         });
         res.json({ ok: true });

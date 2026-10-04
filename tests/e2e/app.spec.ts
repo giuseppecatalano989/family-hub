@@ -22,6 +22,7 @@ test('a family can manage money, goals, shopping and pinned files on desktop and
   await dialog.getByLabel('Importo (€)').fill('3200,00');
   await dialog.getByRole('button', { name: 'Aggiungi entrata' }).click();
   await expect(page.locator('.stat-card').first()).toContainText('3.200,00');
+  await expect(page.getByRole('button', { name: 'Nuova uscita' }).locator('svg')).toHaveClass(/lucide-minus/);
   await page.getByRole('button', { name: 'Nuova uscita' }).click();
   dialog = page.getByRole('dialog');
   await dialog.getByLabel('Nome', { exact: true }).fill('Affitto');
@@ -143,6 +144,7 @@ test('a family can manage money, goals, shopping and pinned files on desktop and
       const spans = Array.from(row.querySelectorAll('.legend-amounts > *'));
       return amounts.left >= category.right && amounts.right <= bounds.right + 1 && spans.every(item => item.getBoundingClientRect().right <= bounds.right + 1);
     }))).toBe(true);
+    expect(await page.locator('.donut span').evaluate(el => getComputedStyle(el).fontSize)).toBe(await page.locator('.donut small').evaluate(el => getComputedStyle(el).fontSize));
     const quickActions = page.locator('.dashboard-quick-actions .button');
     const incomeAction = await quickActions.nth(0).boundingBox();
     const expenseAction = await quickActions.nth(1).boundingBox();
