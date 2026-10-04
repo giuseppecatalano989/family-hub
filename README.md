@@ -34,6 +34,14 @@ Le Scadenze sono promemoria con eventuale pagamento manuale: evita di registrare
 
 **Salva schema** applica la scelta. Nei predefiniti, nomi e percentuali sono fissi anche lato server. In Pers. sono modificabili e devono sommare esattamente il 100%. Applicare un predefinito conserva Pers. e gli identificativi delle categorie, quindi non cambia i movimenti. Le precedenti modifiche ai predefiniti tornano ai valori di fabbrica senza cambiare automaticamente la ripartizione attuale. Lo schema 50/30/20 non è più proposto; i suoi eventuali dati storici restano nei backup.
 
+## Dashboard e consultazione degli appunti
+
+**Dove vanno le nostre uscite** mostra per ogni categoria la spesa effettiva e il massimale del mese, calcolato sulle entrate e sulla ripartizione attuale. Gli importi hanno una riga dedicata; sul telefono il grafico precede la legenda per lasciare spazio ai valori.
+
+**La vita di casa** offre, senza separatori, Lista della spesa, Menu settimanale, Conferimento rifiuti, Scadenze e Lavagna di famiglia. La lavagna appare solo come collegamento. I prossimi traguardi precedono gli ultimi movimenti.
+
+Toccare una nota nella lavagna apre il testo completo e gli allegati in sola lettura; il titolo è anche un pulsante accessibile da tastiera. La matita apre la modifica. Evidenziare una nota o scaricare un allegato dalla scheda conserva la propria azione senza aprire la consultazione.
+
 ## Account e famiglia
 
 Il pulsante account nella barra superiore o il nome nella barra laterale apre **Il tuo account**. È possibile modificare nome, email, password e, per l'amministratore, nome della casa. Cambiare email richiede la password attuale; email e password aggiornate disconnettono gli altri accessi allo stesso account. Le impostazioni e gli inviti rimangono riservati alla propria famiglia.

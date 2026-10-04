@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Check, Paperclip, Trash2 } from 'lucide-react';
 import BudgetDialog from './BudgetDialog';
 import { Modal } from './components';
-import { money, parseMoney, toInput } from './finance';
+import { money, parseMoney, toInput, readableDate } from './finance';
 import type { Dialog } from './pages';
 import type { FamilyState } from './types';
 
@@ -22,6 +22,17 @@ export default function Dialogs({ dialog, data, onClose, mutate }: Props) {
   const footer = (label = 'Salva') => <div className="modal-footer"><button type="button" className="button secondary" onClick={onClose} disabled={pending}>Annulla</button><button className="button primary" disabled={pending}>{pending ? 'Salvataggio…' : label}</button></div>;
   const errors = error && <div className="form-error" role="alert">{error}</div>;
   const submit = (event: FormEvent<HTMLFormElement>, action: (form: FormData) => Promise<void>) => { event.preventDefault(); const form = new FormData(event.currentTarget); void save(() => action(form)); };
+  if (dialog.type === 'viewNote') {
+    const note = data.notes.find(n => n.id === dialog.note.id) || dialog.note;
+    return <Modal title={note.title} onClose={onClose}>
+      <div className="note-reader">
+        <p className="note-reader-meta">{note.author} · {readableDate(note.updated_at.slice(0, 10))}</p>
+        {note.content && <p className="note-reader-content">{note.content}</p>}
+        {note.attachments.length > 0 && <div className="note-reader-attachments"><h3>Allegati</h3>{note.attachments.map(file => <div className="attachment-row" key={file.id}><Paperclip size={16} /><a href={`/api/attachments/${file.id}`}>{file.original_name}</a></div>)}</div>}
+      </div>
+      <div className="modal-footer"><button type="button" className="button secondary" onClick={onClose}>Chiudi</button></div>
+    </Modal>;
+  }
   if (dialog.type === 'budget') return <BudgetDialog data={data} onClose={onClose} mutate={mutate} />;
   if (dialog.type === 'goal') return <Modal title={dialog.goal ? 'Modifica il vostro progetto' : 'Un nuovo progetto, insieme'} subtitle="Dategli un nome e una meta da raggiungere." onClose={onClose}><form onSubmit={e => submit(e, async form => {
     await mutate(dialog.goal ? `/goals/${dialog.goal.id}` : '/goals', dialog.goal ? 'PUT' : 'POST', { title: form.get('title'), horizon: form.get('horizon'), target: parseMoney(String(form.get('target'))), saved: parseMoney(String(form.get('saved') || '0')), dueDate: form.get('dueDate') || null });

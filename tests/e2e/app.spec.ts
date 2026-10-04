@@ -28,6 +28,7 @@ test('a family can manage money, goals, shopping and pinned files on desktop and
   await dialog.getByLabel('Importo (€)').fill('850');
   await dialog.getByRole('button', { name: 'Aggiungi uscita' }).click();
   await expect(page.locator('.balance-card')).toContainText('2.350,00');
+  await expect(page.locator('.legend-row').first().locator('.legend-amounts')).toHaveText('850,00 €/1.120,00 €');
   await go(page, 'Ripartizione budget');
   await expect(page.locator('.budget-category').first()).toContainText('1.120,00');
   await page.getByRole('button', { name: 'Modifica schema' }).click();
@@ -70,9 +71,27 @@ test('a family can manage money, goals, shopping and pinned files on desktop and
   await dialog.getByRole('button', { name: 'Pubblica sulla lavagna' }).click();
   await expect(page.locator('.note-card')).toContainText('IN EVIDENZA');
   await expect(page.getByRole('link', { name: 'promemoria.txt' })).toBeVisible();
+  await page.locator('.note-card .note-content').click();
+  dialog = page.getByRole('dialog', { name: 'Documenti per le vacanze' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('Ricordiamoci di controllare i documenti prima di partire.');
+  await expect(dialog.locator('input, textarea, form')).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath('consultazione-nota.png'), fullPage: true });
+  await expect(dialog.getByRole('button', { name: /Salva|Modifica|Rimuovi/ })).toHaveCount(0);
   const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('link', { name: 'promemoria.txt' }).click();
+  await dialog.getByRole('link', { name: 'promemoria.txt' }).click();
   expect((await downloadPromise).suggestedFilename()).toBe('promemoria.txt');
+  await dialog.getByRole('button', { name: 'Chiudi', exact: true }).click();
+  await page.getByRole('button', { name: 'Leggi Documenti per le vacanze' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Documenti per le vacanze' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Rimuovi in evidenza Documenti per le vacanze' }).click();
+  await expect(page.getByRole('button', { name: 'Metti in evidenza Documenti per le vacanze' })).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Metti in evidenza Documenti per le vacanze' }).click();
+  await expect(page.locator('.note-card')).toContainText('IN EVIDENZA');
 
   await page.getByRole('button', { name: 'Il tuo account', exact: true }).click();
   await page.getByRole('button', { name: 'Genera link di invito' }).click();
@@ -106,7 +125,27 @@ test('a family can manage money, goals, shopping and pinned files on desktop and
   expect((await csvPromise).suggestedFilename()).toBe('movimenti-casa.csv');
   await go(page, 'Panoramica');
   await expect(page.locator('.stat-card').first()).toContainText('3.200,00');
+  await expect(page.locator('.daily-panel .daily-row strong')).toHaveText(['Lista della spesa', 'Menu settimanale', 'Conferimento rifiuti', 'Scadenze', 'Lavagna di famiglia']);
+  await expect(page.locator('.daily-panel .daily-row').last()).toHaveText('Lavagna di famiglia');
+  await expect(page.locator('.daily-divider, .note-peek')).toHaveCount(0);
+  await expect(page.locator('.overview-bottom .section-heading h2')).toHaveText(['I nostri prossimi traguardi', 'Gli ultimi movimenti']);
+  await expect(page.locator('.legend-row').first().locator('.legend-amounts')).toHaveText('800,00 €/960,00 €');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('panoramica.png'), fullPage: true });
+  const viewport = page.viewportSize()!;
+  for (const width of [320, 1100]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.locator('.sidebar').evaluate(async element => { await Promise.all(element.getAnimations().map(animation => animation.finished)); });
+    expect(await page.locator('.legend-row').evaluateAll(rows => rows.every(row => {
+      const category = row.querySelector('.legend-category')!.getBoundingClientRect();
+      const amounts = row.querySelector('.legend-amounts')!.getBoundingClientRect();
+      const bounds = row.getBoundingClientRect();
+      const spans = Array.from(row.querySelectorAll('.legend-amounts > *'));
+      return amounts.top >= category.bottom && amounts.right <= bounds.right + 1 && spans.every(item => item.getBoundingClientRect().right <= bounds.right + 1);
+    }))).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath(`panoramica-${width}.png`), fullPage: true });
+  }
+  await page.setViewportSize(viewport);
   expect(errors).toEqual([]);
 });
