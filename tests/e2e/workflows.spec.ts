@@ -1,0 +1,96 @@
+import { test, expect, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { unzipSync } from 'fflate';
+
+async function go(page: Page, label: string) {
+  const menu = page.getByRole('button', { name: 'Apri menu' });
+  if (await menu.isVisible()) await menu.click();
+  await page.getByRole('navigation').getByRole('button', { name: label, exact: true }).click();
+}
+
+test('bills create one expense, weekly meals update shopping and family backup downloads safely', async ({ page }, testInfo) => {
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/');
+  await page.getByLabel('Il tuo nome').fill('Anna');
+  await page.getByLabel('Email', { exact: true }).fill(`funzioni-${testInfo.project.name}-${Date.now()}@example.it`);
+  await page.getByLabel('Password', { exact: true }).fill('test-password-123');
+  await page.getByLabel('Nome del vostro spazio').fill('Casa delle piccole cose');
+  await page.getByRole('button', { name: 'Entra a casa' }).click();
+  await expect(page.getByRole('heading', { name: 'La nostra casa, in ordine.' })).toBeVisible();
+  const today = await page.evaluate(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; });
+
+  await go(page, 'Bollette e scadenze');
+  await page.getByRole('button', { name: 'Nuova bolletta' }).click();
+  let dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Nome della bolletta').fill('Internet');
+  await dialog.getByLabel('Importo previsto (€)').fill('29,90');
+  await dialog.getByLabel('Giorno di scadenza').fill(String(Number(today.slice(-2))));
+  await dialog.getByRole('button', { name: 'Aggiungi bolletta' }).click();
+  await expect(page.locator('.bill-row')).toContainText('Scade oggi');
+  await page.getByRole('button', { name: 'Segna pagata' }).click();
+  dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Importo pagato (€)').fill('30,00');
+  await dialog.getByRole('button', { name: 'Registra pagamento' }).click();
+  await expect(page.locator('.bill-row')).toContainText('Pagata il');
+  await expect(page.getByRole('button', { name: 'Segna pagata' })).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath('bollette.png'), fullPage: true });
+  await go(page, 'Movimenti');
+  await expect(page.locator('.transaction-row')).toHaveCount(1);
+  await expect(page.locator('.transaction-row')).toContainText(`Internet · ${today.slice(0, 7)}`);
+  await expect(page.locator('.transaction-row')).toContainText('30,00');
+
+  await go(page, 'Menu settimanale');
+  await page.getByRole('button', { name: 'Pianifica pasto', exact: true }).click();
+  dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Nome del piatto').fill('Pasta al pomodoro');
+  await dialog.getByLabel('Porzioni', { exact: true }).fill('3');
+  await dialog.getByRole('button', { name: 'Ingrediente', exact: true }).click();
+  await dialog.getByLabel('Ingrediente 1', { exact: true }).fill('Pasta');
+  await dialog.getByLabel('Quantità ingrediente 1').fill('300 g');
+  await dialog.getByRole('button', { name: 'Ingrediente', exact: true }).click();
+  await dialog.getByLabel('Ingrediente 2', { exact: true }).fill('Pomodori');
+  await dialog.getByLabel('Quantità ingrediente 2').fill('500 g');
+  await dialog.getByLabel('Reparto ingrediente 2').selectOption('Frutta e verdura');
+  await dialog.getByLabel('Preparazione o promemoria', { exact: false }).fill('Preparare il sugo la sera prima.');
+  await dialog.getByRole('button', { name: 'Pianifica pasto', exact: true }).click();
+  await page.getByRole('button', { name: 'Aggiungi alla spesa' }).click();
+  await expect(page.getByRole('button', { name: 'Ingredienti già in lista' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Modifica pasto Pasta al pomodoro' }).click();
+  await page.getByLabel('Quantità ingrediente 2').fill('800 g');
+  await page.getByRole('button', { name: 'Salva menu' }).click();
+  await expect(page.locator('.meal-grid')).toContainText('800 g');
+  await page.getByRole('button', { name: 'Settimana successiva' }).click();
+  await expect(page.getByRole('heading', { name: 'Pasta al pomodoro', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Settimana precedente' }).click();
+  await expect(page.getByRole('heading', { name: 'Pasta al pomodoro', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('menu.png'), fullPage: true });
+  await go(page, 'Lista della spesa');
+  await expect(page.locator('.shopping-row')).toHaveCount(2);
+  await expect(page.locator('.shopping-row').filter({ hasText: 'Pomodori' })).toContainText('800 g');
+
+  await go(page, 'Lavagna');
+  await page.getByRole('button', { name: 'Nuovo appunto' }).click();
+  dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Titolo', { exact: true }).fill('Copia del documento');
+  await dialog.locator('input[type=file]').setInputFiles({ name: 'documento.txt', mimeType: 'text/plain', buffer: Buffer.from('Allegato da conservare') });
+  await dialog.getByRole('button', { name: 'Pubblica sulla lavagna' }).click();
+  await expect(page.getByRole('link', { name: 'documento.txt' })).toBeVisible();
+  await go(page, 'Backup');
+  await expect(page.locator('.backup-status')).toContainText('Attivi');
+  await expect(page.locator('.backup-schedule')).not.toContainText('Non ancora disponibile');
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('link', { name: 'Scarica backup famiglia' }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/^casa-famiglia-\d{4}-\d{2}-\d{2}\.zip$/);
+  const zip = unzipSync(readFileSync((await download.path())!));
+  const contents = new TextDecoder().decode(zip['casa.json']); const payload = JSON.parse(contents);
+  expect(payload.household.name).toBe('Casa delle piccole cose');
+  expect(payload.data.bills).toHaveLength(1); expect(payload.data.meals).toHaveLength(1); expect(payload.data.transactions).toHaveLength(1);
+  expect(payload.data.shopping).toHaveLength(2); expect(payload.data.attachments).toHaveLength(1);
+  expect(new TextDecoder().decode(zip[payload.data.attachments[0].file])).toBe('Allegato da conservare');
+  expect(contents).not.toContain('password_hash'); expect(contents).not.toContain('token_hash');
+  await page.screenshot({ path: testInfo.outputPath('backup.png'), fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(errors).toEqual([]);
+});
