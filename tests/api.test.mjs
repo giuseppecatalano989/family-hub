@@ -309,3 +309,84 @@ test('a failed automatic backup is reported and preserves the live application d
   assert.equal((await state(owner)).shopping[0].name, 'Dati da preservare');
   assert.equal(readFileSync(blocked, 'utf8'), 'file preesistente'); manager.stop();
 });
+
+const periodToday = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit' }).format(new Date());
+function periodShift(value, delta) { const [y,m] = value.split('-').map(Number); return new Date(Date.UTC(y,m-1+delta,1)).toISOString().slice(0,7); }
+
+test('monthly income sources and expenses produce exact balances without duplicate occurrences', async () => {
+  const owner = await register(); const current = periodToday(); const first = periodShift(current,-2);
+  const categoryId = (await state(owner,current)).categories[0].id;
+  await create('/recurring', { kind:'income', name:'Stipendio Sara', amount:210001, startMonth:first, day:31, enabled:true }, owner);
+  await create('/recurring', { kind:'income', name:'Pensione', amount:90000, startMonth:current, day:1, enabled:true }, owner);
+  await create('/recurring', { kind:'expense', name:'Affitto', amount:85000, categoryId, startMonth:first, day:1, enabled:true }, owner);
+  const views = await Promise.all(Array.from({length:4},()=>state(owner,current)));
+  for(const view of views) {
+    assert.equal(view.transactions.length,3);
+    assert.equal(view.transactions.reduce((sum,t)=>sum+(t.kind==='income'?t.amount:-t.amount),0),215001);
+    assert.equal(view.recurring.length,3); assert.ok(view.transactions.every(t=>t.recurring_id));
+  }
+  const past = await state(owner,first); assert.equal(past.transactions.length,2);
+  const [y,m] = first.split('-').map(Number); assert.equal(past.transactions.find(t=>t.kind==='income').date,`${first}-${new Date(Date.UTC(y,m,0)).getUTCDate()}`);
+  const future=await state(owner,periodShift(current,2));assert.equal(future.transactions.length,3);
+  assert.equal(instance.db.prepare('SELECT COUNT(*) AS n FROM recurring_occurrences').get().n,10);
+});
+
+test('dated recurring edits preserve history, manual adjustments and skipped monthly movements', async () => {
+  const owner = await register(); const current=periodToday();const first=periodShift(current,-2);
+  const rule = await create('/recurring',{kind:'income',name:'Stipendio',amount:100000,day:5,startMonth:first,enabled:true},owner);
+  const currentRecord=(await state(owner,current)).transactions[0];
+  assert.equal((await request(`/transactions/${currentRecord.id}`,{method:'PUT',session:owner,body:{kind:'income',description:'Premio + stipendio',amount:120000,date:`${current}-05`}})).status,200);
+  assert.equal((await request(`/recurring/${rule.id}`,{method:'PUT',session:owner,body:{name:'Stipendio aggiornato',amount:110000,day:8,effectiveMonth:periodShift(current,-1),enabled:true}})).status,200);
+  assert.equal((await state(owner,first)).transactions[0].amount,100000);
+  assert.equal((await state(owner,periodShift(current,-1))).transactions[0].amount,110000);
+  assert.equal((await state(owner,current)).transactions[0].amount,120000);
+  const futureMonth=periodShift(current,1);const future=(await state(owner,futureMonth)).transactions[0];
+  assert.equal(future.amount,110000);
+  await request(`/transactions/${future.id}`,{method:'DELETE',session:owner});
+  assert.equal((await state(owner,futureMonth)).transactions.length,0);
+  assert.equal((await state(owner,futureMonth)).transactions.length,0);
+  await request(`/recurring/${rule.id}/stop`,{method:'POST',session:owner,body:{effectiveMonth:current}});
+  assert.equal((await state(owner,current)).transactions[0].amount,120000);
+  assert.equal((await state(owner,periodShift(current,2))).transactions.length,0);
+  // Resuming a source still must not resurrect a manually skipped month.
+  await request(`/recurring/${rule.id}`,{method:'PUT',session:owner,body:{name:'Ripresa',amount:130000,day:1,effectiveMonth:futureMonth,enabled:true}});
+  assert.equal((await state(owner,futureMonth)).transactions.length,0);
+  assert.equal((await state(owner,periodShift(current,2))).transactions[0].amount,130000);
+});
+
+test('recurring records validate dates, categories and family ownership and stop automatic costs', async () => {
+  const owner=await register();const stranger=await register('other@example.it');const current=periodToday();
+  const categoryId=(await state(owner,current)).categories[0].id;
+  const body={kind:'expense',name:'Bollette',amount:10001,categoryId,day:1,startMonth:current,enabled:true};
+  const rule=await create('/recurring',body,owner);
+  assert.equal((await request(`/recurring/${rule.id}`,{method:'PUT',session:stranger,body:{...body,effectiveMonth:current}})).status,404);
+  assert.equal((await request('/recurring',{method:'POST',session:stranger,body})).status,404);
+  for(const change of [{day:32},{amount:0},{endMonth:periodShift(current,-1)},{enabled:'yes'},{startMonth:'bad'},{amount:1.1}])assert.equal((await request('/recurring',{method:'POST',session:owner,body:{...body,...change}})).status,400);
+  const movement=(await state(owner,current)).transactions[0];
+  assert.equal((await request(`/transactions/${movement.id}`,{method:'PUT',session:owner,body:{kind:'income',description:'No',amount:10,date:`${current}-01`}})).status,400);
+  await request(`/recurring/${rule.id}/stop`,{method:'POST',session:owner,body:{effectiveMonth:current}});
+  assert.equal((await state(owner,current)).transactions.length,0);
+  assert.equal((await state(stranger,current)).recurring.length,0);
+});
+
+test('budget templates are editable, applied atomically and reset without changing custom or current budget', async () => {
+  const owner=await register();const stranger=await register('other@example.it');let view=await state(owner);
+  assert.equal(view.budgetTemplates.length,6);
+  for(const t of view.budgetTemplates)assert.equal(t.entries.reduce((s,e)=>s+e.percentage,0),10000);
+  const custom=view.budgetTemplates.find(t=>t.template_key==='custom');const conservative=view.budgetTemplates.find(t=>t.template_key==='conservative');
+  const customEntries=custom.entries.map((e,i)=>({...e,name:i===0?'La nostra casa':e.name,percentage:[4000,2000,1000,1000,1000,1000][i]}));
+  assert.equal((await request(`/budget-templates/${custom.id}`,{method:'PUT',session:owner,body:{entries:customEntries}})).status,200);
+  const changed=conservative.entries.map((e,i)=>({...e,percentage:[2000,1500,1000,500,500,4500][i]}));
+  await request(`/budget-templates/${conservative.id}`,{method:'PUT',session:owner,body:{entries:changed}});
+  assert.equal((await request(`/budget-templates/${conservative.id}/apply`,{method:'POST',session:stranger})).status,404);
+  assert.equal((await request(`/budget-templates/${conservative.id}`,{method:'PUT',session:owner,body:{entries:changed.map(e=>({...e,percentage:100}))}})).status,400);
+  await request(`/budget-templates/${conservative.id}/apply`,{method:'POST',session:owner});
+  const applied=(await state(owner)).categories;
+  assert.deepEqual(applied.map(c=>c.percentage),changed.map(e=>e.percentage));
+  await request('/budget-templates/reset',{method:'POST',session:owner});view=await state(owner);
+  assert.deepEqual(view.budgetTemplates.find(t=>t.template_key==='custom').entries,customEntries);
+  assert.deepEqual(view.budgetTemplates.find(t=>t.template_key==='conservative').entries.map(e=>e.percentage),[3000,1500,1000,500,500,3500]);
+  assert.deepEqual(view.categories,applied);assert.equal(view.activeTemplateId,null);
+  const exported=await request('/backups/export',{session:owner});const zip=unzipSync(new Uint8Array(await exported.arrayBuffer()));const payload=JSON.parse(Buffer.from(zip['casa.json']));
+  assert.equal(payload.data.budget_templates.length,6);assert.equal(payload.data.recurring_versions.length,0);
+});

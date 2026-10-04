@@ -1,6 +1,6 @@
 export interface User { id: string; name: string; email: string; role: 'admin' | 'member'; householdId: string }
 export interface Category { id: string; name: string; color: string; percentage: number }
-export interface Transaction { id: string; kind: 'income' | 'expense'; amount: number; category_id: string | null; description: string; date: string; author: string }
+export interface Transaction { id: string; kind: 'income' | 'expense'; amount: number; category_id: string | null; description: string; date: string; author: string; recurring_id?: string | null }
 export interface Goal { id: string; title: string; horizon: 'short' | 'medium' | 'long'; target: number; saved: number; due_date: string | null }
 export interface ShoppingItem { id: string; name: string; quantity: string; section: string; checked: number; author: string }
 export interface Attachment { id: string; original_name: string; size: number }
@@ -16,6 +16,16 @@ export interface BackupStatus { mode?: 'cloud'; enabled: boolean; lastAt: string
 export interface FamilyState {
   household: { id: string; name: string };
   members: { id: string; name: string; role: string }[];
+  recurring: RecurringRule[]; budgetTemplates: BudgetTemplate[]; activeTemplateId: string | null;
   categories: Category[]; transactions: Transaction[]; goals: Goal[]; shopping: ShoppingItem[]; notes: Note[];
   bills: Bill[]; meals: Meal[]; week: string; backups: BackupStatus | null;
+}
+export interface RecurringRule {
+  id: string; kind: 'income' | 'expense'; start_month: string; effective_month: string;
+  name: string; amount: number; category_id: string | null; day: number; end_month: string | null;
+  enabled: number; active: boolean; author: string;
+}
+export interface BudgetTemplate {
+  id: string; template_key: string; name: string; description: string;
+  entries: { id: string; name: string; percentage: number }[];
 }

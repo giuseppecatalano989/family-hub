@@ -120,7 +120,11 @@ test('10 MB uploads use bounded chunks, preserve exact bytes and enforce private
 });
 
 test('daily cloud backups retain seven verified snapshots and restore exact account and file data', async () => {
-  const owner = await register(); const note = await create('/notes', { title: 'Copia', content: 'Test', color: 'mint', pinned: false }, owner);
+  const owner = await register();
+  const month = new Intl.DateTimeFormat('sv-SE', { timeZone:'Europe/Rome', year:'numeric', month:'2-digit' }).format(new Date());
+  await create('/recurring', { kind:'income', name:'Reddito da ripristinare', amount:100000, day:1, startMonth:month, enabled:true }, owner);
+  const preset = (await state(owner)).budgetTemplates[0];
+  await json(await request(`/budget-templates/${preset.id}/apply`, { method:'POST', session:owner })); const note = await create('/notes', { title: 'Copia', content: 'Test', color: 'mint', pinned: false }, owner);
   const bytes = Buffer.from('allegato da ripristinare'); const file = await attach(owner, note, bytes);
   let stamp = Date.UTC(2026, 9, 4);
   const manager = createCloudBackups(instance.db, { scheduled: true, clock: () => stamp });
@@ -151,6 +155,10 @@ test('daily cloud backups retain seven verified snapshots and restore exact acco
       const restored = await createCloudApp({ connectionString: target.toString(), local: true });
       try {
         assert.equal((await restored.db.prepare('SELECT COUNT(*) AS count FROM users').get()).count, 1);
+        assert.equal((await restored.db.prepare('SELECT COUNT(*) AS count FROM recurring_rules').get()).count, 1);
+        assert.equal((await restored.db.prepare('SELECT COUNT(*) AS count FROM recurring_occurrences').get()).count, 1);
+        assert.equal((await restored.db.prepare('SELECT COUNT(*) AS count FROM budget_templates').get()).count, 6);
+        assert.equal((await restored.db.prepare('SELECT active_template_id FROM budget_settings').get()).active_template_id, preset.id);
         assert.deepEqual(await restored.db.files.get(file.id), bytes);
       } finally { await restored.close(); }
     } finally { await pool.query('DROP DATABASE IF EXISTS casa_restore_test'); await pool.end(); }
@@ -180,4 +188,26 @@ test('incomplete uploads cannot cross families and failed cloud backup is report
   assert.ok((await instance.backups.status()).error);
   assert.equal((await state(owner)).notes[0].content, 'Da preservare');
   assert.equal((await request('/internal/backup', { headers: { authorization: 'Bearer test-cron-local-only' } })).status, 503);
+});
+
+test('recurrences synchronize concurrent cloud instances and templates remain family-scoped through backups', async () => {
+  const owner=await register();const stranger=await register('other@example.test');
+  const current=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Rome',year:'numeric',month:'2-digit'}).format(new Date());
+  const categoryId=(await state(owner)).categories[0].id;
+  await create('/recurring',{kind:'income',name:'Reddito',amount:200001,day:31,startMonth:current,enabled:true},owner);
+  const cost=await create('/recurring',{kind:'expense',name:'Affitto',amount:80000,day:1,startMonth:current,categoryId,enabled:true},owner);
+  const second=await start();
+  const [year, monthNumber] = current.split('-').map(Number);
+  const future = new Date(Date.UTC(year, monthNumber, 1)).toISOString().slice(0, 7);
+  const views=await Promise.all(Array.from({length:6},(_,i)=>request(`/state?month=${future}`,{session:owner,target:i%2?base:second.base}).then(r=>json(r))));
+  assert.ok(views.every(v=>v.transactions.length===2));
+  assert.equal((await instance.db.prepare('SELECT COUNT(*) AS count FROM recurring_occurrences').get()).count,4);
+  assert.equal((await request(`/recurring/${cost.id}/stop`,{method:'POST',session:stranger,body:{effectiveMonth:current}})).status,404);
+  const template=views[0].budgetTemplates.find(t=>t.template_key==='prudent');
+  await json(await request(`/budget-templates/${template.id}/apply`,{method:'POST',session:owner}));
+  const shared=await json(await request(`/state?month=${current}`,{session:owner,target:second.base}));
+  assert.equal(shared.activeTemplateId,template.id);assert.equal(shared.categories[0].percentage,3500);
+  const exported=await request('/backups/export',{session:owner});const zip=unzipSync(new Uint8Array(await exported.arrayBuffer()));const data=JSON.parse(Buffer.from(zip['casa.json'])).data;
+  assert.equal(data.recurring_rules.length,2);assert.equal(data.recurring_versions.length,2);assert.equal(data.recurring_occurrences.length,4);assert.equal(data.budget_templates.length,6);
+  assert.equal((await state(stranger)).recurring.length,0);
 });

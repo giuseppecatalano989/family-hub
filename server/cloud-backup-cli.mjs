@@ -15,6 +15,7 @@ export async function restoreCloudBackup(source, connectionString, options = {})
   try {
     await db.atomic(async () => {
       for (const table of TABLES) {
+        if (!copy.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(table)) continue;
         const rows = copy.prepare(`SELECT * FROM ${table}`).all();
         if (!rows.length) continue;
         const columns = Object.keys(rows[0]);

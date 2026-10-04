@@ -2,6 +2,31 @@
 
 Una webapp in italiano per organizzare le finanze e la vita quotidiana in uno spazio condiviso. Ogni persona ha un account personale; i membri della stessa famiglia vedono gli stessi dati.
 
+## Redditi, ricorrenze e template
+
+In **Redditi familiari**, crea una fonte per ogni stipendio, pensione o altra entrata mensile. Importo, giorno, mese iniziale e termine facoltativo sono condivisi. Le entrate occasionali restano disponibili. Il saldo mensile somma tutte le entrate e sottrae le uscite, comprese quelle ricorrenti.
+
+In **Movimenti ricorrenti**, configura affitto/mutuo, alimentari, bollette, rate e abbonamenti con i vostri importi. Ogni voce produce un solo movimento per mese. Il giorno 31 viene adattato ai mesi più corti. Le ricorrenze recuperano i mesi mancanti fino a quello corrente; visualizzare un mese futuro crea le registrazioni pianificate di quel mese. Il totale mensile include l'intero mese, anche quando il giorno di registrazione deve ancora arrivare. Non vengono eseguiti incassi o pagamenti bancari.
+
+Una modifica alla ricorrenza ha un mese di validità: aggiorna le registrazioni automatiche da quel mese, conserva lo storico precedente e rispetta le correzioni manuali. Rimuovere un movimento lo salta soltanto per quel mese e non lo fa ricomparire. **Sospendi** interrompe la ricorrenza dal mese selezionato; per riprenderla, modifica la voce e attiva nuovamente la casella. Fino a 100 ricorrenze per famiglia; mese iniziale fino a dieci anni prima. Il cron cloud quotidiano le sincronizza prima del backup e l'apertura dell'app recupera eventuali mesi mancanti.
+
+Le bollette restano promemoria con pagamento manuale: evita di registrare un pagamento per una spesa già inserita tra le ricorrenze, o verrebbe conteggiata due volte. Anche un reddito già registrato manualmente può duplicarsi se crei la sua fonte dallo stesso mese: scegli un mese iniziale successivo o rimuovi il duplicato.
+
+Il **Budget familiare** offre sei template condivisi:
+
+| Template | Casa e bollette | Alimentari | Trasporti | Salute e famiglia | Svago | Risparmio |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Conservativa | 30% | 15% | 10% | 5% | 5% | 35% |
+| Prudente | 35% | 20% | 10% | 10% | 10% | 15% |
+| Equilibrata | 35% | 15% | 10% | 5% | 15% | 20% |
+| Svago | 30% | 15% | 10% | 5% | 30% | 10% |
+| 50 / 30 / 20 | 25% | 15% | 5% | 5% | 30% | 20% |
+| Personalizzato | Composizione iniziale della famiglia | | | | | |
+
+Ogni template permette di cambiare nomi e percentuali (totale esattamente 100%). **Salva template** conserva il modello; **Applica** aggiorna la ripartizione usando gli stessi identificativi delle categorie, preservando i movimenti e le ricorrenze. **Modifica schema** salva e applica il Personalizzato. **Reimposta template** ripristina tutti i predefiniti, conservando il Personalizzato e il budget attuale. Una modifica a un modello applicato rimuove il suo indicatore “Applicato” finché non viene applicato di nuovo.
+
+Le nuove tabelle sono create in modo additivo, senza modificare o cancellare i dati esistenti. Ricorrenze, versioni, mesi saltati e template fanno parte dei backup dell'istanza, del ripristino cloud e dell'esportazione familiare. I backup precedenti alle nuove tabelle possono ancora essere ripristinati in un nuovo database.
+
 ## Funzioni della prima versione
 
 - **Panoramica:** entrate, uscite e saldo del mese, distribuzione delle spese, avvisi di sforamento e riepilogo degli obiettivi.
@@ -87,7 +112,7 @@ Per verificare il backend cloud in sviluppo serve un **PostgreSQL temporaneo loc
 CASA_TEST_DATABASE_URL=postgresql://utente:password@127.0.0.1:5432/database_temporaneo npm run test:cloud
 ```
 
-Questi sei test verificano isolamento e condivisione tra istanze, pagamenti concorrenti, persistenza, conferma degli upload soltanto dopo il commit, allegati da 10 MB e ZIP familiare, sette snapshot verificati, ripristino SQLite e PostgreSQL e limiti di accesso persistenti. Il comando cancella lo schema `casa` del database temporaneo e crea/rimuove un database `casa_restore_test`: non usare un database reale. Richiede un ruolo locale autorizzato a creare il database di test. Gli URL remoti vengono rifiutati.
+Questi sette test verificano isolamento e condivisione tra istanze, pagamenti concorrenti, persistenza, conferma degli upload soltanto dopo il commit, allegati da 10 MB e ZIP familiare, sette snapshot verificati, ripristino SQLite e PostgreSQL e limiti di accesso persistenti. Il comando cancella lo schema `casa` del database temporaneo e crea/rimuove un database `casa_restore_test`: non usare un database reale. Richiede un ruolo locale autorizzato a creare il database di test. Gli URL remoti vengono rifiutati.
 
 Per scaricare una copia riservata dell’istanza, configura `DATABASE_URL` sul dispositivo del gestore in un `.env` riservato:
 
@@ -111,7 +136,7 @@ npm test
 npm run test:e2e
 ```
 
-I 22 test Node verificano account e sessioni, inviti, condivisione e isolamento tra famiglie, CSRF, movimenti e mesi, budget, obiettivi, allegati, esportazione e persistenza dopo il riavvio, pagamenti senza duplicati, menu collegato alla spesa, limiti di mese e settimana, integrità dei backup, ripristino completo e conservazione delle ultime sette copie e segnalazione degli errori senza perdita dei dati. I quattro test browser percorrono le sezioni di base con due account e i nuovi flussi di bollette, menu, spesa e backup ZIP, su desktop e su un viewport mobile. Verificano anche i download, il contenuto dell’archivio, l’assenza di errori JavaScript e di scorrimento orizzontale.
+I 26 test Node verificano account e sessioni, inviti, condivisione e isolamento tra famiglie, CSRF, movimenti e mesi, budget, obiettivi, allegati, esportazione e persistenza dopo il riavvio, pagamenti senza duplicati, menu collegato alla spesa, limiti di mese e settimana, integrità dei backup, ripristino completo e conservazione delle ultime sette copie e segnalazione degli errori senza perdita dei dati. Verificano anche ricorrenze senza duplicati, modifiche datate, mesi saltati e ripristino dei template. I sei test browser percorrono le sezioni di base con due account e i flussi di bollette, menu, spesa, backup ZIP, redditi, ricorrenze e template, su desktop e su un viewport mobile. Verificano anche i download, il contenuto dell’archivio, l’assenza di errori JavaScript e di scorrimento orizzontale.
 
 I test usano database temporanei separati, rimossi alla fine: non modificano `.data`. I risultati del browser rimangono in `test-results`, ignorato da Git.
 
@@ -179,7 +204,7 @@ public/             Icona dell’app
 
 ## Prossimi sviluppi utili
 
-1. Entrate ricorrenti, scadenze annuali e notifiche esterne.
+1. Ricorrenze annuali o trimestrali e notifiche esterne.
 2. Confronto tra mesi, budget storici e categorie aggiuntive.
 3. Copie automatiche verso uno spazio esterno al server e importazione del ZIP familiare.
 4. Recupero della password, verifica email e gestione dei membri.

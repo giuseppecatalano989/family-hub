@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { randomBytes, randomUUID, createHash, scryptSync, timingSafeEqual } from 'node:crypto';
 import { mkdirSync, existsSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
+import { installPlanning } from './planning.mjs';
 import { installWorkflows } from './workflows.mjs';
 import { createBackupManager, streamFamilyBackup } from './backups.mjs';
 import { BASE_SCHEMA } from './schema.mjs';
@@ -108,6 +109,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             const actual = Buffer.from(req.get('authorization') || '');
             if (!expected || expected.length !== actual.length || !timingSafeEqual(expected, actual))
                 return res.status(401).json({ error: 'Accesso non consentito.' });
+            await planning.synchronizeAll();
             await cloudBackups.runIfDue();
             const status = await cloudBackups.status();
             res.status(status.error ? 503 : 200).json({ status: status.error ? 'error' : 'ok' });
@@ -236,6 +238,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         res.json({ code, expiresAt: new Date(expires).toISOString() });
     });
     const workflows = installWorkflows(app, { db, one, all, run, atomic, owned, fail, text, cents, date, now });
+    const planning = installPlanning(app, { db, one, all, run, atomic, owned, fail, text, cents, now });
     const backups = cloudBackups || createBackupManager({ db, dataDir, backupDir, enabled: automaticBackups });
     app.get('/api/backups/export', async (req, res, next) => {
         if (req.user.role !== 'admin')
@@ -250,15 +253,17 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         if (typeof month !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || month < '1900-01' || month > '2199-12')
             fail('Mese non valido.');
         const hid = req.user.household_id;
+        await planning.materialize(hid, month);
         const notes = await all('SELECT n.*, u.name AS author FROM notes n JOIN users u ON u.id = n.author_id WHERE n.household_id = ? ORDER BY pinned DESC, updated_at DESC', hid);
         const attachments = await all('SELECT a.* FROM attachments a JOIN notes n ON n.id = a.note_id WHERE n.household_id = ?', hid);
         res.json({
+            ...await planning.state(req.user, month),
             ...await workflows.state(req.user, month, req.query.week),
             backups: req.user.role === 'admin' ? await backups.status() : null,
             household: await one('SELECT id, name FROM households WHERE id = ?', hid),
             members: await all('SELECT id, name, role FROM users WHERE household_id = ? ORDER BY role, name', hid),
             categories: await all('SELECT * FROM categories WHERE household_id = ? ORDER BY position', hid),
-            transactions: await all('SELECT t.*, u.name AS author FROM transactions t JOIN users u ON u.id = t.author_id WHERE t.household_id = ? AND substr(t.date, 1, 7) = ? ORDER BY t.date DESC, t.created_at DESC', hid, month),
+            transactions: await all('SELECT t.*, u.name AS author, o.rule_id AS recurring_id FROM transactions t JOIN users u ON u.id = t.author_id LEFT JOIN recurring_occurrences o ON o.transaction_id = t.id WHERE t.household_id = ? AND substr(t.date, 1, 7) = ? ORDER BY t.date DESC, t.created_at DESC', hid, month),
             goals: await all('SELECT * FROM goals WHERE household_id = ? ORDER BY created_at DESC', hid),
             shopping: await all('SELECT s.*, u.name AS author FROM shopping s JOIN users u ON u.id = s.author_id WHERE s.household_id = ? ORDER BY s.checked, s.created_at DESC', hid),
             notes: notes.map(note => ({ ...note, attachments: attachments.filter(a => a.note_id === note.id).map(({ storage_name, ...a }) => a) })),
@@ -289,7 +294,12 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         const values = await transactionInput(req.body, req.user);
         if (values[0] !== 'expense' && await one('SELECT id FROM bill_payments WHERE transaction_id = ?', req.params.id))
             fail('Il pagamento di una bolletta deve rimanere un’uscita.');
-        await run('UPDATE transactions SET kind = ?, amount = ?, category_id = ?, description = ?, date = ? WHERE id = ? AND household_id = ?', ...values, req.params.id, req.user.household_id);
+        await atomic(async () => {
+            const occurrence = await one('SELECT o.*, r.kind FROM recurring_occurrences o JOIN recurring_rules r ON r.id = o.rule_id WHERE o.transaction_id = ?', req.params.id);
+            if (occurrence && (values[0] !== occurrence.kind || values[4].slice(0, 7) !== occurrence.month)) fail('Un movimento ricorrente deve conservare il tipo e il mese di origine.');
+            await run('UPDATE transactions SET kind = ?, amount = ?, category_id = ?, description = ?, date = ? WHERE id = ? AND household_id = ?', ...values, req.params.id, req.user.household_id);
+            if (occurrence) await run('UPDATE recurring_occurrences SET overridden = 1 WHERE id = ?', occurrence.id);
+        });
         res.json({ ok: true });
     });
     app.delete('/api/transactions/:id', async (req, res) => {
@@ -311,8 +321,10 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         });
         if (rows.reduce((sum, c) => sum + c.percentage, 0) !== 10000)
             fail('Le percentuali devono sommare esattamente il 100%.');
-        await atomic(async () => { for (const c of rows)
-            await run('UPDATE categories SET name = ?, percentage = ? WHERE id = ? AND household_id = ?', c.name, c.percentage, c.id, req.user.household_id); });
+        await atomic(async () => {
+            for (const c of rows) await run('UPDATE categories SET name = ?, percentage = ? WHERE id = ? AND household_id = ?', c.name, c.percentage, c.id, req.user.household_id);
+            await planning.saveCustom(req.user.household_id, rows);
+        });
         res.json({ ok: true });
     });
     app.post('/api/goals', async (req, res) => {

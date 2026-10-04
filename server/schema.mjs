@@ -88,3 +88,30 @@ export const UPLOAD_SCHEMA = `
     PRIMARY KEY(upload_id, chunk_index)
   );
 `;
+export const PLANNING_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS recurring_rules (
+    id TEXT PRIMARY KEY, household_id TEXT NOT NULL REFERENCES households(id),
+    kind TEXT NOT NULL CHECK(kind IN ('income','expense')), start_month TEXT NOT NULL,
+    author_id TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS recurring_versions (
+    id TEXT PRIMARY KEY, rule_id TEXT NOT NULL REFERENCES recurring_rules(id), effective_month TEXT NOT NULL,
+    name TEXT NOT NULL, amount INTEGER NOT NULL CHECK(amount > 0), category_id TEXT REFERENCES categories(id),
+    day INTEGER NOT NULL CHECK(day BETWEEN 1 AND 31), end_month TEXT, enabled INTEGER NOT NULL,
+    UNIQUE(rule_id, effective_month)
+  );
+  CREATE TABLE IF NOT EXISTS recurring_occurrences (
+    id TEXT PRIMARY KEY, rule_id TEXT NOT NULL REFERENCES recurring_rules(id), month TEXT NOT NULL,
+    transaction_id TEXT UNIQUE REFERENCES transactions(id) ON DELETE SET NULL, overridden INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(rule_id, month)
+  );
+  CREATE TABLE IF NOT EXISTS budget_templates (
+    id TEXT PRIMARY KEY, household_id TEXT NOT NULL REFERENCES households(id), template_key TEXT NOT NULL,
+    name TEXT NOT NULL, description TEXT NOT NULL, entries TEXT NOT NULL,
+    UNIQUE(household_id, template_key)
+  );
+  CREATE TABLE IF NOT EXISTS budget_settings (
+    household_id TEXT PRIMARY KEY REFERENCES households(id), active_template_id TEXT REFERENCES budget_templates(id)
+  );
+`;
+TABLES.push('recurring_rules', 'recurring_versions', 'recurring_occurrences', 'budget_templates', 'budget_settings');
