@@ -240,6 +240,8 @@ test('deadline management is atomic across cloud instances, optional and private
   const categoryId = (await instance.db.prepare('SELECT id FROM categories WHERE household_id = ? ORDER BY position').get(owner.user.householdId)).id;
   const legacy = await create('/bills', { name:'Storica', amount:2500, categoryId, dueDay:31, startMonth:'2026-02', reminderDays:3 }, owner);
   const oldPayment = await create(`/bills/${legacy.id}/payments`, { month:'2026-10', paymentDate:'2026-10-03', amount:2490 }, owner);
+  await instance.db.prepare('DELETE FROM deadline_receipts WHERE deadline_id = ?').run(legacy.id);
+  await instance.db.prepare('DELETE FROM deadlines WHERE id = ?').run(legacy.id);
   const second = await start();
   const migrations = await Promise.all([base,second.base].map(target => request('/state?month=2026-10', { session:owner, target }).then(r => json(r))));
   for (const current of migrations) { assert.equal(current.deadlines.length,1); assert.equal(current.deadlines[0].managed.transaction_id, oldPayment.transactionId); }
@@ -260,4 +262,10 @@ test('deadline management is atomic across cloud instances, optional and private
   assert.equal((await state(owner)).deadlines.find(d=>d.id===paid.id).managed,null);
   await json(await request(`/deadlines/${legacy.id}/manage/2026-10`,{method:'DELETE',session:owner,target:second.base}));
   assert.equal((await state(owner)).deadlines.find(d=>d.id===legacy.id).managed,null);
+  const mixed = await Promise.all([
+    request(`/bills/${legacy.id}/payments`,{method:'POST',body:{month:'2026-10',paymentDate:'2026-10-31',amount:2500},session:owner}),
+    request(`/deadlines/${legacy.id}/manage`,{method:'POST',body:{month:'2026-10',handledDate:'2026-10-31',amount:2500},session:owner,target:second.base}),
+  ]);
+  assert.deepEqual(mixed.map(r=>r.status).sort(),[201,409]);
+  assert.equal((await state(owner)).transactions.length,1);
 });

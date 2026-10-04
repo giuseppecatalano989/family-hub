@@ -27,21 +27,41 @@ export function installWorkflows(app, { db, one, all, run, atomic, owned, fail, 
             fail('Il promemoria deve essere tra 0 e 30 giorni prima.');
         return [text(body.name, 'Bolletta', 120), cents(body.amount), categoryId, body.dueDay, month(body.startMonth), body.reminderDays];
     }
+    // Older browser tabs still call /bills. Keep their writes consistent with
+    // the new scadenziario and share the same receipt uniqueness checks.
+    async function syncLegacyBill(id, user) {
+        const bill = await owned('bills', id, user);
+        await run(`INSERT INTO deadlines VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET name = excluded.name, start_date = excluded.start_date,
+          due_day = excluded.due_day, frequency = excluded.frequency, requires_payment = excluded.requires_payment,
+          amount = excluded.amount, category_id = excluded.category_id, reminder_days = excluded.reminder_days`,
+          bill.id, user.household_id, bill.name, dueDate(bill.start_month, bill.due_day), bill.due_day, 'monthly', 1,
+          bill.amount, bill.category_id, bill.reminder_days, bill.active, bill.created_at);
+    }
     app.post('/api/bills', async (req, res) => {
         const input = await billInput(req.body, req.user);
         const id = randomUUID();
-        await run('INSERT INTO bills VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)', id, req.user.household_id, ...input, now());
+        await atomic(async () => {
+            await run('INSERT INTO bills VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)', id, req.user.household_id, ...input, now());
+            await syncLegacyBill(id, req.user);
+        });
         res.status(201).json({ id });
     });
     app.put('/api/bills/:id', async (req, res) => {
         await owned('bills', req.params.id, req.user);
         const input = await billInput(req.body, req.user);
-        await run('UPDATE bills SET name = ?, amount = ?, category_id = ?, due_day = ?, start_month = ?, reminder_days = ? WHERE id = ? AND household_id = ?', ...input, req.params.id, req.user.household_id);
+        await atomic(async () => {
+            await run('UPDATE bills SET name = ?, amount = ?, category_id = ?, due_day = ?, start_month = ?, reminder_days = ? WHERE id = ? AND household_id = ?', ...input, req.params.id, req.user.household_id);
+            await syncLegacyBill(req.params.id, req.user);
+        });
         res.json({ ok: true });
     });
     app.delete('/api/bills/:id', async (req, res) => {
         await owned('bills', req.params.id, req.user);
-        await run('UPDATE bills SET active = 0 WHERE id = ? AND household_id = ?', req.params.id, req.user.household_id);
+        await atomic(async () => {
+            await run('UPDATE bills SET active = 0 WHERE id = ? AND household_id = ?', req.params.id, req.user.household_id);
+            await run('UPDATE deadlines SET active = 0 WHERE id = ? AND household_id = ?', req.params.id, req.user.household_id);
+        });
         res.json({ ok: true });
     });
     app.post('/api/bills/:id/payments', async (req, res) => {
@@ -50,13 +70,18 @@ export function installWorkflows(app, { db, one, all, run, atomic, owned, fail, 
         const amount = cents(req.body.amount);
         const transactionId = randomUUID();
         await atomic(async () => {
-            const bill = await owned('bills', req.params.id, req.user);
-            if (await one('SELECT id FROM bill_payments WHERE bill_id = ? AND month = ?', bill.id, period))
+            let bill = await owned('bills', req.params.id, req.user);
+            const deadline = await one('SELECT * FROM deadlines WHERE id = ? AND household_id = ?', bill.id, req.user.household_id);
+            if (deadline && (deadline.frequency !== 'monthly' || !deadline.requires_payment)) fail('Questa voce è stata modificata nelle Scadenze. Aggiorna la pagina.', 409);
+            if (deadline) bill = { ...bill, ...deadline, start_month: deadline.start_date.slice(0, 7) };
+            if (await one('SELECT id FROM bill_payments WHERE bill_id = ? AND month = ?', bill.id, period) || await one('SELECT id FROM deadline_receipts WHERE deadline_id = ? AND month = ?', bill.id, period))
                 fail('Questa bolletta risulta già pagata per il mese scelto.', 409);
             if (!bill.active || period < bill.start_month)
                 fail('Questa scadenza non è attiva nel mese scelto.');
             await run('INSERT INTO transactions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', transactionId, req.user.household_id, 'expense', amount, bill.category_id, `${bill.name} · ${period}`, paymentDate, req.user.id, now());
-            await run('INSERT INTO bill_payments VALUES (?, ?, ?, ?, ?)', randomUUID(), bill.id, period, dueDate(period, bill.due_day), transactionId);
+            const receiptId = randomUUID();
+            await run('INSERT INTO bill_payments VALUES (?, ?, ?, ?, ?)', receiptId, bill.id, period, dueDate(period, bill.due_day), transactionId);
+            if (deadline) await run('INSERT INTO deadline_receipts VALUES (?, ?, ?, ?, ?, ?, ?)', receiptId, bill.id, period, dueDate(period, bill.due_day), paymentDate, req.user.id, transactionId);
         });
         res.status(201).json({ transactionId });
     });

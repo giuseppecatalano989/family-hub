@@ -466,6 +466,9 @@ test('existing bills migrate once without duplicating expenses or resurrecting u
   const owner = await register(); const categoryId = instance.db.prepare('SELECT id FROM categories WHERE household_id = ? ORDER BY position').get(owner.user.householdId).id;
   const bill = await create('/bills', { name: 'Storica', amount: 2500, categoryId, dueDay: 31, startMonth: '2026-02', reminderDays: 3 }, owner);
   const payment = await create(`/bills/${bill.id}/payments`, { month: '2026-10', paymentDate: '2026-10-30', amount: 2490 }, owner);
+  // Simulate a pre-upgrade database containing only the legacy record/receipt.
+  instance.db.prepare('DELETE FROM deadline_receipts WHERE deadline_id = ?').run(bill.id);
+  instance.db.prepare('DELETE FROM deadlines WHERE id = ?').run(bill.id);
   let current = await state(owner); assert.equal(current.deadlines.length, 1); assert.equal(current.transactions.length, 1);
   assert.equal(current.deadlines[0].managed.transaction_id, payment.transactionId);
   assert.equal(current.deadlines[0].start_date, '2026-02-28'); assert.equal(current.deadlines[0].due_day, 31);
@@ -476,4 +479,24 @@ test('existing bills migrate once without duplicating expenses or resurrecting u
   assert.equal((await request(`/deadlines/${bill.id}/manage/2026-10`, { method: 'DELETE', session: owner })).status, 200);
   current = await state(owner); assert.equal(current.deadlines[0].managed, null); assert.equal(current.transactions.length, 0);
   assert.equal((await state(owner)).deadlines[0].managed, null);
+});
+
+test('old and new browser tabs share deadline writes and cannot record the same payment twice', async () => {
+  const owner = await register(); const categoryId = (await state(owner)).categories[0].id;
+  const input = { name:'Scheda precedente', amount:2500, categoryId, dueDay:31, startMonth:'2026-10', reminderDays:3 };
+  const legacy = await create('/bills', input, owner);
+  assert.equal((await state(owner)).deadlines[0].id,legacy.id);
+  assert.equal((await request(`/bills/${legacy.id}`,{method:'PUT',body:{...input, amount:2600},session:owner})).status,200);
+  assert.equal((await state(owner)).deadlines[0].amount,2600);
+  await create(`/deadlines/${legacy.id}/manage`,{month:'2026-10',handledDate:'2026-10-31'},owner);
+  assert.equal((await request(`/bills/${legacy.id}/payments`,{method:'POST',body:{month:'2026-10',paymentDate:'2026-10-31',amount:2600},session:owner})).status,409);
+  assert.equal((await state(owner)).transactions.length,1);
+  assert.equal((await request(`/deadlines/${legacy.id}/manage/2026-10`,{method:'DELETE',session:owner})).status,200);
+  const oldPayment = await create(`/bills/${legacy.id}/payments`,{month:'2026-10',paymentDate:'2026-10-31',amount:2700},owner);
+  assert.equal((await state(owner)).deadlines[0].managed.transaction_id,oldPayment.transactionId);
+  assert.equal((await request(`/deadlines/${legacy.id}/manage`,{method:'POST',body:{month:'2026-10',handledDate:'2026-10-31'},session:owner})).status,409);
+  assert.equal((await request(`/bills/${legacy.id}/payments/2026-10`,{method:'DELETE',session:owner})).status,200);
+  assert.equal((await state(owner)).deadlines[0].managed,null);
+  assert.equal((await request(`/bills/${legacy.id}`,{method:'DELETE',session:owner})).status,200);
+  assert.equal((await state(owner)).deadlines.length,0);
 });
