@@ -126,6 +126,7 @@ test('daily cloud backups retain seven verified snapshots and restore exact acco
   const preset = (await state(owner)).budgetTemplates[0];
   await json(await request(`/budget-templates/${preset.id}/apply`, { method:'POST', session:owner })); const note = await create('/notes', { title: 'Copia', content: 'Test', color: 'mint', pinned: false }, owner);
   const bytes = Buffer.from('allegato da ripristinare'); const file = await attach(owner, note, bytes);
+  const wasteSchedule = await create('/waste', { name:'Carta', days:[0,4], timeWindow:'20:00–22:00', notes:'Cartoni piegati', color:'#8099b0' }, owner);
   let stamp = Date.UTC(2026, 9, 4);
   const manager = createCloudBackups(instance.db, { scheduled: true, clock: () => stamp });
   assert.equal((await request('/internal/backup')).status, 401);
@@ -158,6 +159,7 @@ test('daily cloud backups retain seven verified snapshots and restore exact acco
         assert.equal((await restored.db.prepare('SELECT COUNT(*) AS count FROM recurring_rules').get()).count, 1);
         assert.equal((await restored.db.prepare('SELECT COUNT(*) AS count FROM recurring_occurrences').get()).count, 1);
         assert.equal((await restored.db.prepare('SELECT COUNT(*) AS count FROM budget_templates').get()).count, 6);
+        assert.deepEqual(JSON.parse((await restored.db.prepare('SELECT days FROM waste_schedules WHERE id = ?').get(wasteSchedule.id)).days), [0,4]);
         assert.equal((await restored.db.prepare('SELECT active_template_id FROM budget_settings').get()).active_template_id, preset.id);
         assert.deepEqual(await restored.db.files.get(file.id), bytes);
       } finally { await restored.close(); }
@@ -210,4 +212,15 @@ test('recurrences synchronize concurrent cloud instances and templates remain fa
   const exported=await request('/backups/export',{session:owner});const zip=unzipSync(new Uint8Array(await exported.arrayBuffer()));const data=JSON.parse(Buffer.from(zip['casa.json'])).data;
   assert.equal(data.recurring_rules.length,2);assert.equal(data.recurring_versions.length,2);assert.equal(data.recurring_occurrences.length,4);assert.equal(data.budget_templates.length,6);
   assert.equal((await state(stranger)).recurring.length,0);
+});
+
+test('waste calendars persist across cloud instances and are isolated by family', async () => {
+  const owner=await register();const stranger=await register('waste-stranger@example.test');
+  const body={name:'Organico',days:[0,3,6],timeWindow:'Dalle 20:00',notes:'Esporre il contenitore',color:'#176854'};
+  const schedule=await create('/waste',body,owner);const second=await start();
+  const shared=await json(await request('/state?month=2026-10',{session:owner,target:second.base}));assert.deepEqual(shared.waste[0].days,body.days);assert.equal(shared.waste[0].time_window,body.timeWindow);
+  assert.equal((await state(stranger)).waste.length,0);
+  assert.equal((await request(`/waste/${schedule.id}`,{method:'PUT',session:stranger,body,target:second.base})).status,404);
+  const exported=await request('/backups/export',{session:owner,target:second.base});const zip=unzipSync(new Uint8Array(await exported.arrayBuffer()));assert.equal(JSON.parse(Buffer.from(zip['casa.json'])).data.waste_schedules[0].id,schedule.id);
+  await json(await request(`/waste/${schedule.id}`,{method:'DELETE',session:owner,target:second.base}));assert.equal((await state(owner)).waste.length,0);
 });

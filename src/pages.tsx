@@ -3,10 +3,10 @@ import { ArrowDownLeft, ArrowUpRight, Wallet, PiggyBank, Target, ShoppingBasket,
 import { TemplateGallery } from './Planning';
 import { Empty, Progress, SectionHeading } from './components';
 import { allocateBudget, localDate, money, readableDate, totals } from './finance';
-import type { FamilyState, Transaction, Goal, Note, Bill, Meal, RecurringRule, BudgetTemplate } from './types';
+import type { FamilyState, Transaction, Goal, Note, Bill, Meal, RecurringRule, BudgetTemplate, WasteSchedule } from './types';
 
-export type Page = 'incomes' | 'recurring' | 'overview' | 'transactions' | 'budget' | 'goals' | 'shopping' | 'notes' | 'bills' | 'meals' | 'backups';
-export type Dialog = { type: 'recurring'; rule?: RecurringRule; kind?: 'income' | 'expense'; name?: string; categoryId?: string } | { type: 'template'; template: BudgetTemplate } | { type: 'transaction'; transaction?: Transaction; kind?: 'income' | 'expense' } | { type: 'budget' } | { type: 'goal'; goal?: Goal } | { type: 'contribution'; goal: Goal } | { type: 'note'; note?: Note } | { type: 'share' } | { type: 'bill'; bill?: Bill } | { type: 'payment'; bill: Bill } | { type: 'meal'; meal?: Meal; date?: string; slot?: 'lunch' | 'dinner' } | null;
+export type Page = 'waste' | 'incomes' | 'recurring' | 'overview' | 'transactions' | 'budget' | 'goals' | 'shopping' | 'notes' | 'bills' | 'meals' | 'backups';
+export type Dialog = { type: 'waste'; schedule?: WasteSchedule; name?: string; color?: string } | { type: 'recurring'; rule?: RecurringRule; kind?: 'income' | 'expense'; name?: string; categoryId?: string } | { type: 'template'; template: BudgetTemplate } | { type: 'transaction'; transaction?: Transaction; kind?: 'income' | 'expense' } | { type: 'budget' } | { type: 'goal'; goal?: Goal } | { type: 'contribution'; goal: Goal } | { type: 'note'; note?: Note } | { type: 'share' } | { type: 'bill'; bill?: Bill } | { type: 'payment'; bill: Bill } | { type: 'meal'; meal?: Meal; date?: string; slot?: 'lunch' | 'dinner' } | null;
 type Props = { data: FamilyState; open: (dialog: Dialog) => void; navigate: (page: Page) => void; act: (path: string, method: string, body?: unknown) => Promise<void>; busy: boolean };
 const horizons = { short: 'Breve termine', medium: 'Medio termine', long: 'Lungo termine' };
 const spentByCategory = (data: FamilyState, id: string) => data.transactions.filter(t => t.kind === 'expense' && t.category_id === id).reduce((sum, t) => sum + t.amount, 0);

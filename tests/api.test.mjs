@@ -390,3 +390,22 @@ test('budget templates are editable, applied atomically and reset without changi
   const exported=await request('/backups/export',{session:owner});const zip=unzipSync(new Uint8Array(await exported.arrayBuffer()));const payload=JSON.parse(Buffer.from(zip['casa.json']));
   assert.equal(payload.data.budget_templates.length,6);assert.equal(payload.data.recurring_versions.length,0);
 });
+
+test('waste schedules support multiple days, validation, family sharing and private backup exports', async () => {
+  const owner = await register(); const invitation = await (await request('/invitation', { method:'POST', session:owner })).json();
+  const member = await register('waste-member@example.it', { inviteCode:invitation.code }); const stranger = await register('waste-stranger@example.it');
+  const body = { name:'Organico', days:[6,0,2], timeWindow:'20:00–22:00', notes:'Sacchetti compostabili', color:'#176854' };
+  const schedule = await create('/waste', body, owner);
+  assert.deepEqual((await state(member)).waste[0].days,[0,2,6]);
+  assert.equal((await state(stranger)).waste.length,0);
+  assert.equal((await request(`/waste/${schedule.id}`,{method:'PUT',session:stranger,body})).status,404);
+  assert.equal((await request(`/waste/${schedule.id}`,{method:'DELETE',session:stranger})).status,404);
+  for(const days of [[],[7],[-1],[0,0],[1.5],['1'],null]) assert.equal((await request('/waste',{method:'POST',session:owner,body:{...body,days}})).status,400);
+  assert.equal((await request('/waste',{method:'POST',session:owner,body:{...body,color:'invalid'}})).status,400);
+  assert.equal((await request('/waste',{method:'POST',session:owner,body:{...body,name:' '}})).status,400);
+  assert.equal((await request(`/waste/${schedule.id}`,{method:'PUT',session:member,body:{...body,name:'Carta',days:[1,4],timeWindow:'Entro le 6:00',notes:''}})).status,200);
+  const changed=(await state(owner)).waste[0];assert.equal(changed.name,'Carta');assert.deepEqual(changed.days,[1,4]);assert.equal(changed.time_window,'Entro le 6:00');
+  const exported=await request('/backups/export',{session:owner});const zip=unzipSync(new Uint8Array(await exported.arrayBuffer()));const payload=JSON.parse(Buffer.from(zip['casa.json']));
+  assert.equal(payload.data.waste_schedules.length,1);assert.equal(payload.data.waste_schedules[0].name,'Carta');
+  assert.equal((await request(`/waste/${schedule.id}`,{method:'DELETE',session:member})).status,200);assert.equal((await state(owner)).waste.length,0);
+});

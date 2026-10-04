@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { randomBytes, randomUUID, createHash, scryptSync, timingSafeEqual } from 'node:crypto';
 import { mkdirSync, existsSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
+import { installWaste } from './waste.mjs';
 import { installPlanning } from './planning.mjs';
 import { installWorkflows } from './workflows.mjs';
 import { createBackupManager, streamFamilyBackup } from './backups.mjs';
@@ -239,6 +240,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
     });
     const workflows = installWorkflows(app, { db, one, all, run, atomic, owned, fail, text, cents, date, now });
     const planning = installPlanning(app, { db, one, all, run, atomic, owned, fail, text, cents, now });
+    const waste = installWaste(app, { db, all, run, owned, fail, text });
     const backups = cloudBackups || createBackupManager({ db, dataDir, backupDir, enabled: automaticBackups });
     app.get('/api/backups/export', async (req, res, next) => {
         if (req.user.role !== 'admin')
@@ -257,6 +259,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         const notes = await all('SELECT n.*, u.name AS author FROM notes n JOIN users u ON u.id = n.author_id WHERE n.household_id = ? ORDER BY pinned DESC, updated_at DESC', hid);
         const attachments = await all('SELECT a.* FROM attachments a JOIN notes n ON n.id = a.note_id WHERE n.household_id = ?', hid);
         res.json({
+            waste: await waste.state(hid),
             ...await planning.state(req.user, month),
             ...await workflows.state(req.user, month, req.query.week),
             backups: req.user.role === 'admin' ? await backups.status() : null,

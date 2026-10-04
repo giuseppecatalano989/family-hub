@@ -27,6 +27,14 @@ Ogni template permette di cambiare nomi e percentuali (totale esattamente 100%).
 
 Le nuove tabelle sono create in modo additivo, senza modificare o cancellare i dati esistenti. Ricorrenze, versioni, mesi saltati e template fanno parte dei backup dell'istanza, del ripristino cloud e dell'esportazione familiare. I backup precedenti alle nuove tabelle possono ancora essere ripristinati in un nuovo database.
 
+## Conferimento rifiuti
+
+La sezione **Conferimento rifiuti** contiene un calendario settimanale condiviso. Crea e modifica una voce per ogni tipologia, scegliendo uno o più giorni (da lunedì a domenica), un colore, un orario o fascia facoltativa e indicazioni utili. Organico, carta/cartone, plastica/metalli, vetro e indifferenziato sono scorciatoie per il nome: non inseriscono giorni ipotizzati. Sono ammesse anche tipologie personalizzate.
+
+I riquadri **Oggi** e **Domani** usano la data locale del dispositivo; il calendario mostra tutti i giorni della settimana. Inserisci i giorni in cui esporre i rifiuti, che possono precedere il giorno di raccolta. Il calendario si ripete settimanalmente: aggiorna eventuali variazioni comunali o festive. Non invia notifiche esterne.
+
+Le voci sono condivise e modificabili dai membri della stessa famiglia; altre famiglie non possono accedervi. La tabella `waste_schedules` viene creata in modo additivo, ed è inclusa nei backup e nel ripristino cloud, oltre che nell'esportazione ZIP familiare.
+
 ## Funzioni della prima versione
 
 - **Panoramica:** entrate, uscite e saldo del mese, distribuzione delle spese, avvisi di sforamento e riepilogo degli obiettivi.
@@ -112,7 +120,7 @@ Per verificare il backend cloud in sviluppo serve un **PostgreSQL temporaneo loc
 CASA_TEST_DATABASE_URL=postgresql://utente:password@127.0.0.1:5432/database_temporaneo npm run test:cloud
 ```
 
-Questi sette test verificano isolamento e condivisione tra istanze, pagamenti concorrenti, persistenza, conferma degli upload soltanto dopo il commit, allegati da 10 MB e ZIP familiare, sette snapshot verificati, ripristino SQLite e PostgreSQL e limiti di accesso persistenti. Il comando cancella lo schema `casa` del database temporaneo e crea/rimuove un database `casa_restore_test`: non usare un database reale. Richiede un ruolo locale autorizzato a creare il database di test. Gli URL remoti vengono rifiutati.
+Questi otto test verificano isolamento e condivisione tra istanze, pagamenti concorrenti, persistenza, conferma degli upload soltanto dopo il commit, allegati da 10 MB e ZIP familiare, sette snapshot verificati, ripristino SQLite e PostgreSQL e limiti di accesso persistenti. Il comando cancella lo schema `casa` del database temporaneo e crea/rimuove un database `casa_restore_test`: non usare un database reale. Richiede un ruolo locale autorizzato a creare il database di test. Gli URL remoti vengono rifiutati.
 
 Per scaricare una copia riservata dell’istanza, configura `DATABASE_URL` sul dispositivo del gestore in un `.env` riservato:
 
@@ -136,7 +144,7 @@ npm test
 npm run test:e2e
 ```
 
-I 26 test Node verificano account e sessioni, inviti, condivisione e isolamento tra famiglie, CSRF, movimenti e mesi, budget, obiettivi, allegati, esportazione e persistenza dopo il riavvio, pagamenti senza duplicati, menu collegato alla spesa, limiti di mese e settimana, integrità dei backup, ripristino completo e conservazione delle ultime sette copie e segnalazione degli errori senza perdita dei dati. Verificano anche ricorrenze senza duplicati, modifiche datate, mesi saltati e ripristino dei template. I sei test browser percorrono le sezioni di base con due account e i flussi di bollette, menu, spesa, backup ZIP, redditi, ricorrenze e template, su desktop e su un viewport mobile. Verificano anche i download, il contenuto dell’archivio, l’assenza di errori JavaScript e di scorrimento orizzontale.
+I 27 test Node verificano account e sessioni, inviti, condivisione e isolamento tra famiglie, CSRF, movimenti e mesi, budget, obiettivi, allegati, esportazione e persistenza dopo il riavvio, pagamenti senza duplicati, menu collegato alla spesa, limiti di mese e settimana, integrità dei backup, ripristino completo e conservazione delle ultime sette copie e segnalazione degli errori senza perdita dei dati. Verificano anche ricorrenze senza duplicati, modifiche datate, mesi saltati e ripristino dei template. Gli otto test browser percorrono le sezioni di base con due account e i flussi di bollette, menu, spesa, backup ZIP, redditi, ricorrenze, template e conferimento rifiuti, su desktop e su un viewport mobile. Verificano anche i download, il contenuto dell’archivio, l’assenza di errori JavaScript e di scorrimento orizzontale.
 
 I test usano database temporanei separati, rimossi alla fine: non modificano `.data`. I risultati del browser rimangono in `test-results`, ignorato da Git.
 

@@ -115,3 +115,10 @@ export const PLANNING_SCHEMA = `
   );
 `;
 TABLES.push('recurring_rules', 'recurring_versions', 'recurring_occurrences', 'budget_templates', 'budget_settings');
+export const WASTE_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS waste_schedules (
+    id TEXT PRIMARY KEY, household_id TEXT NOT NULL REFERENCES households(id),
+    name TEXT NOT NULL, days TEXT NOT NULL, time_window TEXT NOT NULL, notes TEXT NOT NULL, color TEXT NOT NULL
+  );
+`;
+TABLES.push('waste_schedules');
