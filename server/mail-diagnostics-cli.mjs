@@ -27,10 +27,10 @@ try {
     } catch { return { data: {}, safe: { failed: true } }; }
   }
   const account = await check('account');
-  result.brevoAccount = { ...account.safe, smtpEnabled: account.data.smtp?.relay?.enabled };
+  result.brevoAccount = { ...account.safe, smtpEnabled: account.data.relay?.enabled ?? account.data.smtp?.relay?.enabled };
   const senders = await check('senders');
   const matches = (senders.data.senders || []).filter(item => item.email?.toLowerCase() === sender);
-  result.sender = { ...senders.safe, matches: matches.length, active: matches.length === 1 && matches[0].active === true };
+  result.sender = { ...senders.safe, matches: matches.length, activeMatches: matches.filter(item => item.active === true).length, active: matches.some(item => item.active === true) };
   const events = accounts.length === 1 ? await check('smtp/statistics/events?limit=10&email=' + encodeURIComponent(accounts[0].email.toLowerCase())) : { safe: { skipped: true }, data: {} };
   const knownEvents = ['requests', 'request', 'delivered', 'hardBounces', 'softBounces', 'blocked', 'invalid', 'error', 'deferred', 'spam', 'opened', 'clicks', 'proxy_open'];
   result.events = { ...events.safe, entries: (events.data.events || []).map(item => ({ event: knownEvents.includes(item.event) ? item.event : 'other', date: /^\d{4}-\d{2}-\d{2}T/.test(item.date || '') ? item.date : undefined })) };
