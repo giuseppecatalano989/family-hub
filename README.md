@@ -34,6 +34,12 @@ Le Scadenze sono promemoria con eventuale pagamento manuale: evita di registrare
 
 **Salva schema** applica la scelta. Nei predefiniti, nomi e percentuali sono fissi anche lato server. In Pers. sono modificabili e devono sommare esattamente il 100%. Applicare un predefinito conserva Pers. e gli identificativi delle categorie, quindi non cambia i movimenti. Le precedenti modifiche ai predefiniti tornano ai valori di fabbrica senza cambiare automaticamente la ripartizione attuale. Lo schema 50/30/20 non è più proposto; i suoi eventuali dati storici restano nei backup.
 
+## Risparmi degli obiettivi
+
+**Obiettivi → Gestisci risparmi** permette di aggiungere accantonamenti, correggere gli importi con la matita e rimuoverli con il cestino dopo conferma. L’importo iniziale è separato dagli accantonamenti successivi: modificarlo o azzerarlo conserva gli altri importi. La gestione resta disponibile anche sugli obiettivi raggiunti e aggiorna automaticamente totale, progresso e dashboard.
+
+Le correzioni usano `server/goal-savings.mjs` e mantengono totale e storico nella stessa transazione, con isolamento per famiglia. Non creano o modificano movimenti del budget. Nessuna migrazione distruttiva: l’importo iniziale degli obiettivi esistenti si ricava dal totale meno gli accantonamenti registrati; gli stessi dati restano inclusi nei backup.
+
 ## Dashboard e consultazione degli appunti
 
 **Dove vanno le nostre uscite** mostra per ogni categoria la spesa effettiva e il massimale del mese, calcolato sulle entrate e sulla ripartizione attuale. Categoria e importi restano affiancati nella legenda; il grafico a sinistra si adatta agli schermi piccoli. Nuova entrata e Nuova uscita rimangono sulla stessa riga, con colori jade e coral, rispettivamente + e −. I testi sono ingranditi di circa il 4%. Le card delle entrate, uscite, saldo e risparmi aprono rispettivamente Entrate, Uscite, Ripartizione budget e Obiettivi. Anche i riquadri di ripartizione, traguardi e movimenti aprono le relative sezioni; i pulsanti di creazione mantengono la loro azione.

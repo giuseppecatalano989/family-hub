@@ -294,6 +294,42 @@ test('account settings and recurring deletion stay isolated and consistent acros
   assert.equal((await instance.db.prepare('SELECT COUNT(*) AS count FROM recurring_occurrences').get()).count,0);
 });
 
+test('concurrent savings corrections keep cloud totals and their history consistent across instances', async () => {
+  const owner = await register();
+  const stranger = await register('savings-stranger@example.test');
+  const second = await start();
+  const goal = await create('/goals', { title: 'Viaggio', horizon: 'medium', target: 100000, saved: 5000 }, owner);
+  const first = await create(`/goals/${goal.id}/contributions`, { amount: 2500 }, owner);
+  const other = await create(`/goals/${goal.id}/contributions`, { amount: 3000 }, owner);
+  const editPath = `/goals/${goal.id}/contributions/${first.id}`;
+  assert.equal((await request(editPath, { method: 'PUT', body: { amount: 1000 }, session: stranger, target: second.base })).status, 404);
+  const writes = await Promise.all([
+    request(editPath, { method: 'PUT', body: { amount: 1500 }, session: owner }),
+    request(`/goals/${goal.id}/initial-savings`, { method: 'PUT', body: { amount: 2000 }, session: owner, target: second.base }),
+    request(`/goals/${goal.id}/contributions/${other.id}`, { method: 'DELETE', session: owner, target: second.base }),
+    request(`/goals/${goal.id}/contributions`, { method: 'POST', body: { amount: 700 }, session: owner }),
+  ]);
+  for (const response of writes) assert.ok([200, 201].includes(response.status), await response.clone().text());
+  const shared = await json(await request('/state?month=2026-10', { session: owner, target: second.base }));
+  assert.equal(shared.goals[0].saved, 4200);
+  assert.equal(shared.goals[0].initial_saved, 2000);
+  assert.equal(shared.contributions.reduce((sum, item) => sum + item.amount, 0), 2200);
+  assert.equal(shared.contributions.length, 2);
+  const raced = await Promise.all([
+    request(editPath, { method: 'PUT', body: { amount: 1000 }, session: owner }),
+    request(editPath, { method: 'DELETE', session: owner, target: second.base }),
+  ]);
+  assert.ok(raced.every(response => [200, 404].includes(response.status)));
+  const final = await state(owner);
+  assert.equal(final.goals[0].saved, 2700);
+  assert.equal(final.goals[0].initial_saved, 2000);
+  assert.equal(final.contributions.length, 1);
+  assert.equal(final.transactions.length, 0);
+  await json(await request(`/goals/${goal.id}/initial-savings`, { method: 'DELETE', session: owner, target: second.base }));
+  assert.equal((await state(owner)).goals[0].saved, 700);
+  assert.equal((await state(stranger)).contributions.length, 0);
+});
+
 test('email password resets commit across instances and can only be consumed once', async () => {
   const owner = await register(); const member = await register('member@example.test', (await json(await request('/invitation', { method: 'POST', session: owner }))).code);
   const messages = [];

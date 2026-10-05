@@ -138,6 +138,53 @@ test('short, medium and long term goals retain initial savings and add contribut
   assert.equal(instance.db.prepare('SELECT COUNT(*) AS count FROM contributions').get().count, 0);
 });
 
+test('initial savings and individual contributions can be corrected or removed without changing other goals or family movements', async () => {
+  const owner = await register();
+  const invitation = await (await request('/invitation', { method: 'POST', session: owner })).json();
+  const member = await register('member@example.it', { name: 'Bob', inviteCode: invitation.code });
+  const stranger = await register('stranger@example.it');
+  const goal = await create('/goals', { title: 'Viaggio', horizon: 'medium', target: 100000, saved: 5000 }, owner);
+  const other = await create('/goals', { title: 'Fondo', horizon: 'short', target: 50000, saved: 1000 }, owner);
+  const first = await create(`/goals/${goal.id}/contributions`, { amount: 2500 }, owner);
+  const second = await create(`/goals/${goal.id}/contributions`, { amount: 3000 }, member);
+  const unrelated = await create(`/goals/${other.id}/contributions`, { amount: 500 }, owner);
+  const view = await state(member);
+  assert.equal(view.goals.find(item => item.id === goal.id).initial_saved, 5000);
+  assert.equal(view.contributions.find(item => item.id === second.id).author, 'Bob');
+  assert.equal((await state(stranger)).contributions.length, 0);
+  const path = `/goals/${goal.id}/contributions/${first.id}`;
+  for (const amount of [0, -1, 5.5, '100', 1_000_000_001]) assert.equal((await request(path, { method: 'PUT', body: { amount }, session: owner })).status, 400);
+  for (const method of ['PUT', 'DELETE']) {
+    assert.equal((await request(path, { method, body: method === 'PUT' ? { amount: 1000 } : undefined, session: stranger })).status, 404);
+    assert.equal((await request(`/goals/${goal.id}/initial-savings`, { method, body: method === 'PUT' ? { amount: 1000 } : undefined, session: stranger })).status, 404);
+    assert.equal((await request(`/goals/${goal.id}/contributions/${unrelated.id}`, { method, body: method === 'PUT' ? { amount: 1000 } : undefined, session: owner })).status, 404);
+  }
+  assert.equal((await request(path, { method: 'PUT', body: { amount: 1500 }, session: member })).status, 200);
+  assert.equal((await state(owner)).goals.find(item => item.id === goal.id).saved, 9500);
+  // Overflow must roll back both the total and the affected entry.
+  assert.equal((await request(path, { method: 'PUT', body: { amount: 1_000_000_000 }, session: owner })).status, 400);
+  assert.equal((await request(`/goals/${goal.id}/initial-savings`, { method: 'PUT', body: { amount: 1_000_000_000 }, session: owner })).status, 400);
+  assert.equal((await state(owner)).contributions.find(item => item.id === first.id).amount, 1500);
+  assert.equal((await request(`/goals/${goal.id}/initial-savings`, { method: 'DELETE', session: member })).status, 200);
+  let current = await state(owner);
+  assert.equal(current.goals.find(item => item.id === goal.id).saved, 4500);
+  assert.equal(current.goals.find(item => item.id === goal.id).initial_saved, 0);
+  assert.equal((await request(`/goals/${goal.id}/contributions/${second.id}`, { method: 'DELETE', session: owner })).status, 200);
+  assert.equal((await request(`/goals/${goal.id}/contributions/${second.id}`, { method: 'DELETE', session: owner })).status, 404);
+  assert.equal((await request(`/goals/${goal.id}/initial-savings`, { method: 'PUT', body: { amount: 700 }, session: owner })).status, 200);
+  assert.equal((await request(path, { method: 'DELETE', session: member })).status, 200);
+  current = await state(owner);
+  assert.equal(current.goals.find(item => item.id === goal.id).saved, 700);
+  assert.equal(current.goals.find(item => item.id === goal.id).initial_saved, 700);
+  assert.equal(current.goals.find(item => item.id === other.id).saved, 1500);
+  assert.equal(current.transactions.length, 0);
+  assert.equal(current.contributions.filter(item => item.goal_id === goal.id).length, 0);
+  const exported = await request('/backups/export', { session: owner });
+  const payload = JSON.parse(Buffer.from(unzipSync(new Uint8Array(await exported.arrayBuffer()))['casa.json']));
+  assert.equal(payload.data.goals.find(item => item.id === goal.id).saved, 700);
+  assert.equal(payload.data.contributions.length, 1);
+});
+
 test('shared notes support pinning, editing and private attachments with deletion cleanup', async () => {
   const owner = await register(); const other = await register('eve@example.it');
   const note = await create('/notes', { title: 'Documenti', content: 'Per le vacanze', color: 'mint', pinned: true }, owner);

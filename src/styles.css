@@ -116,3 +116,6 @@
 
 .auth-notice{padding:14px 16px;background:#e9f3ec;border:1px solid #c9dfd0;border-radius:9px;font-size:14.87px;line-height:1.8;color:#245f49;margin-bottom:20px}
 .auth-recovery-link{display:block;margin:18px auto 0;font-size:13.73px}
+
+/* Correzione degli accantonamenti per obiettivo */
+.savings-editor-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:20px}.savings-notice{font-size:.8rem;color:var(--green);margin-top:16px;line-height:1.6}.savings-history{margin-top:28px}.savings-history h3{font-size:.85rem;margin-bottom:12px}.savings-row{display:grid;grid-template-columns:minmax(0,1fr) max-content auto;align-items:center;gap:12px;padding:16px 0;border-top:1px solid var(--line)}.savings-row-main{min-width:0}.savings-row-main strong{display:block;font-size:.8rem;line-height:1.5;overflow-wrap:anywhere}.savings-row-main span{display:block;font-size:.7rem;color:var(--muted);line-height:1.6;margin-top:4px;overflow-wrap:anywhere}.savings-amount{font-size:.82rem;white-space:nowrap;font-variant-numeric:tabular-nums}.savings-row .row-actions{flex-wrap:nowrap}.savings-row .icon-button:disabled{cursor:default;opacity:.4}@media(max-width:760px){.savings-row{gap:8px}.savings-editor-actions .button{font-size:.72rem;padding:10px 12px}}

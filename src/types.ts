@@ -1,7 +1,8 @@
 export interface User { id: string; name: string; email: string; role: 'admin' | 'member'; householdId: string }
 export interface Category { id: string; name: string; color: string; percentage: number }
 export interface Transaction { id: string; kind: 'income' | 'expense'; amount: number; category_id: string | null; description: string; date: string; author: string; recurring_id?: string | null }
-export interface Goal { id: string; title: string; horizon: 'short' | 'medium' | 'long'; target: number; saved: number; due_date: string | null }
+export interface Goal { id: string; title: string; horizon: 'short' | 'medium' | 'long'; target: number; saved: number; initial_saved: number; due_date: string | null }
+export interface Contribution { id: string; goal_id: string; amount: number; author: string; created_at: string }
 export interface ShoppingItem { id: string; name: string; quantity: string; section: string; checked: number; author: string }
 export interface Attachment { id: string; original_name: string; size: number }
 export interface Note { id: string; title: string; content: string; color: string; pinned: number; author: string; updated_at: string; attachments: Attachment[] }
@@ -17,7 +18,7 @@ export interface FamilyState {
   household: { id: string; name: string };
   members: { id: string; name: string; role: string }[];
   recurring: RecurringRule[]; budgetTemplates: BudgetTemplate[]; activeTemplateId: string | null;
-  categories: Category[]; transactions: Transaction[]; goals: Goal[]; shopping: ShoppingItem[]; notes: Note[];
+  categories: Category[]; transactions: Transaction[]; goals: Goal[]; contributions: Contribution[]; shopping: ShoppingItem[]; notes: Note[];
   deadlines: Deadline[]; waste: WasteSchedule[]; bills: Bill[]; meals: Meal[]; week: string; backups: BackupStatus | null;
 }
 export interface RecurringRule {

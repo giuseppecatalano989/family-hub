@@ -1,8 +1,9 @@
 import { useState, type FormEvent } from 'react';
 import { Check, Paperclip, Trash2 } from 'lucide-react';
 import BudgetDialog from './BudgetDialog';
+import SavingsDialog from './SavingsDialog';
 import { Modal } from './components';
-import { money, parseMoney, toInput, readableDate } from './finance';
+import { parseMoney, toInput, readableDate } from './finance';
 import type { Dialog } from './pages';
 import type { FamilyState } from './types';
 
@@ -37,7 +38,7 @@ export default function Dialogs({ dialog, data, onClose, mutate }: Props) {
   if (dialog.type === 'goal') return <Modal title={dialog.goal ? 'Modifica il vostro progetto' : 'Un nuovo progetto, insieme'} subtitle="Dategli un nome e una meta da raggiungere." onClose={onClose}><form onSubmit={e => submit(e, async form => {
     await mutate(dialog.goal ? `/goals/${dialog.goal.id}` : '/goals', dialog.goal ? 'PUT' : 'POST', { title: form.get('title'), horizon: form.get('horizon'), target: parseMoney(String(form.get('target'))), saved: parseMoney(String(form.get('saved') || '0')), dueDate: form.get('dueDate') || null });
   })}><label>Nome dell’obiettivo<input name="title" defaultValue={dialog.goal?.title} placeholder="Ad esempio: il nostro prossimo viaggio" required maxLength={120} /></label><label>Orizzonte<select name="horizon" defaultValue={dialog.goal?.horizon}><option value="short">Breve termine · fino a 1 anno</option><option value="medium">Medio termine · da 1 a 5 anni</option><option value="long">Lungo termine · oltre 5 anni</option></select></label><div className="form-columns"><label>Importo da raggiungere (€)<input name="target" defaultValue={dialog.goal ? toInput(dialog.goal.target) : undefined} inputMode="decimal" placeholder="0,00" pattern="[0-9]+([.,][0-9]{1,2})?" required /></label>{!dialog.goal && <label>Già accantonato (€)<input name="saved" inputMode="decimal" defaultValue="0" pattern="[0-9]+([.,][0-9]{1,2})?" /></label>}</div><label>Entro quando? <span className="optional">facoltativo</span><input name="dueDate" defaultValue={dialog.goal?.due_date || undefined} type="date" min="1900-01-01" max="2199-12-31" /></label>{errors}{footer(dialog.goal ? 'Salva modifiche' : 'Crea obiettivo')}</form></Modal>;
-  if (dialog.type === 'contribution') return <Modal title="Un passo più vicino" subtitle={dialog.goal.title} onClose={onClose}><form onSubmit={e => submit(e, async form => { await mutate(`/goals/${dialog.goal.id}/contributions`, 'POST', { amount: parseMoney(String(form.get('amount'))) }); })}><div className="contribution-status"><span>Già accantonato</span><strong>{money(dialog.goal.saved)} <small>di {money(dialog.goal.target)}</small></strong></div><label>Quanto avete messo da parte? (€)<input name="amount" inputMode="decimal" placeholder="0,00" pattern="[0-9]+([.,][0-9]{1,2})?" required /></label><p className="form-hint">Questo importo aggiorna il progresso dell’obiettivo. Per conteggiarlo anche nel budget mensile, aggiungi un movimento nella categoria dedicata al risparmio.</p>{errors}{footer('Aggiungi risparmio')}</form></Modal>;
+  if (dialog.type === 'contribution') return <SavingsDialog goalId={dialog.goal.id} data={data} onClose={onClose} mutate={mutate} />;
   if (dialog.type === 'note') {
     const note = dialog.note;
     const existingFiles = note?.attachments.filter(a => !removed.includes(a.id)) || [];

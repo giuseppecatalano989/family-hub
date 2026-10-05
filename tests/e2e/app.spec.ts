@@ -45,12 +45,13 @@ test('a family can manage money, goals, shopping and pinned files on desktop and
   await dialog.getByLabel('Importo da raggiungere (€)').fill('2000');
   await dialog.getByLabel('Già accantonato (€)').fill('300');
   await dialog.getByRole('button', { name: 'Crea obiettivo' }).click();
-  await page.getByRole('button', { name: 'Aggiungi risparmio' }).click();
+  await page.getByRole('button', { name: 'Gestisci risparmi' }).click();
   dialog = page.getByRole('dialog');
   await dialog.getByLabel('Quanto avete messo da parte? (€)').fill('200');
   await dialog.getByRole('button', { name: 'Aggiungi risparmio' }).click();
   await expect(page.locator('.goal-card')).toContainText('500,00');
   await expect(page.locator('.goal-card')).toContainText('25%');
+  await dialog.getByRole('button', { name: 'Chiudi', exact: true }).click();
   await page.getByRole('button', { name: 'Modifica obiettivo Viaggio in famiglia' }).click();
   await page.getByLabel('Importo da raggiungere (€)').fill('2500');
   await page.getByRole('button', { name: 'Salva modifiche' }).click();

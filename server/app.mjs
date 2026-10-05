@@ -11,6 +11,7 @@ import { installWorkflows } from './workflows.mjs';
 import { createBackupManager, streamFamilyBackup } from './backups.mjs';
 import { BASE_SCHEMA } from './schema.mjs';
 import { RECOVERY_SCHEMA, createRecovery } from './recovery.mjs';
+import { installGoalSavings } from './goal-savings.mjs';
 import { resetEmailSender, DEFAULT_APP_URL } from './reset-email.mjs';
 import { installChunkUploads } from './uploads.mjs';
 const MAX_CENTS = 1000000000;
@@ -287,6 +288,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
     const deadlines = installDeadlines(app, { db, one, all, run, atomic, owned, fail, text, cents, date, now });
     const planning = installPlanning(app, { db, one, all, run, atomic, owned, fail, text, cents, now });
     const waste = installWaste(app, { db, all, run, owned, fail, text });
+    const savings = installGoalSavings(app, { one, all, run, atomic, owned, fail, cents, now });
     const backups = cloudBackups || createBackupManager({ db, dataDir, backupDir, enabled: automaticBackups });
     app.get('/api/backups/export', async (req, res, next) => {
         if (req.user.role !== 'admin')
@@ -314,7 +316,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             members: await all('SELECT id, name, role FROM users WHERE household_id = ? ORDER BY role, name', hid),
             categories: await all('SELECT * FROM categories WHERE household_id = ? ORDER BY position', hid),
             transactions: await all('SELECT t.*, u.name AS author, o.rule_id AS recurring_id FROM transactions t JOIN users u ON u.id = t.author_id LEFT JOIN recurring_occurrences o ON o.transaction_id = t.id WHERE t.household_id = ? AND substr(t.date, 1, 7) = ? ORDER BY t.date DESC, t.created_at DESC', hid, month),
-            goals: await all('SELECT * FROM goals WHERE household_id = ? ORDER BY created_at DESC', hid),
+            ...await savings.state(hid),
             shopping: await all('SELECT s.*, u.name AS author FROM shopping s JOIN users u ON u.id = s.author_id WHERE s.household_id = ? ORDER BY s.checked, s.created_at DESC', hid),
             notes: notes.map(note => ({ ...note, attachments: attachments.filter(a => a.note_id === note.id).map(({ storage_name, ...a }) => a) })),
         });
@@ -393,16 +395,6 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             fail('Orizzonte dell’obiettivo non valido.');
         await run('UPDATE goals SET title = ?, horizon = ?, target = ?, due_date = ? WHERE id = ? AND household_id = ?', text(title, 'Obiettivo', 120), horizon, cents(target), dueDate ? date(dueDate) : null, req.params.id, req.user.household_id);
         res.json({ ok: true });
-    });
-    app.post('/api/goals/:id/contributions', async (req, res) => {
-        const amount = cents(req.body.amount);
-        await atomic(async () => {
-            const goal = await owned('goals', req.params.id, req.user);
-            cents(goal.saved + amount, true);
-            await run('UPDATE goals SET saved = saved + ? WHERE id = ? AND household_id = ?', amount, goal.id, req.user.household_id);
-            await run('INSERT INTO contributions VALUES (?, ?, ?, ?, ?)', randomUUID(), goal.id, amount, req.user.id, now());
-        });
-        res.status(201).json({ ok: true });
     });
     app.delete('/api/goals/:id', async (req, res) => {
         await owned('goals', req.params.id, req.user);
