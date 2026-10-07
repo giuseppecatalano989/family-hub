@@ -1,7 +1,7 @@
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { generateKeyPairSync, verify } from 'node:crypto';
+import { createHash, generateKeyPairSync, verify } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { unzipSync } from 'fflate';
@@ -279,7 +279,7 @@ test('renewing a consent keeps the account; background sync respects limits; exp
   assert.ok(payload.transactions.filter(t => t.description === 'Movimento bancario privato').length >= 4, 'private records stay in the budget without details');
 });
 
-test('planned salaries count from the first day and become real when the bank credits them', async () => {
+test('planned salaries silently become real only with salary credits, never with sales or refunds', async () => {
   await start({ bankProvider: provider });
   const { alice, bob } = await family();
   const plan = async (session, name, amount, day) => assert.equal((await request('/recurring', { method: 'POST', session, body: { kind: 'income', name, amount, day, startMonth: '2026-10', enabled: true } })).status, 201);
@@ -289,26 +289,45 @@ test('planned salaries count from the first day and become real when the bank cr
   await link(alice, 'alice', 'shared');
   let data = await state(alice);
   const income = name => data.transactions.find(t => t.description === name);
-  assert.equal(income('Stipendio Alice').expected, 1, 'linked owner without credit: the salary is planned');
-  assert.equal(income('Stipendio Bob').expected, 0, 'members without a bank keep ordinary recurring incomes');
-  assert.equal(data.transactions.filter(t => t.kind === 'income').reduce((s, t) => s + t.amount, 0), 365000);
+  assert.equal(data.transactions.filter(t => t.kind === 'income').reduce((s, t) => s + t.amount, 0), 365000, 'planned salaries count from the first day');
+  assert.equal('expected' in income('Stipendio Alice'), false, 'no planned label is exposed');
 
-  // Alice's credit replaces her own plan, even though Bob's amount is closer.
-  provider.data.transactions['uid-a'] = [tx('s1', '1856.30', 'CRDT', '2026-10-24', { debtor: { name: 'Azienda Srl' } }), tx('r1', '50.00', 'CRDT', '2026-10-20', { debtor: { name: 'Rimborso spese' } })];
+  // A sale of a similar amount, or of exactly the planned amount, is a separate income.
+  provider.data.transactions['uid-a'] = [
+    tx('v1', '1750.00', 'CRDT', '2026-10-22', { debtor: { name: 'Mario Rossi' }, remittance_information: ['Vendita bicicletta usata'] }),
+    tx('v2', '1800.00', 'CRDT', '2026-10-26', { debtor: { name: 'Luca Bianchi' }, remittance_information: ['Saldo divano'] }),
+    tx('r1', '50.00', 'CRDT', '2026-10-20', { debtor: { name: 'Rimborso spese' } }),
+    tx('s1', '1856.30', 'CRDT', '2026-10-24', { debtor: { name: 'Azienda Srl' }, debtor_account: { iban: 'IT40S0542811101000000123456' }, remittance_information: ['Emolumenti ottobre 2026'] }),
+  ];
   instance.db.prepare('UPDATE bank_connections SET last_attempt_at = NULL').run();
   assert.equal((await request('/bank/refresh', { method: 'POST', session: alice })).status, 200);
   data = await state(alice);
-  assert.deepEqual([income('Stipendio Alice').amount, income('Stipendio Alice').date, income('Stipendio Alice').expected], [185630, '2026-10-24', 0]);
-  assert.equal(income('Stipendio Alice').bank_account, 'Conto Alice');
-  assert.equal(data.transactions.some(t => t.description === 'Azienda Srl'), false, 'no duplicate of the planned salary');
-  assert.equal(income('Rimborso spese').amount, 5000, 'small credits are not mistaken for salaries');
+  assert.deepEqual([income('Stipendio Alice').amount, income('Stipendio Alice').date, income('Stipendio Alice').bank_account], [185630, '2026-10-24', 'Conto Alice'], 'the salary reason identifies the credit; Alice\'s own plan wins over Bob\'s closer amount');
+  assert.equal(data.transactions.some(t => t.description === 'Azienda Srl'), false, 'no duplicate of the salary');
+  assert.equal(income('Mario Rossi').amount, 175000); assert.equal(income('Luca Bianchi').amount, 180000); assert.equal(income('Rimborso spese').amount, 5000);
   assert.equal(income('Stipendio Bob').amount, 185000);
+  assert.equal(instance.db.prepare('SELECT COUNT(*) AS count FROM salary_payers').get().count, 1, 'the employer is remembered');
 
-  // Bob's salary slips into the next month but stays in the planned one.
-  provider.data.transactions['uid-b'] = [tx('s2', '1799.99', 'CRDT', '2026-11-02', { debtor: { name: 'Ditta Bob' } })];
+  // Bob's employer is recognised from previous months; a late credit stays in the planned month.
+  provider.data.transactions['uid-b'] = [
+    tx('h1', '1790.00', 'CRDT', '2026-09-25', { debtor: { name: 'Ditta Bob' }, debtor_account: { iban: 'IT21Q0300203280000000000001' } }),
+    tx('s2', '1799.99', 'CRDT', '2026-11-02', { debtor: { name: 'Ditta Bob' }, debtor_account: { iban: 'IT21Q0300203280000000000001' } }),
+  ];
   await link(bob, 'bob', 'balance');
   data = await state(alice);
   assert.deepEqual([income('Stipendio Bob').amount, income('Stipendio Bob').date], [179999, '2026-10-25']);
-  assert.equal(data.transactions.some(t => t.privacy === 'others' && t.kind === 'income'), false);
   assert.equal((await state(alice, '2026-11')).transactions.some(t => t.amount === 179999), false);
+});
+
+test('a known employer replaces the planned salary even with a bonus month', async () => {
+  await start({ bankProvider: provider });
+  const { alice } = await family();
+  assert.equal((await request('/recurring', { method: 'POST', session: alice, body: { kind: 'income', name: 'Stipendio Alice', amount: 180000, day: 27, startMonth: '2026-10', enabled: true } })).status, 201);
+  const rule = instance.db.prepare('SELECT id FROM recurring_rules').get();
+  const iban = 'IT40S0542811101000000123456';
+  instance.db.prepare('INSERT INTO salary_payers VALUES (?, ?)').run(rule.id, `iban:${createHash('sha256').update(`iban:${iban}`).digest('hex')}`);
+  provider.data.transactions = { 'uid-a': [tx('s1', '3600.00', 'CRDT', '2026-10-23', { debtor: { name: 'Azienda Srl' }, debtor_account: { iban } })] };
+  await link(alice, 'alice', 'shared');
+  const incomes = (await state(alice)).transactions.filter(t => t.kind === 'income');
+  assert.deepEqual(incomes.map(t => [t.description, t.amount, t.date]), [['Stipendio Alice', 360000, '2026-10-23']]);
 });

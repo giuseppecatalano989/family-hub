@@ -172,14 +172,17 @@ export const BANK_SCHEMA = `
     id TEXT PRIMARY KEY, household_id TEXT NOT NULL REFERENCES households(id),
     account_id TEXT NOT NULL REFERENCES bank_accounts(id) ON DELETE CASCADE, external_id TEXT NOT NULL,
     kind TEXT NOT NULL CHECK(kind IN ('income','expense')), amount BIGINT NOT NULL CHECK(amount > 0),
-    date TEXT NOT NULL, description TEXT NOT NULL, match_key TEXT NOT NULL, counterparty_hash TEXT,
+    date TEXT NOT NULL, description TEXT NOT NULL, match_key TEXT NOT NULL, counterparty_hash TEXT, salary_hint INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL CHECK(status IN ('stored','imported','matched','transfer')),
     transaction_id TEXT UNIQUE REFERENCES transactions(id) ON DELETE SET NULL, created_at TEXT NOT NULL,
     UNIQUE(account_id, external_id)
   );
   CREATE INDEX IF NOT EXISTS bank_movements_date ON bank_movements(household_id, date);
+  CREATE TABLE IF NOT EXISTS salary_payers (
+    rule_id TEXT PRIMARY KEY REFERENCES recurring_rules(id) ON DELETE CASCADE, payer_key TEXT NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS private_transactions (
     transaction_id TEXT PRIMARY KEY REFERENCES transactions(id) ON DELETE CASCADE, owner_id TEXT NOT NULL REFERENCES users(id)
   );
 `;
-TABLES.push('bank_connections', 'bank_accounts', 'bank_movements', 'private_transactions');
+TABLES.push('bank_connections', 'bank_accounts', 'bank_movements', 'salary_payers', 'private_transactions');

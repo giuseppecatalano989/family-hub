@@ -18,6 +18,7 @@ const conditions = {
   recurring_occurrences: 'rule_id IN (SELECT id FROM recurring_rules WHERE household_id = ?)',
   meal_shopping: 'meal_id IN (SELECT id FROM meals WHERE household_id = ?)',
   private_transactions: 'transaction_id IN (SELECT id FROM transactions WHERE household_id = ?)',
+  salary_payers: 'rule_id IN (SELECT id FROM recurring_rules WHERE household_id = ?)',
 };
 
 // Every writer uses the same PostgreSQL advisory lock. Database rows and file

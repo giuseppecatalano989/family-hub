@@ -1,6 +1,6 @@
 # Integrazione bancaria
 
-Attiva dal 7 ottobre 2026 su richiesta esplicita, che estende la nota del 4 ottobre ai **saldi** e include nel budget anche i movimenti dei conti con movimenti privati. Il funzionamento per le persone è descritto nel README, sezione “Conti bancari (sola lettura)”.
+Attiva dal 7 ottobre 2026 su richiesta esplicita, che estende la nota del 4 ottobre ai **saldi** e include nel budget anche i movimenti dei conti con movimenti privati. Gli stipendi previsti come entrate ricorrenti vengono sostituiti dall’accredito reale solo quando questo è riconoscibile come stipendio (ordinante già noto, causale o codice SEPA `SALA`, ordinante ricorrente). Il funzionamento per le persone è descritto nel README, sezione “Conti bancari (sola lettura)”.
 
 ## Fornitore
 

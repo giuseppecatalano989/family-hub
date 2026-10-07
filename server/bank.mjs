@@ -11,7 +11,7 @@ export function presentTransactions(rows, userId) {
     const key = [owner, row.kind, row.category_id || '', row.date.slice(0, 7)].join(':');
     const group = groups.get(key);
     if (group) { group.amount += row.amount; group.count++; if (row.date > group.date) group.date = row.date; continue; }
-    const created = { id: `private:${key}`, kind: row.kind, amount: row.amount, category_id: row.category_id, category: row.category, date: row.date, author: row.author, count: 1, recurring_id: null, bank_account: null, expected: 0, privacy: 'others' };
+    const created = { id: `private:${key}`, kind: row.kind, amount: row.amount, category_id: row.category_id, category: row.category, date: row.date, author: row.author, count: 1, recurring_id: null, bank_account: null, privacy: 'others' };
     groups.set(key, created); result.push(created);
   }
   for (const group of groups.values()) { group.description = `${group.kind === 'expense' ? 'Spese' : 'Entrate'} di ${group.author}`; delete group.count; }
@@ -24,9 +24,11 @@ const MAX_CONSENT_SECONDS = 180 * 86400;
 // four unattended reads a day, so other members' accounts wait 6 hours.
 const PRESENT_SYNC_MS = 5 * 60000;
 const UNATTENDED_SYNC_MS = 6 * 3600000;
-// Planned recurring incomes accept a credit within 10 days and 30% of their amount.
+// Planned recurring incomes accept a salary credit within 10 days; unless its payer
+// is already known, also within 30% of the planned amount.
 const PLANNED_DAYS = 10;
 const PLANNED_TOLERANCE = 30;
+const SALARY = /\b(stipend\w*|emolument\w*|retribuzion\w*|salari\w*|cedolin\w*|busta paga|mensilit\w*|pension\w*|payroll|salary|wages)\b/u;
 export const romeToday = (time = Date.now()) => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Rome' }).format(new Date(time));
 export function addDays(value, days) {
   const date = new Date(`${value}T12:00:00Z`); date.setUTCDate(date.getUTCDate() + days);
@@ -84,7 +86,8 @@ export function normalizeTransactions(transactions) {
       const count = (seen.get(base) || 0) + 1; seen.set(base, count);
       externalId = `h:${base}:${count}`;
     }
-    return [{ externalId: externalId.slice(0, 200), kind, amount: Math.abs(signed), date, description: (party || remittance || (kind === 'expense' ? 'Uscita bancaria' : 'Entrata bancaria')).slice(0, 200), matchKey: matchKey(party || remittance.slice(0, 40)), counterpartyHash: ibanHash(counterpartyIban), text: `${party || ''} ${remittance}` }];
+    const salaryHint = kind === 'income' && (t.purpose_code === 'SALA' || SALARY.test(`${party || ''} ${remittance}`.toLocaleLowerCase('it'))) ? 1 : 0;
+    return [{ externalId: externalId.slice(0, 200), salaryHint, kind, amount: Math.abs(signed), date, description: (party || remittance || (kind === 'expense' ? 'Uscita bancaria' : 'Entrata bancaria')).slice(0, 200), matchKey: matchKey(party || remittance.slice(0, 40)), counterpartyHash: ibanHash(counterpartyIban), text: `${party || ''} ${remittance}` }];
   });
 }
 
@@ -227,25 +230,36 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
         await run("UPDATE bank_movements SET status = 'transfer' WHERE id = ?", movement.id); continue;
       }
       const distanceTo = (value, date) => Math.abs(Date.parse(value) - Date.parse(date));
-      // A credited salary replaces its planned recurring income: amount and day
-      // become real, the record stays in the planned month and is not duplicated.
+      // A credited salary silently replaces its planned recurring income: amount
+      // and day become real, the record stays in the planned month. Sales, refunds
+      // and other one-off credits never qualify: the credit needs a known payer, a
+      // salary reason (or SEPA purpose SALA) or the same payer in previous months.
       if (movement.kind === 'income') {
-        const planned = (await all(`SELECT t.id, t.amount, t.date, r.author_id, o.id AS occurrence_id FROM recurring_occurrences o
+        const payer = movement.counterparty_hash ? `iban:${movement.counterparty_hash}` : movement.match_key ? `name:${movement.match_key}` : null;
+        const known = new Set(payer ? (await all('SELECT rule_id FROM salary_payers WHERE payer_key = ?', payer)).map(r => r.rule_id) : []);
+        const close = (a, b) => Math.abs(a - b) * 100 <= a * PLANNED_TOLERANCE;
+        const history = payer ? await all(`SELECT amount FROM bank_movements WHERE account_id = ? AND kind = 'income' AND id <> ? AND date >= ? AND date <= ? AND ${movement.counterparty_hash ? 'counterparty_hash' : 'match_key'} = ?`,
+          movement.account_id, movement.id, addDays(movement.date, -75), addDays(movement.date, -20), movement.counterparty_hash || movement.match_key) : [];
+        const salaryLike = !!movement.salary_hint || history.some(h => close(h.amount, movement.amount));
+        const planned = (await all(`SELECT t.id, t.amount, t.date, r.id AS rule_id, r.author_id, o.id AS occurrence_id FROM recurring_occurrences o
           JOIN recurring_rules r ON r.id = o.rule_id JOIN transactions t ON t.id = o.transaction_id
           WHERE r.household_id = ? AND r.kind = 'income' AND o.overridden = 0 AND t.date >= ? AND t.date <= ?
           AND NOT EXISTS (SELECT 1 FROM bank_movements b WHERE b.transaction_id = t.id)`, hid, addDays(movement.date, -PLANNED_DAYS), addDays(movement.date, PLANNED_DAYS)))
-          .filter(p => Math.abs(p.amount - movement.amount) * 100 <= p.amount * PLANNED_TOLERANCE);
-        const rank = p => [p.author_id === movement.user_id ? 0 : 1, Math.abs(p.amount - movement.amount), distanceTo(p.date, movement.date)];
-        const best = planned.sort((a, b) => { const x = rank(a), y = rank(b); return x[0] - y[0] || x[1] - y[1] || x[2] - y[2] || a.id.localeCompare(b.id); })[0];
+          .filter(p => known.has(p.rule_id) || (salaryLike && close(p.amount, movement.amount)));
+        const rank = p => [known.has(p.rule_id) ? 0 : 1, p.author_id === movement.user_id ? 0 : 1, Math.abs(p.amount - movement.amount), distanceTo(p.date, movement.date)];
+        const best = planned.sort((a, b) => { const x = rank(a), y = rank(b); return x[0] - y[0] || x[1] - y[1] || x[2] - y[2] || x[3] - y[3] || a.id.localeCompare(b.id); })[0];
         if (best) {
           await run('UPDATE transactions SET amount = ?, date = ? WHERE id = ? AND household_id = ?', movement.amount, movement.date.slice(0, 7) === best.date.slice(0, 7) ? movement.date : best.date, best.id, hid);
           await run('UPDATE recurring_occurrences SET overridden = 1 WHERE id = ?', best.occurrence_id);
+          if (payer) await run('INSERT INTO salary_payers VALUES (?, ?) ON CONFLICT(rule_id) DO UPDATE SET payer_key = excluded.payer_key', best.rule_id, payer);
           await run("UPDATE bank_movements SET status = 'matched', transaction_id = ? WHERE id = ?", best.id, movement.id);
           continue;
         }
       }
+      // Planned recurring incomes are matched only by the salary rules above.
       const candidates = await all(`SELECT t.id, t.date FROM transactions t WHERE t.household_id = ? AND t.kind = ? AND t.amount = ? AND t.date >= ? AND t.date <= ?
-        AND NOT EXISTS (SELECT 1 FROM bank_movements b WHERE b.transaction_id = t.id)`, hid, movement.kind, movement.amount, addDays(movement.date, -3), addDays(movement.date, 3));
+        AND NOT EXISTS (SELECT 1 FROM bank_movements b WHERE b.transaction_id = t.id)
+        AND NOT EXISTS (SELECT 1 FROM recurring_occurrences o JOIN recurring_rules r ON r.id = o.rule_id WHERE o.transaction_id = t.id AND r.kind = 'income')`, hid, movement.kind, movement.amount, addDays(movement.date, -3), addDays(movement.date, 3));
       const distance = value => Math.abs(Date.parse(value) - Date.parse(movement.date));
       const match = candidates.sort((a, b) => distance(a.date) - distance(b.date) || a.id.localeCompare(b.id))[0];
       if (match) { await run("UPDATE bank_movements SET status = 'matched', transaction_id = ? WHERE id = ?", match.id, movement.id); continue; }
@@ -283,8 +297,9 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
         if (!await one('SELECT id FROM bank_accounts WHERE id = ?', account.id)) continue;
         if (balance) await run('UPDATE bank_accounts SET balance = ?, balance_kind = ?, balance_at = ? WHERE id = ?', balance.amount, balance.kind, now(), account.id);
         for (const m of movements) {
-          await run(`INSERT INTO bank_movements VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'stored', NULL, ?) ON CONFLICT(account_id, external_id) DO NOTHING`,
-            randomUUID(), connection.household_id, account.id, m.externalId, m.kind, m.amount, m.date, m.description, m.matchKey, m.counterpartyHash, now());
+          await run(`INSERT INTO bank_movements (id, household_id, account_id, external_id, kind, amount, date, description, match_key, counterparty_hash, salary_hint, status, transaction_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'stored', NULL, ?) ON CONFLICT(account_id, external_id) DO NOTHING`,
+            randomUUID(), connection.household_id, account.id, m.externalId, m.kind, m.amount, m.date, m.description, m.matchKey, m.counterpartyHash, m.salaryHint, now());
         }
       }
       await run("UPDATE bank_connections SET status = 'active', last_sync_at = ?, last_error = NULL WHERE id = ?", now(), connection.id);
