@@ -22,6 +22,8 @@ Una modifica alla ricorrenza ha un mese di validità e conserva lo storico prece
 
 Le Scadenze sono promemoria con eventuale pagamento manuale: evita di registrare lo stesso pagamento anche tra le uscite ricorrenti. Un reddito già registrato può duplicarsi creando la sua ricorrenza dallo stesso mese: scegli il mese successivo o rimuovi il duplicato.
 
+La ripartizione usa come base solo le **entrate ricorrenti** del mese: gli stipendi e le altre entrate impostate come ricorrenti. Le entrate occasionali (vendite, rimborsi, regali), inserite a mano o importate dalla banca, compaiono in Entrate e nel saldo del mese ma non aumentano i massimali delle categorie. Per includerne una, registrala come ricorrente.
+
 **Ripartizione budget → Modifica schema** offre quattro schemi fissi e **Pers.**, il solo modificabile:
 
 | Schema | Casa e bollette | Alimentari | Trasporti | Salute e famiglia | Svago | Risparmio |
@@ -96,7 +98,7 @@ Le voci sono condivise e modificabili dai membri della stessa famiglia; altre fa
 
 - **Panoramica:** entrate, uscite e saldo del mese, distribuzione delle spese, avvisi di sforamento e riepilogo degli obiettivi.
 - **Entrate e Uscite:** sezioni separate per registrazioni occasionali e ricorrenti, con modifica, eliminazione, selezione del mese, ricerca, filtri per categoria ed esportazione CSV di tutti i mesi.
-- **Budget:** quattro schemi fissi (Conservativa, Prudente, Equilibrata, Svago) e lo schema **Pers.**, l’unico modificabile, con totale obbligatorio del 100%. Gli importi sono calcolati sulle entrate effettivamente registrate. Vedi [Entrate, uscite e ripartizione budget](#entrate-uscite-e-ripartizione-budget).
+- **Budget:** quattro schemi fissi (Conservativa, Prudente, Equilibrata, Svago) e lo schema **Pers.**, l’unico modificabile, con totale obbligatorio del 100%. Gli importi sono calcolati sulle sole **entrate ricorrenti** del mese (stipendi e ogni entrata impostata come ricorrente); le entrate occasionali, come vendite, rimborsi o regali, restano in Entrate e nel saldo del mese ma non aumentano il budget delle categorie. Vedi [Entrate, uscite e ripartizione budget](#entrate-uscite-e-ripartizione-budget).
 - **Scadenze:** impegni singoli, mensili o annuali, con promemoria, modifica e archivio. Il pagamento è facoltativo: segnare una scadenza come gestita crea una sola uscita se previsto, anche con richieste contemporanee. Annullare la gestione rimuove l’uscita collegata. Gli addebiti automatici vanno nelle Uscite ricorrenti. Le vecchie bollette e i loro pagamenti sono conservati come scadenze.
 - **Menu settimanale:** pranzo e cena per ogni giorno, porzioni, ingredienti e note di preparazione. Trasferimento degli ingredienti nella spesa senza duplicati dello stesso pasto; gli ingredienti già collegati e ancora da acquistare seguono le modifiche del menu.
 - **Backup:** copie automatiche dell’app ogni 24 ore (ultime sette conservate), esportazione ZIP della propria famiglia e strumenti di verifica e ripristino in una nuova directory.

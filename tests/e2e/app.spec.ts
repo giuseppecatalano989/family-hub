@@ -20,6 +20,8 @@ test('a family can manage money, goals, shopping and pinned files on desktop and
   let dialog = page.getByRole('dialog');
   await dialog.getByLabel('Nome', { exact: true }).fill('Stipendio');
   await dialog.getByLabel('Importo (€)').fill('3200,00');
+  // Only recurring incomes fund the budget: the salary is set as recurring.
+  await dialog.getByLabel('Ricorrente (ogni mese)').check();
   await dialog.getByRole('button', { name: 'Aggiungi entrata' }).click();
   await expect(page.locator('.stat-card').first()).toContainText('3.200,00');
   await expect(page.getByRole('button', { name: 'Nuova uscita' }).locator('svg')).toHaveClass(/lucide-minus/);

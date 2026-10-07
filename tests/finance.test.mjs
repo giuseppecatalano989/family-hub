@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { allocateBudget, parseMoney, totals } from '../src/finance.ts';
+import { allocateBudget, budgetIncome, parseMoney, totals } from '../src/finance.ts';
 
 test('Italian decimals are parsed as integer cents without floating point rounding', () => {
   assert.equal(parseMoney('19,99'), 1999);
@@ -19,4 +19,10 @@ test('rounding remainders are allocated so all category budgets sum to the incom
 });
 test('monthly totals retain negative balances and exact cent values', () => {
   assert.deepEqual(totals([{ kind: 'income', amount: 10 }, { kind: 'expense', amount: 20 }, { kind: 'expense', amount: 1 }]), { income: 10, expense: 21, balance: -11 });
+});
+
+test('only recurring incomes fund the budget; one-off incomes stay in the totals', () => {
+  const rows = [{ kind: 'income', amount: 180000, recurring_id: 'salary' }, { kind: 'income', amount: 175000, recurring_id: null }, { kind: 'income', amount: 5000 }, { kind: 'expense', amount: 9000, recurring_id: 'rent' }];
+  assert.equal(budgetIncome(rows), 180000);
+  assert.equal(totals(rows).income, 360000);
 });
