@@ -14,7 +14,7 @@ export function presentTransactions(rows, userId) {
     const created = { id: `private:${key}`, kind: row.kind, amount: row.amount, category_id: row.category_id, category: row.category, date: row.date, author: row.author, count: 1, recurring_id: null, bank_account: null, privacy: 'others' };
     groups.set(key, created); result.push(created);
   }
-  for (const group of groups.values()) { group.description = `Movimenti privati di ${group.author} (${group.count})`; delete group.count; }
+  for (const group of groups.values()) { group.description = `${group.kind === 'expense' ? 'Spese' : 'Entrate'} di ${group.author}`; delete group.count; }
   return result;
 }
 const sha256 = value => createHash('sha256').update(value).digest('hex');

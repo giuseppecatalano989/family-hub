@@ -184,7 +184,7 @@ test('linking shared and balance-only accounts builds a family total, imports an
   assert.equal(data.bank.movements.some(m => m.account_id === bobAccount.id), false);
   assert.equal(data.transactions.some(t => t.description === 'Pizzeria Da Mario'), false);
   const totals = data.transactions.find(t => t.privacy === 'others');
-  assert.deepEqual({ description: totals.description, amount: totals.amount, category: totals.category_id, kind: totals.kind }, { description: 'Movimenti privati di bob (1)', amount: 3300, category: data.categories[4].id, kind: 'expense' });
+  assert.deepEqual({ description: totals.description, amount: totals.amount, category: totals.category_id, kind: totals.kind }, { description: 'Spese di bob', amount: 3300, category: data.categories[4].id, kind: 'expense' });
   assert.equal(JSON.stringify(data.transactions).includes('Pizzeria'), false);
   assert.equal(data.transactions.some(t => t.description === 'Bonifico a Bob' || t.description === 'Da Alice'), false, 'transfers between family accounts are giroconti, even when private');
   const bobView = await state(bob);
@@ -195,7 +195,7 @@ test('linking shared and balance-only accounts builds a family total, imports an
   assert.equal((await request(`/transactions/${pizza.id}`, { method: 'DELETE', session: alice })).status, 404);
   assert.equal((await request(`/transactions/${encodeURIComponent(totals.id)}`, { method: 'DELETE', session: alice })).status, 404);
   const csv = await (await request('/export', { session: alice })).text();
-  assert.match(csv, /Movimenti privati di bob \(1\)/); assert.doesNotMatch(csv, /Pizzeria/);
+  assert.match(csv, /Spese di bob/); assert.doesNotMatch(csv, /Pizzeria/);
   assert.match(await (await request('/export', { session: bob })).text(), /Pizzeria Da Mario/);
   assert.equal((await request(`/bank/accounts/${bobAccount.id}`, { method: 'PATCH', session: alice, body: { visibility: 'shared' } })).status, 404);
   assert.equal((await request(`/bank/connections/${bobAccount.connection_id}`, { method: 'DELETE', session: alice })).status, 404);
