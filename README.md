@@ -79,15 +79,15 @@ Le voci sono condivise e modificabili dai membri della stessa famiglia; altre fa
 ## Funzioni della prima versione
 
 - **Panoramica:** entrate, uscite e saldo del mese, distribuzione delle spese, avvisi di sforamento e riepilogo degli obiettivi.
-- **Movimenti:** inserimento, modifica ed eliminazione di entrate e uscite, selezione del mese, ricerca, filtri per tipo e categoria ed esportazione CSV di tutti i mesi.
-- **Budget:** nomi delle categorie e percentuali personalizzabili, totale obbligatorio del 100%, importi calcolati sulle entrate effettivamente registrate. Schema iniziale e modello 50/30/20 come punti di partenza.
+- **Entrate e Uscite:** sezioni separate per registrazioni occasionali e ricorrenti, con modifica, eliminazione, selezione del mese, ricerca, filtri per categoria ed esportazione CSV di tutti i mesi.
+- **Budget:** quattro schemi fissi (Conservativa, Prudente, Equilibrata, Svago) e lo schema **Pers.**, l’unico modificabile, con totale obbligatorio del 100%. Gli importi sono calcolati sulle entrate effettivamente registrate. Vedi [Entrate, uscite e ripartizione budget](#entrate-uscite-e-ripartizione-budget).
 - **Scadenze:** impegni singoli, mensili o annuali, con promemoria, modifica e archivio. Il pagamento è facoltativo: segnare una scadenza come gestita crea una sola uscita se previsto, anche con richieste contemporanee. Annullare la gestione rimuove l’uscita collegata. Gli addebiti automatici vanno nelle Uscite ricorrenti. Le vecchie bollette e i loro pagamenti sono conservati come scadenze.
 - **Menu settimanale:** pranzo e cena per ogni giorno, porzioni, ingredienti e note di preparazione. Trasferimento degli ingredienti nella spesa senza duplicati dello stesso pasto; gli ingredienti già collegati e ancora da acquistare seguono le modifiche del menu.
 - **Backup:** copie automatiche dell’app ogni 24 ore (ultime sette conservate), esportazione ZIP della propria famiglia e strumenti di verifica e ripristino in una nuova directory.
-- **Obiettivi:** breve, medio e lungo termine, importo da raggiungere, scadenza facoltativa, risparmio iniziale, contributi successivi, modifica ed eliminazione.
+- **Obiettivi:** breve, medio e lungo termine, importo da raggiungere, scadenza facoltativa, risparmio iniziale, accantonamenti successivi correggibili ed eliminabili, modifica ed eliminazione.
 - **Spesa:** prodotti, quantità, reparti, prodotti acquistati e pulizia della lista.
 - **Lavagna:** appunti modificabili, colori, elementi in evidenza e fino a cinque allegati da 10 MB per appunto. I file si scaricano solo dopo l’accesso alla famiglia corretta.
-- **Famiglia:** il creatore dello spazio genera un codice invito valido sette giorni. Un nuovo codice sostituisce il precedente. Gli altri membri creano un account scegliendo “Ho un invito”.
+- **Famiglia:** l’amministratore genera un link o un codice invito valido sette giorni. Un nuovo invito sostituisce il precedente. Gli altri membri creano un account scegliendo “Ho un invito” o aprendo il link. Ogni account modifica soltanto il proprio profilo.
 
 Gli aggiornamenti condivisi vengono letti ogni 15 secondi, quando la scheda è visibile, e quando si ritorna alla finestra. Dopo una modifica locale la vista si aggiorna subito.
 
@@ -235,21 +235,29 @@ La directory predefinita `.data-backups` è ignorata da Git. Se scegli un altro 
 ## Struttura
 
 ```text
-src/                Interfaccia React e calcoli del budget
-server/app.mjs      API Express, autorizzazione e SQLite
-server/index.mjs    Avvio, pianificazione backup e arresto
-server/deadlines.mjs Scadenze e gestioni con eventuale uscita
-server/workflows.mjs Menu, collegamenti alla spesa e compatibilità bollette
-server/backups.mjs  Snapshot, ZIP familiare, verifica e ripristino
-server/postgres.mjs Persistenza PostgreSQL per Neon
-server/cloud.mjs    Backend condiviso per il deployment serverless
+src/                     Interfaccia React e calcoli del budget
+server/app.mjs           API Express, autenticazione, autorizzazione e SQLite
+server/index.mjs         Avvio locale, pianificazione backup e arresto
+server/schema.mjs        Schema delle tabelle, creato in modo additivo
+server/planning.mjs      Entrate e uscite ricorrenti, schemi di budget
+server/deadlines.mjs     Scadenze e gestioni con eventuale uscita
+server/goal-savings.mjs  Accantonamenti degli obiettivi
+server/workflows.mjs     Menu, collegamenti alla spesa e compatibilità bollette
+server/waste.mjs         Calendario del conferimento rifiuti
+server/uploads.mjs       Allegati della lavagna caricati a parti
+server/recovery.mjs      Recupero password con link monouso
+server/reset-email.mjs   Invio email tramite Brevo o Resend
+server/backups.mjs       Snapshot, ZIP familiare, verifica e ripristino
+server/postgres.mjs      Persistenza PostgreSQL per Neon
+server/cloud.mjs         Backend condiviso per il deployment serverless
 server/cloud-backups.mjs Backup cloud e copie portabili
-api/index.mjs       Funzione Vercel; nessun fallback a dati temporanei
-vercel.json         Deployment e cron giornaliero
-tests/              Test API, calcoli e flussi browser
-public/             Icona dell’app
-.data/              Dati locali e allegati, ignorati da Git
-.data-backups/      Backup automatici, ignorati da Git
+server/*-cli.mjs         Comandi privati del gestore (backup, rimozione membri, diagnostica email), senza rotte HTTP
+api/index.mjs            Funzione Vercel; nessun fallback a dati temporanei
+vercel.json              Deployment e cron giornaliero
+tests/                   Test API, calcoli, backend cloud e flussi browser
+public/                  Logo, icone e manifest dell’app
+.data/                   Dati locali e allegati, ignorati da Git
+.data-backups/           Backup automatici, ignorati da Git
 ```
 
 ## Prossimi sviluppi utili
