@@ -25,7 +25,8 @@ export function snapshotInstance(db, dataDir, destination, createdAt = new Date(
     const snapshot = new DatabaseSync(database);
     let attachments;
     try {
-      if (snapshot.prepare("SELECT name FROM sqlite_master WHERE name = 'password_resets'").get()) snapshot.exec('DELETE FROM password_resets; VACUUM;');
+      for (const table of ['password_resets', 'bank_auth_requests']) if (snapshot.prepare('SELECT name FROM sqlite_master WHERE name = ?').get(table)) snapshot.exec(`DELETE FROM ${table}`);
+      snapshot.exec('VACUUM');
       attachments = snapshot.prepare('SELECT storage_name FROM attachments').all();
     }
     finally { snapshot.close(); }
@@ -142,6 +143,16 @@ export function streamFamilyBackup(db, dataDir, householdId, response, next) {
     data.recurring_occurrences = query('SELECT o.* FROM recurring_occurrences o JOIN recurring_rules r ON r.id = o.rule_id WHERE r.household_id = ?', householdId);
     data.deadline_receipts = query('SELECT r.* FROM deadline_receipts r JOIN deadlines d ON d.id = r.deadline_id WHERE d.household_id = ?', householdId);
     data.bill_payments = query('SELECT p.* FROM bill_payments p JOIN bills b ON b.id = p.bill_id WHERE b.household_id = ?', householdId);
+    // Bank data: no provider sessions or IBAN hashes; private movements stay with their owner.
+    if (db.prepare("SELECT name FROM sqlite_master WHERE name = 'bank_accounts'").get()) {
+      const hidden = new Set(query('SELECT p.transaction_id FROM private_transactions p JOIN transactions t ON t.id = p.transaction_id WHERE t.household_id = ?', householdId).map(r => r.transaction_id));
+      data.transactions = data.transactions.map(t => hidden.has(t.id) ? { ...t, description: 'Movimento bancario privato' } : t);
+      data.bank_connections = query('SELECT id, user_id, aspsp_name, aspsp_country, valid_until, status, last_sync_at, created_at FROM bank_connections WHERE household_id = ?', householdId);
+      data.bank_accounts = query('SELECT id, connection_id, name, iban_last4, currency, visibility, import_from, balance, balance_kind, balance_at, created_at FROM bank_accounts WHERE household_id = ?', householdId);
+      data.savings_destinations = query('SELECT id, name, goal_id, enabled, created_at FROM savings_destinations WHERE household_id = ?', householdId);
+      data.savings_contributions = query('SELECT s.* FROM savings_contributions s JOIN transactions t ON t.id = s.transaction_id WHERE t.household_id = ?', householdId);
+      data.bank_movements = query("SELECT m.id, m.account_id, m.kind, m.amount, m.date, m.description, m.status, m.transaction_id, m.created_at FROM bank_movements m JOIN bank_accounts a ON a.id = m.account_id WHERE m.household_id = ? AND a.visibility = 'shared'", householdId);
+    }
     data.meal_shopping = query('SELECT s.* FROM meal_shopping s JOIN meals m ON m.id = s.meal_id WHERE m.household_id = ?', householdId);
     const attachments = query('SELECT a.* FROM attachments a JOIN notes n ON n.id = a.note_id WHERE n.household_id = ?', householdId);
     data.attachments = attachments.map(({ storage_name, ...attachment }) => {

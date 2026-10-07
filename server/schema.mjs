@@ -145,3 +145,53 @@ export const DEADLINE_SCHEMA = `
   );
 `;
 TABLES.push('deadlines', 'deadline_receipts', 'deadline_migrations');
+
+// Read-only bank data (AIS). Provider sessions are stored encrypted; balances
+// and amounts are integer cents. Records imported from "balance" accounts count
+// in the budget but other members only receive monthly totals per category.
+export const BANK_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS bank_auth_requests (
+    state_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    household_id TEXT NOT NULL REFERENCES households(id), aspsp_name TEXT NOT NULL, aspsp_country TEXT NOT NULL,
+    visibility TEXT NOT NULL CHECK(visibility IN ('shared','balance')), expires BIGINT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS bank_connections (
+    id TEXT PRIMARY KEY, household_id TEXT NOT NULL REFERENCES households(id), user_id TEXT NOT NULL REFERENCES users(id),
+    aspsp_name TEXT NOT NULL, aspsp_country TEXT NOT NULL, session_secret TEXT, valid_until TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('active','expired','error')), last_sync_at TEXT, last_attempt_at TEXT, last_error TEXT, created_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS bank_accounts (
+    id TEXT PRIMARY KEY, household_id TEXT NOT NULL REFERENCES households(id),
+    connection_id TEXT NOT NULL REFERENCES bank_connections(id) ON DELETE CASCADE, provider_uid TEXT NOT NULL,
+    name TEXT NOT NULL, iban_hash TEXT, iban_last4 TEXT, currency TEXT NOT NULL,
+    visibility TEXT NOT NULL CHECK(visibility IN ('shared','balance')), import_from TEXT,
+    balance BIGINT, balance_kind TEXT, balance_at TEXT, created_at TEXT NOT NULL, savings INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(connection_id, provider_uid)
+  );
+  CREATE TABLE IF NOT EXISTS bank_movements (
+    id TEXT PRIMARY KEY, household_id TEXT NOT NULL REFERENCES households(id),
+    account_id TEXT NOT NULL REFERENCES bank_accounts(id) ON DELETE CASCADE, external_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK(kind IN ('income','expense')), amount BIGINT NOT NULL CHECK(amount > 0),
+    date TEXT NOT NULL, description TEXT NOT NULL, match_key TEXT NOT NULL, counterparty_hash TEXT, salary_hint INTEGER NOT NULL DEFAULT 0, savings_hint INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL CHECK(status IN ('stored','imported','matched','transfer')),
+    transaction_id TEXT UNIQUE REFERENCES transactions(id) ON DELETE SET NULL, created_at TEXT NOT NULL,
+    UNIQUE(account_id, external_id)
+  );
+  CREATE INDEX IF NOT EXISTS bank_movements_date ON bank_movements(household_id, date);
+  CREATE TABLE IF NOT EXISTS savings_destinations (
+    id TEXT PRIMARY KEY, household_id TEXT NOT NULL REFERENCES households(id), destination_key TEXT NOT NULL, name TEXT NOT NULL,
+    goal_id TEXT REFERENCES goals(id) ON DELETE SET NULL, enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL,
+    UNIQUE(household_id, destination_key)
+  );
+  CREATE TABLE IF NOT EXISTS savings_contributions (
+    transaction_id TEXT PRIMARY KEY REFERENCES transactions(id) ON DELETE CASCADE,
+    contribution_id TEXT NOT NULL UNIQUE REFERENCES contributions(id) ON DELETE CASCADE
+  );
+  CREATE TABLE IF NOT EXISTS salary_payers (
+    rule_id TEXT PRIMARY KEY REFERENCES recurring_rules(id) ON DELETE CASCADE, payer_key TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS private_transactions (
+    transaction_id TEXT PRIMARY KEY REFERENCES transactions(id) ON DELETE CASCADE, owner_id TEXT NOT NULL REFERENCES users(id)
+  );
+`;
+TABLES.push('bank_connections', 'bank_accounts', 'bank_movements', 'savings_destinations', 'savings_contributions', 'salary_payers', 'private_transactions');

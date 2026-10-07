@@ -22,6 +22,8 @@ Una modifica alla ricorrenza ha un mese di validità e conserva lo storico prece
 
 Le Scadenze sono promemoria con eventuale pagamento manuale: evita di registrare lo stesso pagamento anche tra le uscite ricorrenti. Un reddito già registrato può duplicarsi creando la sua ricorrenza dallo stesso mese: scegli il mese successivo o rimuovi il duplicato.
 
+La ripartizione usa come base solo le **entrate ricorrenti** del mese: gli stipendi e le altre entrate impostate come ricorrenti. Le entrate occasionali (vendite, rimborsi, regali), inserite a mano o importate dalla banca, compaiono in Entrate e nel saldo del mese ma non aumentano i massimali delle categorie. Per includerne una, registrala come ricorrente.
+
 **Ripartizione budget → Modifica schema** offre quattro schemi fissi e **Pers.**, il solo modificabile:
 
 | Schema | Casa e bollette | Alimentari | Trasporti | Salute e famiglia | Svago | Risparmio |
@@ -68,6 +70,28 @@ La sezione **Famiglia e inviti** genera un link valido sette giorni, oltre al co
 
 Le nuove tabelle sono create in modo additivo, senza modificare o cancellare i dati esistenti. Ricorrenze, versioni, mesi saltati e template fanno parte dei backup dell'istanza, del ripristino cloud e dell'esportazione familiare. I backup precedenti alle nuove tabelle possono ancora essere ripristinati in un nuovo database.
 
+## Conti bancari (sola lettura)
+
+La sezione **Conti bancari** collega i conti tramite [Enable Banking](https://enablebanking.com), con un consenso PSD2 di sola lettura (AIS): Family Hub legge **saldo e movimenti** e non può disporre pagamenti o bonifici. Le credenziali bancarie si inseriscono soltanto sul sito o nell’app della banca.
+
+- **Collega una banca** apre l’elenco delle banche italiane disponibili. Dopo l’autorizzazione la banca riporta all’app e il conto compare con il saldo (disponibile, se la banca lo fornisce, altrimenti contabile).
+- Ogni membro collega i propri conti e sceglie per ciascuno cosa condividere: **Saldo e movimenti** oppure **Movimenti privati**. Il **saldo familiare** somma tutti i conti in euro.
+- I movimenti contabilizzati di tutti i conti collegati, dal mese del collegamento, diventano automaticamente **Entrate** e **Uscite** della famiglia e contano nel budget. Per i conti con **Movimenti privati** il titolare vede le proprie operazioni per intero (con l’indicazione “Privato”), mentre gli altri membri vedono soltanto una riga di totale per mese, tipo e categoria, ad esempio “Spese di Bob” o “Entrate di Bob”, senza esercenti né singoli importi, anche nell’esportazione CSV. Solo il titolare può modificarle o eliminarle. Cambiare la scelta vale anche per le registrazioni già importate.
+- **Stipendi a metà o fine mese.** Inserisci ogni stipendio come **Entrata ricorrente** (per esempio 1.800 € il giorno 27): dal primo giorno del mese l’importo conta nel budget, così le percentuali delle categorie hanno subito una base. Quando arriva l’accredito, la stessa registrazione prende senza avvisi importo e giorno reali: vedi sempre una sola entrata del mese, senza duplicati; se l’accredito slitta al mese successivo resta nel mese a cui si riferisce. Un accredito sostituisce lo stipendio previsto solo se arriva entro dieci giorni dalla data prevista e se è riconoscibile come stipendio: proviene dall’ordinante che ha già pagato quello stipendio (in tal caso anche con importo diverso, per esempio con la tredicesima), oppure ha una causale da stipendio (stipendio, emolumenti, retribuzione, cedolino, pensione…) o il codice SEPA `SALA`, oppure lo stesso ordinante ha accreditato una cifra simile nei mesi precedenti. Negli ultimi due casi l’importo deve differire al massimo del 30%. Vendite, rimborsi e altre entrate occasionali restano entrate separate, anche con lo stesso importo. Con più stipendi possibili ha la precedenza quello inserito dal titolare del conto. La correzione è conservata anche se poi modifichi la ricorrenza.
+- Un movimento con lo stesso tipo e importo di una registrazione manuale entro tre giorni viene collegato a quella, senza duplicati. I bonifici tra due conti collegati della famiglia sono riconosciuti come giroconti e non contano né come entrata né come uscita.
+- **Risparmi automatici.** Le uscite verso conti di risparmio e investimento finiscono nella categoria **Risparmio**. Sono riconosciute:
+  - se vanno verso un conto collegato segnato come **Conto risparmio** dal titolare;
+  - se il destinatario è noto (Trade Republic, Scalable Capital, Moneyfarm, Directa, Degiro, Raisin, conti deposito come Conto Arancio, Rendimax o illimity, fondi pensione, PAC);
+  - se, dopo che hai spostato una volta un’uscita in Risparmio, i bonifici successivi vanno allo stesso IBAN o destinatario.
+  
+  Nomi di banche come “Cassa di Risparmio” non bastano. La sezione **Dove risparmiate** elenca le destinazioni: per ciascuna qualsiasi membro può scegliere un **obiettivo**, e ogni nuovo versamento diventa anche un suo accantonamento (correggere l’importo dell’uscita aggiorna l’accantonamento; eliminarla o spostarla in un’altra categoria lo rimuove). “Non è un risparmio” disattiva una destinazione. I movimenti interni a un conto risparmio collegato (acquisti di titoli, interessi) non entrano nel budget, i prelievi verso i conti correnti sono giroconti e il suo saldo resta nel totale familiare.
+- La categoria delle uscite importate è proposta dalle correzioni precedenti per lo stesso esercente o da parole chiave note (supermercati, carburante, farmacie, utenze…). Le uscite non riconosciute restano **Da classificare**: modificale per scegliere la categoria, e le successive dello stesso esercente seguiranno la scelta. Una registrazione importata e poi eliminata non viene importata di nuovo.
+- Mentre l’app è aperta, ciascuno aggiorna automaticamente i **propri** conti ogni 5 minuti (accesso con il titolare presente). Senza il titolare, la normativa PSD2 consente alla banca al massimo quattro letture al giorno: i conti degli altri membri si aggiornano quindi al più ogni 6 ore, quando qualcuno usa l’app, oltre al cron giornaliero di Vercel o al timer del server locale. Anche l’aggiornamento manuale è limitato a una volta ogni 5 minuti. Il consenso dura fino a 180 giorni secondo la banca: alla scadenza **Rinnova** ricollega lo stesso conto conservando storico e visibilità. **Scollega** revoca la sessione presso Enable Banking e rimuove saldo e copie bancarie; le registrazioni già aggiunte a Entrate e Uscite restano.
+
+**Configurazione.** Crea un account Enable Banking e registra un’applicazione di produzione, indicando come redirect `https://<il-tuo-dominio>/api/bank/callback`. Nella modalità gratuita *restricted* vanno collegati prima, dal pannello Enable Banking, i conti che l’app potrà leggere: ogni titolare (per esempio entrambi i partner) completa lì l’autorizzazione del proprio conto. Nelle variabili private **Production** di Vercel imposta `ENABLE_BANKING_APP_ID` e `ENABLE_BANKING_PRIVATE_KEY` (il contenuto del file `.pem`, anche con `\n` al posto degli a capo, oppure in Base64). `ENABLE_BANKING_REDIRECT_URL` è facoltativa se il dominio coincide con quello predefinito dell’app. Non usare prefissi `VITE_` e non salvare la chiave nel repository. Senza configurazione la sezione mostra che il collegamento non è attivo.
+
+Le sessioni Enable Banking sono cifrate nel database (AES-256-GCM con una chiave derivata dalla chiave privata): cambiare chiave richiede di ricollegare i conti. Gli importi restano interi in centesimi. Le tabelle `bank_*` sono create in modo additivo e incluse nei backup dell’istanza; lo ZIP familiare contiene conti e saldi, i movimenti bancari dei soli conti condivisi, le registrazioni private con descrizione “Movimento bancario privato” e nessuna sessione o impronta IBAN. Rimuovere un membro elimina i suoi collegamenti bancari e conserva le registrazioni importate, rendendo anonime quelle private.
+
 ## Conferimento rifiuti
 
 La sezione **Conferimento rifiuti** contiene un calendario settimanale condiviso. Crea e modifica una voce per ogni tipologia, scegliendo uno o più giorni (da lunedì a domenica), un colore, un orario o fascia facoltativa e indicazioni utili. Organico, carta/cartone, plastica/metalli, vetro e indifferenziato sono scorciatoie per il nome: non inseriscono giorni ipotizzati. Sono ammesse anche tipologie personalizzate.
@@ -79,15 +103,15 @@ Le voci sono condivise e modificabili dai membri della stessa famiglia; altre fa
 ## Funzioni della prima versione
 
 - **Panoramica:** entrate, uscite e saldo del mese, distribuzione delle spese, avvisi di sforamento e riepilogo degli obiettivi.
-- **Movimenti:** inserimento, modifica ed eliminazione di entrate e uscite, selezione del mese, ricerca, filtri per tipo e categoria ed esportazione CSV di tutti i mesi.
-- **Budget:** nomi delle categorie e percentuali personalizzabili, totale obbligatorio del 100%, importi calcolati sulle entrate effettivamente registrate. Schema iniziale e modello 50/30/20 come punti di partenza.
+- **Entrate e Uscite:** sezioni separate per registrazioni occasionali e ricorrenti, con modifica, eliminazione, selezione del mese, ricerca, filtri per categoria ed esportazione CSV di tutti i mesi.
+- **Budget:** quattro schemi fissi (Conservativa, Prudente, Equilibrata, Svago) e lo schema **Pers.**, l’unico modificabile, con totale obbligatorio del 100%. Gli importi sono calcolati sulle sole **entrate ricorrenti** del mese (stipendi e ogni entrata impostata come ricorrente); le entrate occasionali, come vendite, rimborsi o regali, restano in Entrate e nel saldo del mese ma non aumentano il budget delle categorie. Vedi [Entrate, uscite e ripartizione budget](#entrate-uscite-e-ripartizione-budget).
 - **Scadenze:** impegni singoli, mensili o annuali, con promemoria, modifica e archivio. Il pagamento è facoltativo: segnare una scadenza come gestita crea una sola uscita se previsto, anche con richieste contemporanee. Annullare la gestione rimuove l’uscita collegata. Gli addebiti automatici vanno nelle Uscite ricorrenti. Le vecchie bollette e i loro pagamenti sono conservati come scadenze.
 - **Menu settimanale:** pranzo e cena per ogni giorno, porzioni, ingredienti e note di preparazione. Trasferimento degli ingredienti nella spesa senza duplicati dello stesso pasto; gli ingredienti già collegati e ancora da acquistare seguono le modifiche del menu.
 - **Backup:** copie automatiche dell’app ogni 24 ore (ultime sette conservate), esportazione ZIP della propria famiglia e strumenti di verifica e ripristino in una nuova directory.
-- **Obiettivi:** breve, medio e lungo termine, importo da raggiungere, scadenza facoltativa, risparmio iniziale, contributi successivi, modifica ed eliminazione.
+- **Obiettivi:** breve, medio e lungo termine, importo da raggiungere, scadenza facoltativa, risparmio iniziale, accantonamenti successivi correggibili ed eliminabili, modifica ed eliminazione.
 - **Spesa:** prodotti, quantità, reparti, prodotti acquistati e pulizia della lista.
 - **Lavagna:** appunti modificabili, colori, elementi in evidenza e fino a cinque allegati da 10 MB per appunto. I file si scaricano solo dopo l’accesso alla famiglia corretta.
-- **Famiglia:** il creatore dello spazio genera un codice invito valido sette giorni. Un nuovo codice sostituisce il precedente. Gli altri membri creano un account scegliendo “Ho un invito”.
+- **Famiglia:** l’amministratore genera un link o un codice invito valido sette giorni. Un nuovo invito sostituisce il precedente. Gli altri membri creano un account scegliendo “Ho un invito” o aprendo il link. Ogni account modifica soltanto il proprio profilo.
 
 Gli aggiornamenti condivisi vengono letti ogni 15 secondi, quando la scheda è visibile, e quando si ritorna alla finestra. Dopo una modifica locale la vista si aggiorna subito.
 
@@ -185,11 +209,11 @@ npm test
 npm run test:e2e
 ```
 
-I test Node verificano account e sessioni, inviti, condivisione e isolamento tra famiglie, CSRF, movimenti e mesi, budget, obiettivi, allegati, esportazione e persistenza dopo il riavvio, pagamenti senza duplicati, menu collegato alla spesa, limiti di mese e settimana, integrità dei backup, ripristino completo e conservazione delle ultime sette copie e segnalazione degli errori senza perdita dei dati. Verificano anche ricorrenze senza duplicati, modifiche datate, mesi saltati ed eliminazione delle ricorrenze, schemi fissi e impostazioni account. I test browser percorrono le sezioni di base con due account e i flussi di scadenze con e senza pagamento, menu, spesa, backup ZIP, redditi, ricorrenze, template e conferimento rifiuti, su desktop e su un viewport mobile. Verificano anche i download, il contenuto dell’archivio, l’assenza di errori JavaScript e di scorrimento orizzontale, oltre alla barra fissa durante lo scorrimento.
+I test Node verificano account e sessioni, inviti, condivisione e isolamento tra famiglie, CSRF, movimenti e mesi, budget, obiettivi, allegati, esportazione e persistenza dopo il riavvio, pagamenti senza duplicati, menu collegato alla spesa, limiti di mese e settimana, integrità dei backup, ripristino completo e conservazione delle ultime sette copie e segnalazione degli errori senza perdita dei dati. Verificano anche ricorrenze senza duplicati, modifiche datate, mesi saltati ed eliminazione delle ricorrenze, schemi fissi e impostazioni account, firma e chiamate del client Enable Banking, importazione e riconciliazione dei movimenti, giroconti, visibilità per conto, cifratura delle sessioni ed esportazioni senza dati privati. I test browser percorrono le sezioni di base con due account e i flussi di scadenze con e senza pagamento, menu, spesa, backup ZIP, redditi, ricorrenze, template, conferimento rifiuti e collegamento bancario (con un Enable Banking simulato in locale), su desktop e su un viewport mobile. Verificano anche i download, il contenuto dell’archivio, l’assenza di errori JavaScript e di scorrimento orizzontale, oltre alla barra fissa durante lo scorrimento.
 
 I test usano database temporanei separati, rimossi alla fine: non modificano `.data`. I risultati del browser rimangono in `test-results`, ignorato da Git.
 
-Nell’ambiente cloud è già disponibile `/usr/bin/chromium` e la configurazione lo usa automaticamente. Su un’altra macchina, puoi indicare un browser installato con `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` oppure installare quello di Playwright:
+Nell’ambiente cloud la configurazione usa automaticamente `/usr/bin/chromium`, se presente; altrimenti indica il browser preinstallato, per esempio `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/pw-browsers/chromium`. Su un’altra macchina, puoi indicare un browser installato con `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` oppure installare quello di Playwright:
 
 ```sh
 npm run test:browser:install
@@ -235,21 +259,30 @@ La directory predefinita `.data-backups` è ignorata da Git. Se scegli un altro 
 ## Struttura
 
 ```text
-src/                Interfaccia React e calcoli del budget
-server/app.mjs      API Express, autorizzazione e SQLite
-server/index.mjs    Avvio, pianificazione backup e arresto
-server/deadlines.mjs Scadenze e gestioni con eventuale uscita
-server/workflows.mjs Menu, collegamenti alla spesa e compatibilità bollette
-server/backups.mjs  Snapshot, ZIP familiare, verifica e ripristino
-server/postgres.mjs Persistenza PostgreSQL per Neon
-server/cloud.mjs    Backend condiviso per il deployment serverless
+src/                     Interfaccia React e calcoli del budget
+server/app.mjs           API Express, autenticazione, autorizzazione e SQLite
+server/index.mjs         Avvio locale, pianificazione backup e arresto
+server/schema.mjs        Schema delle tabelle, creato in modo additivo
+server/planning.mjs      Entrate e uscite ricorrenti, schemi di budget
+server/deadlines.mjs     Scadenze e gestioni con eventuale uscita
+server/goal-savings.mjs  Accantonamenti degli obiettivi
+server/workflows.mjs     Menu, collegamenti alla spesa e compatibilità bollette
+server/waste.mjs         Calendario del conferimento rifiuti
+server/uploads.mjs       Allegati della lavagna caricati a parti
+server/recovery.mjs      Recupero password con link monouso
+server/bank.mjs          Conti bancari in sola lettura tramite Enable Banking
+server/reset-email.mjs   Invio email tramite Brevo o Resend
+server/backups.mjs       Snapshot, ZIP familiare, verifica e ripristino
+server/postgres.mjs      Persistenza PostgreSQL per Neon
+server/cloud.mjs         Backend condiviso per il deployment serverless
 server/cloud-backups.mjs Backup cloud e copie portabili
-api/index.mjs       Funzione Vercel; nessun fallback a dati temporanei
-vercel.json         Deployment e cron giornaliero
-tests/              Test API, calcoli e flussi browser
-public/             Icona dell’app
-.data/              Dati locali e allegati, ignorati da Git
-.data-backups/      Backup automatici, ignorati da Git
+server/*-cli.mjs         Comandi privati del gestore (backup, rimozione membri, diagnostica email), senza rotte HTTP
+api/index.mjs            Funzione Vercel; nessun fallback a dati temporanei
+vercel.json              Deployment e cron giornaliero
+tests/                   Test API, calcoli, backend cloud e flussi browser
+public/                  Logo, icone e manifest dell’app
+.data/                   Dati locali e allegati, ignorati da Git
+.data-backups/           Backup automatici, ignorati da Git
 ```
 
 ## Prossimi sviluppi utili
@@ -259,8 +292,8 @@ public/             Icona dell’app
 3. Copie automatiche verso uno spazio esterno al server e importazione del ZIP familiare.
 4. Verifica email e gestione dei membri dall’interfaccia.
 
-La prima versione non include collegamenti alle banche, pagamenti o notifiche push. Il recupero password richiede la configurazione del servizio email descritta sopra. Il deployment gratuito richiede il collegamento dei propri account Vercel e Neon; la pubblicazione dell’ambiente Codex non pubblica la webapp. Il comando di build Vercel è `npm run build`, impostato nel progetto (o ricavato dal framework Vite).
+L’app non esegue pagamenti e non invia notifiche push; i conti bancari sono collegati in sola lettura. Il recupero password richiede la configurazione del servizio email descritta sopra. Il deployment gratuito richiede il collegamento dei propri account Vercel e Neon; la pubblicazione dell’ambiente Codex non pubblica la webapp. Il comando di build Vercel è `npm run build`, impostato nel progetto (o ricavato dal framework Vite).
 
 La rimozione di un membro richiesta al gestore usa esclusivamente il comando privato `server/member-removal-cli.mjs`, con `DATABASE_URL` backend e argomenti `--request-id`, `--member` e `--admin`. Richiede una corrispondenza univoca dei nomi nella stessa famiglia, conserva una copia privata prima della rimozione, revoca gli accessi e trasferisce i record condivisi all’amministratore. Non rimuove amministratori né dati familiari. Riutilizzare lo stesso identificativo di richiesta non elimina un account ricreato. Il comando non è esposto via HTTP e non fa parte della build ordinaria; può essere eseguito con un comando di build specifico di un singolo deployment.
 
-La richiesta di integrazione bancaria futura, esclusivamente di lettura dei movimenti e senza saldi né pagamenti, è annotata in [docs/banking-integration.md](docs/banking-integration.md).
+Scelte e limiti dell’integrazione bancaria, in sola lettura di saldo e movimenti e senza pagamenti, sono annotati in [docs/banking-integration.md](docs/banking-integration.md).

@@ -13,5 +13,10 @@ const instance = createApp({
   backupDir: process.env.BACKUP_DIR ? path.resolve(process.env.BACKUP_DIR) : undefined,
 });
 instance.backups.start();
+if (instance.bank.configured) {
+  const syncBanks = () => instance.bank.synchronizeAll().catch(error => console.error('Aggiornamento bancario non riuscito:', error.message));
+  setTimeout(syncBanks, 60000).unref();
+  setInterval(syncBanks, 3600000).unref();
+}
 const server = instance.app.listen(port, '0.0.0.0', () => console.log(`Casa: server in ascolto sulla porta ${port}`));
 for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => server.close(() => { instance.close(); process.exit(0); }));
