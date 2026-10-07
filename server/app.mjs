@@ -364,12 +364,17 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             if (occurrence && (values[0] !== occurrence.kind || values[4].slice(0, 7) !== occurrence.month)) fail('Un movimento ricorrente deve conservare il tipo e il mese di origine.');
             await run('UPDATE transactions SET kind = ?, amount = ?, category_id = ?, description = ?, date = ? WHERE id = ? AND household_id = ?', ...values, req.params.id, req.user.household_id);
             if (occurrence) await run('UPDATE recurring_occurrences SET overridden = 1 WHERE id = ?', occurrence.id);
+            await bank.syncSavings(req.params.id, req.user.household_id);
         });
         res.json({ ok: true });
     });
     app.delete('/api/transactions/:id', async (req, res) => {
         await editableTransaction(req.params.id, req.user);
-        await run('DELETE FROM transactions WHERE id = ? AND household_id = ?', req.params.id, req.user.household_id);
+        // A savings transfer also leaves its goal, in the same transaction.
+        await atomic(async () => {
+            await bank.releaseSavings(req.params.id);
+            await run('DELETE FROM transactions WHERE id = ? AND household_id = ?', req.params.id, req.user.household_id);
+        });
         res.json({ ok: true });
     });
     app.put('/api/budget', async (req, res) => {

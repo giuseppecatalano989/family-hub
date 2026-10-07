@@ -18,9 +18,11 @@ test('a member links a bank in read-only mode, sees the family balance and impor
   await expect(page).toHaveURL(/\/#bank$/);
   const card = page.locator('.bank-card'); await expect(card).toContainText('Conto Famiglia'); await expect(card).toContainText('2.345,67'); await expect(card).toContainText('•••• 3456'); await expect(card).toContainText('Saldo disponibile');
   await expect(page.locator('.transactions-panel')).toContainText('Esselunga'); await expect(page.locator('.transactions-panel')).toContainText('Aggiunto alle registrazioni');
+  await expect(page.locator('.bank-savings')).toContainText('Trade Republic Bank GmbH');
   await page.screenshot({ path: info.outputPath('conti-bancari.png'), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await go(page, 'Uscite'); const row = page.locator('.transaction-row', { hasText: 'Esselunga' }); await expect(row).toContainText('Alimentari'); await expect(row).toContainText('Banca: Conto Famiglia');
+  await expect(page.locator('.transaction-row', { hasText: 'Trade Republic' })).toContainText('Risparmio');
   await go(page, 'Entrate'); await expect(page.locator('.transaction-row', { hasText: 'Stipendio Rossi' })).toContainText('1.800,00');
   await go(page, 'Panoramica'); await expect(page.getByRole('button', { name: 'Saldo dei conti collegati: vai ai conti bancari' })).toContainText('2.345,67');
   await page.getByRole('button', { name: 'Saldo dei conti collegati: vai ai conti bancari' }).click();

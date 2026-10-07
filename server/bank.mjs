@@ -27,7 +27,12 @@ const UNATTENDED_SYNC_MS = 6 * 3600000;
 // Planned recurring incomes accept a salary credit within 10 days; unless its payer
 // is already known, also within 30% of the planned amount.
 const PLANNED_DAYS = 10;
+// Position of Risparmio among the six family categories.
+const SAVINGS_POSITION = 5;
 const PLANNED_TOLERANCE = 30;
+// Savings and investment destinations; generic words such as "risparmio" are
+// excluded because they also appear in bank names (Cassa di Risparmio).
+const SAVINGS = /\b(trade republic|scalable capital|moneyfarm|directa sim|degiro|raisin|conto arancio|rendimax|illimity|conto deposito|conto risparmio|fondo pensione|previdenza complementare|piano di accumulo|pac|bitpanda|xtb|freedom24|salvadanaio)\b/u;
 const SALARY = /\b(stipend\w*|emolument\w*|retribuzion\w*|salari\w*|cedolin\w*|busta paga|mensilit\w*|pension\w*|payroll|salary|wages)\b/u;
 export const romeToday = (time = Date.now()) => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Rome' }).format(new Date(time));
 export function addDays(value, days) {
@@ -87,7 +92,8 @@ export function normalizeTransactions(transactions) {
       externalId = `h:${base}:${count}`;
     }
     const salaryHint = kind === 'income' && (t.purpose_code === 'SALA' || SALARY.test(`${party || ''} ${remittance}`.toLocaleLowerCase('it'))) ? 1 : 0;
-    return [{ externalId: externalId.slice(0, 200), salaryHint, kind, amount: Math.abs(signed), date, description: (party || remittance || (kind === 'expense' ? 'Uscita bancaria' : 'Entrata bancaria')).slice(0, 200), matchKey: matchKey(party || remittance.slice(0, 40)), counterpartyHash: ibanHash(counterpartyIban), text: `${party || ''} ${remittance}` }];
+    const savingsHint = kind === 'expense' && SAVINGS.test(`${party || ''} ${remittance}`.toLocaleLowerCase('it')) ? 1 : 0;
+    return [{ externalId: externalId.slice(0, 200), salaryHint, savingsHint, kind, amount: Math.abs(signed), date, description: (party || remittance || (kind === 'expense' ? 'Uscita bancaria' : 'Entrata bancaria')).slice(0, 200), matchKey: matchKey(party || remittance.slice(0, 40)), counterpartyHash: ibanHash(counterpartyIban), text: `${party || ''} ${remittance}` }];
   });
 }
 
@@ -205,28 +211,63 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
   }
 
   async function guessCategory(hid, movement, categories) {
-    const learned = await one(`SELECT t.category_id FROM bank_movements m JOIN transactions t ON t.id = m.transaction_id
+    const learned = movement.counterparty_hash && await one(`SELECT t.category_id FROM bank_movements m JOIN transactions t ON t.id = m.transaction_id
+      WHERE m.household_id = ? AND m.counterparty_hash = ? AND m.kind = 'expense' AND t.category_id IS NOT NULL ORDER BY m.date DESC LIMIT 1`, hid, movement.counterparty_hash)
+      || movement.match_key && await one(`SELECT t.category_id FROM bank_movements m JOIN transactions t ON t.id = m.transaction_id
       WHERE m.household_id = ? AND m.match_key = ? AND m.kind = 'expense' AND t.category_id IS NOT NULL ORDER BY m.date DESC LIMIT 1`, hid, movement.match_key);
-    if (movement.match_key && learned?.category_id) return learned.category_id;
+    if (learned?.category_id) return learned.category_id;
     const position = ruleCategory(`${movement.description} ${movement.match_key}`);
     return position === null ? null : categories[position]?.id || null;
   }
-  // Runs inside a transaction. Imports shared accounts only, links movements to
-  // equal manual records within three days and skips transfers between shared accounts.
+  // Savings transfers are linked to a goal contribution: removing or changing the
+  // expense keeps goals.saved and its history consistent in the same transaction.
+  async function releaseSavings(transactionId) {
+    const link = await one('SELECT c.id, c.goal_id, c.amount FROM savings_contributions s JOIN contributions c ON c.id = s.contribution_id WHERE s.transaction_id = ?', transactionId);
+    if (!link) return;
+    await run('DELETE FROM contributions WHERE id = ?', link.id);
+    await run('UPDATE goals SET saved = CASE WHEN saved > ? THEN saved - ? ELSE 0 END WHERE id = ?', link.amount, link.amount, link.goal_id);
+  }
+  async function contributeSavings(transactionId, goalId, amount, authorId, hid) {
+    if (!goalId || await one('SELECT transaction_id FROM savings_contributions WHERE transaction_id = ?', transactionId)) return;
+    if (!await one('SELECT id FROM goals WHERE id = ? AND household_id = ?', goalId, hid)) return;
+    const id = randomUUID();
+    await run('INSERT INTO contributions VALUES (?, ?, ?, ?, ?)', id, goalId, amount, authorId, now());
+    await run('UPDATE goals SET saved = saved + ? WHERE id = ?', amount, goalId);
+    await run('INSERT INTO savings_contributions VALUES (?, ?)', transactionId, id);
+  }
+  const savingsCategory = categories => categories[SAVINGS_POSITION]?.id || null;
+  // Expenses towards a linked savings account, a known destination, a recognised
+  // provider or a payee the family filed under Risparmio are savings.
+  async function savingsDestination(hid, movement, target, guessed, categories) {
+    const key = target ? `account:${target.id}` : movement.counterparty_hash ? `iban:${movement.counterparty_hash}` : movement.match_key ? `name:${movement.match_key}` : null;
+    if (!key) return null;
+    const existing = await one('SELECT * FROM savings_destinations WHERE household_id = ? AND destination_key = ?', hid, key);
+    if (existing) return existing.enabled ? existing : null;
+    if (!target && !movement.savings_hint && !(guessed && guessed === savingsCategory(categories))) return null;
+    const created = { id: randomUUID(), goal_id: null, enabled: 1 };
+    await run('INSERT INTO savings_destinations VALUES (?, ?, ?, ?, NULL, 1, ?)', created.id, hid, key, (target?.name || movement.description).slice(0, 120), now());
+    return created;
+  }
+  // Runs inside a transaction. Links movements to equal manual records within
+  // three days, skips transfers between family accounts and files savings.
   async function importPending(hid) {
-    const shared = new Set((await all('SELECT iban_hash FROM bank_accounts WHERE household_id = ? AND iban_hash IS NOT NULL', hid)).map(r => r.iban_hash));
+    const linked = new Map((await all('SELECT id, name, iban_hash, savings FROM bank_accounts WHERE household_id = ? AND iban_hash IS NOT NULL', hid)).map(a => [a.iban_hash, a]));
+    // Withdrawals from savings and transfers between current accounts are giroconti;
+    // deposits into a savings account are savings expenses.
+    const isTransfer = movement => { const target = linked.get(movement.counterparty_hash); return !!target && (movement.kind === 'income' || !target.savings); };
     // A second linked account can reveal transfers already imported from the first.
-    for (const movement of await all("SELECT id, transaction_id, counterparty_hash FROM bank_movements WHERE household_id = ? AND status = 'imported' AND counterparty_hash IS NOT NULL", hid)) {
-      if (!shared.has(movement.counterparty_hash)) continue;
+    for (const movement of await all("SELECT id, kind, transaction_id, counterparty_hash FROM bank_movements WHERE household_id = ? AND status = 'imported' AND counterparty_hash IS NOT NULL", hid)) {
+      if (!isTransfer(movement)) continue;
       await run("UPDATE bank_movements SET status = 'transfer', transaction_id = NULL WHERE id = ?", movement.id);
-      if (movement.transaction_id) await run('DELETE FROM transactions WHERE id = ? AND household_id = ?', movement.transaction_id, hid);
+      if (movement.transaction_id) { await releaseSavings(movement.transaction_id); await run('DELETE FROM transactions WHERE id = ? AND household_id = ?', movement.transaction_id, hid); }
     }
+    // Movements inside a savings account (purchases, interest) never enter the budget.
     const rows = await all(`SELECT m.*, c.user_id, a.visibility FROM bank_movements m JOIN bank_accounts a ON a.id = m.account_id JOIN bank_connections c ON c.id = a.connection_id
-      WHERE m.household_id = ? AND m.status = 'stored' AND a.import_from IS NOT NULL AND m.date >= a.import_from ORDER BY m.date, m.external_id`, hid);
+      WHERE m.household_id = ? AND m.status = 'stored' AND a.savings = 0 AND a.import_from IS NOT NULL AND m.date >= a.import_from ORDER BY m.date, m.external_id`, hid);
     if (!rows.length) return;
     const categories = await all('SELECT id FROM categories WHERE household_id = ? ORDER BY position', hid);
     for (const movement of rows) {
-      if (movement.counterparty_hash && shared.has(movement.counterparty_hash)) {
+      if (movement.counterparty_hash && isTransfer(movement)) {
         await run("UPDATE bank_movements SET status = 'transfer' WHERE id = ?", movement.id); continue;
       }
       const distanceTo = (value, date) => Math.abs(Date.parse(value) - Date.parse(date));
@@ -262,12 +303,17 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
         AND NOT EXISTS (SELECT 1 FROM recurring_occurrences o JOIN recurring_rules r ON r.id = o.rule_id WHERE o.transaction_id = t.id AND r.kind = 'income')`, hid, movement.kind, movement.amount, addDays(movement.date, -3), addDays(movement.date, 3));
       const distance = value => Math.abs(Date.parse(value) - Date.parse(movement.date));
       const match = candidates.sort((a, b) => distance(a.date) - distance(b.date) || a.id.localeCompare(b.id))[0];
-      if (match) { await run("UPDATE bank_movements SET status = 'matched', transaction_id = ? WHERE id = ?", match.id, movement.id); continue; }
-      const id = randomUUID();
-      const category = movement.kind === 'expense' ? await guessCategory(hid, movement, categories) : null;
-      await run('INSERT INTO transactions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', id, hid, movement.kind, movement.amount, category, movement.description, movement.date, movement.user_id, now());
-      if (movement.visibility === 'balance') await run('INSERT INTO private_transactions VALUES (?, ?)', id, movement.user_id);
-      await run("UPDATE bank_movements SET status = 'imported', transaction_id = ? WHERE id = ?", id, movement.id);
+      const guessed = movement.kind === 'expense' ? await guessCategory(hid, movement, categories) : null;
+      const savings = movement.kind === 'expense' ? await savingsDestination(hid, movement, movement.counterparty_hash && linked.get(movement.counterparty_hash), guessed, categories) : null;
+      let transactionId = match?.id;
+      if (match) await run("UPDATE bank_movements SET status = 'matched', transaction_id = ? WHERE id = ?", match.id, movement.id);
+      else {
+        transactionId = randomUUID();
+        await run('INSERT INTO transactions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', transactionId, hid, movement.kind, movement.amount, savings ? savingsCategory(categories) : guessed, movement.description, movement.date, movement.user_id, now());
+        if (movement.visibility === 'balance') await run('INSERT INTO private_transactions VALUES (?, ?)', transactionId, movement.user_id);
+        await run("UPDATE bank_movements SET status = 'imported', transaction_id = ? WHERE id = ?", transactionId, movement.id);
+      }
+      if (savings?.goal_id) await contributeSavings(transactionId, savings.goal_id, movement.amount, movement.user_id, hid);
     }
   }
 
@@ -297,9 +343,9 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
         if (!await one('SELECT id FROM bank_accounts WHERE id = ?', account.id)) continue;
         if (balance) await run('UPDATE bank_accounts SET balance = ?, balance_kind = ?, balance_at = ? WHERE id = ?', balance.amount, balance.kind, now(), account.id);
         for (const m of movements) {
-          await run(`INSERT INTO bank_movements (id, household_id, account_id, external_id, kind, amount, date, description, match_key, counterparty_hash, salary_hint, status, transaction_id, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'stored', NULL, ?) ON CONFLICT(account_id, external_id) DO NOTHING`,
-            randomUUID(), connection.household_id, account.id, m.externalId, m.kind, m.amount, m.date, m.description, m.matchKey, m.counterpartyHash, m.salaryHint, now());
+          await run(`INSERT INTO bank_movements (id, household_id, account_id, external_id, kind, amount, date, description, match_key, counterparty_hash, salary_hint, savings_hint, status, transaction_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'stored', NULL, ?) ON CONFLICT(account_id, external_id) DO NOTHING`,
+            randomUUID(), connection.household_id, account.id, m.externalId, m.kind, m.amount, m.date, m.description, m.matchKey, m.counterpartyHash, m.salaryHint, m.savingsHint, now());
         }
       }
       await run("UPDATE bank_connections SET status = 'active', last_sync_at = ?, last_error = NULL WHERE id = ?", now(), connection.id);
@@ -335,7 +381,8 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
           const existing = hashValue && await one(`SELECT a.id FROM bank_accounts a JOIN bank_connections c ON c.id = a.connection_id
             WHERE a.household_id = ? AND c.user_id = ? AND a.iban_hash = ? AND a.connection_id <> ?`, request.household_id, request.user_id, hashValue, connectionId);
           if (existing) await run('UPDATE bank_accounts SET connection_id = ?, provider_uid = ? WHERE id = ?', connectionId, account.uid, existing.id);
-          else await run('INSERT INTO bank_accounts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?) ON CONFLICT(connection_id, provider_uid) DO NOTHING',
+          else await run(`INSERT INTO bank_accounts (id, household_id, connection_id, provider_uid, name, iban_hash, iban_last4, currency, visibility, import_from, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(connection_id, provider_uid) DO NOTHING`,
             randomUUID(), request.household_id, connectionId, account.uid, account.name, hashValue, normalizeIban(account.iban)?.slice(-4) || null, account.currency,
             request.visibility, monthStart(), now());
         }
@@ -355,6 +402,18 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
 
   return {
     configured: !!provider,
+    // Called inside the transaction that deletes or edits a record.
+    releaseSavings,
+    async syncSavings(transactionId, hid) {
+      const link = await one('SELECT c.id, c.goal_id, c.amount FROM savings_contributions s JOIN contributions c ON c.id = s.contribution_id WHERE s.transaction_id = ?', transactionId);
+      if (!link) return;
+      const record = await one('SELECT kind, amount, category_id FROM transactions WHERE id = ? AND household_id = ?', transactionId, hid);
+      const categories = await all('SELECT id FROM categories WHERE household_id = ? ORDER BY position', hid);
+      if (!record || record.kind !== 'expense' || record.category_id !== savingsCategory(categories)) return releaseSavings(transactionId);
+      if (record.amount === link.amount) return;
+      await run('UPDATE contributions SET amount = ? WHERE id = ?', record.amount, link.id);
+      await run('UPDATE goals SET saved = CASE WHEN saved + ? > 0 THEN saved + ? ELSE 0 END WHERE id = ?', record.amount - link.amount, record.amount - link.amount, link.goal_id);
+    },
     routes() {
       app.get('/api/bank/banks', async (req, res) => { res.json({ banks: (await banks()).map(({ name, country }) => ({ name, country })) }); });
       app.post('/api/bank/connections', async (req, res) => {
@@ -409,25 +468,65 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
         res.json({ ok: true });
       });
       app.patch('/api/bank/accounts/:id', async (req, res) => {
-        if (!['shared', 'balance'].includes(req.body.visibility)) fail('Visibilità non valida.');
+        const { visibility, savings } = req.body;
+        if (visibility !== undefined && !['shared', 'balance'].includes(visibility)) fail('Visibilità non valida.');
+        if (savings !== undefined && typeof savings !== 'boolean') fail('Valore non valido.');
+        if (visibility === undefined && savings === undefined) fail('Nessuna modifica indicata.');
         await atomic(async () => {
           const account = await one('SELECT a.* FROM bank_accounts a JOIN bank_connections c ON c.id = a.connection_id WHERE a.id = ? AND a.household_id = ? AND c.user_id = ?', req.params.id, req.user.household_id, req.user.id);
           if (!account) fail('Conto non trovato.', 404);
-          if (account.visibility === req.body.visibility) return;
-          await run('UPDATE bank_accounts SET visibility = ?, import_from = ? WHERE id = ?', req.body.visibility, account.import_from || monthStart(), account.id);
-          // Records already imported from this account follow the new choice.
-          const imported = await all("SELECT transaction_id FROM bank_movements WHERE account_id = ? AND status = 'imported' AND transaction_id IS NOT NULL", account.id);
-          for (const { transaction_id: id } of imported) {
-            if (req.body.visibility === 'balance') await run('INSERT INTO private_transactions VALUES (?, ?) ON CONFLICT(transaction_id) DO NOTHING', id, req.user.id);
-            else await run('DELETE FROM private_transactions WHERE transaction_id = ?', id);
+          const hid = req.user.household_id;
+          if (visibility !== undefined && account.visibility !== visibility) {
+            await run('UPDATE bank_accounts SET visibility = ?, import_from = ? WHERE id = ?', visibility, account.import_from || monthStart(), account.id);
+            // Records already imported from this account follow the new choice.
+            const imported = await all("SELECT transaction_id FROM bank_movements WHERE account_id = ? AND status = 'imported' AND transaction_id IS NOT NULL", account.id);
+            for (const { transaction_id: id } of imported) {
+              if (visibility === 'balance') await run('INSERT INTO private_transactions VALUES (?, ?) ON CONFLICT(transaction_id) DO NOTHING', id, req.user.id);
+              else await run('DELETE FROM private_transactions WHERE transaction_id = ?', id);
+            }
           }
-          await importPending(req.user.household_id);
+          if (savings !== undefined && !!account.savings !== savings) {
+            await run('UPDATE bank_accounts SET savings = ?, import_from = ? WHERE id = ?', savings ? 1 : 0, account.import_from || monthStart(), account.id);
+            await run(`INSERT INTO savings_destinations VALUES (?, ?, ?, ?, NULL, ?, ?) ON CONFLICT(household_id, destination_key) DO UPDATE SET enabled = excluded.enabled`,
+              randomUUID(), hid, `account:${account.id}`, account.name, savings ? 1 : 0, now());
+            // The account's own movements leave (or re-enter) the budget, and transfers
+            // into it become savings again (or giroconti) from the next import.
+            const own = await all("SELECT id, transaction_id FROM bank_movements WHERE account_id = ? AND status = 'imported'", account.id);
+            for (const movement of savings ? own : []) {
+              if (movement.transaction_id) { await releaseSavings(movement.transaction_id); await run('DELETE FROM transactions WHERE id = ? AND household_id = ?', movement.transaction_id, hid); }
+              await run("UPDATE bank_movements SET status = 'stored', transaction_id = NULL WHERE id = ?", movement.id);
+            }
+            if (account.iban_hash) {
+              const incoming = await all("SELECT id, status, transaction_id FROM bank_movements WHERE household_id = ? AND counterparty_hash = ? AND kind = 'expense'", hid, account.iban_hash);
+              for (const movement of incoming) {
+                if (savings && movement.status === 'transfer') await run("UPDATE bank_movements SET status = 'stored' WHERE id = ?", movement.id);
+                if (!savings && movement.status === 'imported' && movement.transaction_id) {
+                  await releaseSavings(movement.transaction_id); await run('DELETE FROM transactions WHERE id = ? AND household_id = ?', movement.transaction_id, hid);
+                  await run("UPDATE bank_movements SET status = 'transfer', transaction_id = NULL WHERE id = ?", movement.id);
+                }
+              }
+            }
+          }
+          await importPending(hid);
+        });
+        res.json({ ok: true });
+      });
+      app.patch('/api/bank/savings/:id', async (req, res) => {
+        const { goalId, enabled } = req.body;
+        if (goalId !== undefined && goalId !== null && typeof goalId !== 'string') fail('Obiettivo non valido.');
+        if (enabled !== undefined && typeof enabled !== 'boolean') fail('Valore non valido.');
+        await atomic(async () => {
+          const destination = await one('SELECT * FROM savings_destinations WHERE id = ? AND household_id = ?', req.params.id, req.user.household_id);
+          if (!destination) fail('Destinazione non trovata.', 404);
+          if (goalId && !await one('SELECT id FROM goals WHERE id = ? AND household_id = ?', goalId, req.user.household_id)) fail('Obiettivo non trovato.', 404);
+          if (destination.destination_key.startsWith('account:') && enabled !== undefined) fail('Per un conto collegato usa l’opzione “Conto risparmio” del conto.');
+          await run('UPDATE savings_destinations SET goal_id = ?, enabled = ? WHERE id = ?', goalId === undefined ? destination.goal_id : goalId, enabled === undefined ? destination.enabled : enabled ? 1 : 0, destination.id);
         });
         res.json({ ok: true });
       });
     },
     async state(user, month) {
-      const accounts = await all(`SELECT a.id, a.name, a.iban_last4, a.currency, a.visibility, a.balance, a.balance_kind, a.balance_at, a.import_from,
+      const accounts = await all(`SELECT a.id, a.name, a.iban_last4, a.currency, a.visibility, a.savings, a.balance, a.balance_kind, a.balance_at, a.import_from,
         c.id AS connection_id, c.aspsp_name AS bank, c.status, c.valid_until, c.last_sync_at, c.last_error, c.user_id, u.name AS owner
         FROM bank_accounts a JOIN bank_connections c ON c.id = a.connection_id JOIN users u ON u.id = c.user_id
         WHERE a.household_id = ? ORDER BY u.name, c.aspsp_name, a.name`, user.household_id);
@@ -437,8 +536,10 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
       return {
         configured: !!provider,
         total: accounts.filter(a => a.currency === 'EUR' && a.balance !== null).reduce((sum, a) => sum + Number(a.balance), 0),
-        accounts: accounts.map(({ user_id, last_error, ...a }) => ({ ...a, balance: a.balance === null ? null : Number(a.balance), mine: user_id === user.id, last_error: user_id === user.id ? last_error : null })),
+        accounts: accounts.map(({ user_id, last_error, ...a }) => ({ ...a, savings: !!a.savings, balance: a.balance === null ? null : Number(a.balance), mine: user_id === user.id, last_error: user_id === user.id ? last_error : null })),
         movements: movements.map(m => ({ ...m, amount: Number(m.amount) })),
+        savings: (await all(`SELECT d.id, d.name, d.goal_id, d.enabled, d.destination_key LIKE 'account:%' AS linked FROM savings_destinations d WHERE d.household_id = ? ORDER BY d.created_at, d.id`, user.household_id))
+          .map(d => ({ id: d.id, name: d.name, goal_id: d.goal_id, enabled: !!d.enabled, linked: !!d.linked })),
       };
     },
     // Unattended runs stay within four reads a day per connection (PSD2).

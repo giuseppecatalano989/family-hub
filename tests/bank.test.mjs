@@ -134,7 +134,7 @@ test('without configuration the bank section is disabled', async () => {
   const { alice } = await family();
   assert.equal((await request('/bank/banks', { session: alice })).status, 503);
   const data = await state(alice);
-  assert.deepEqual(data.bank, { configured: false, total: 0, accounts: [], movements: [] });
+  assert.deepEqual(data.bank, { configured: false, total: 0, accounts: [], movements: [], savings: [] });
 });
 
 test('linking shared and balance-only accounts builds a family total, imports and reconciles shared movements', async () => {
@@ -330,4 +330,87 @@ test('a known employer replaces the planned salary even with a bonus month', asy
   await link(alice, 'alice', 'shared');
   const incomes = (await state(alice)).transactions.filter(t => t.kind === 'income');
   assert.deepEqual(incomes.map(t => [t.description, t.amount, t.date]), [['Stipendio Alice', 360000, '2026-10-23']]);
+});
+
+test('transfers to savings fill the Risparmio category and the chosen goal, and stay consistent on edits', async () => {
+  await start({ bankProvider: provider });
+  const { alice, bob } = await family();
+  const TR = 'IT55T0300203280000000000777';
+  provider.data.transactions = { 'uid-a': [
+    tx('p1', '200.00', 'DBIT', '2026-10-02', { creditor: { name: 'Trade Republic Bank GmbH' }, creditor_account: { iban: TR }, remittance_information: ['PAC ottobre'] }),
+    tx('p2', '120.00', 'DBIT', '2026-10-03', { creditor: { name: 'Cassa di Risparmio di Asti' }, remittance_information: ['Bonifico a Mario'] }),
+  ], 'uid-b': [] };
+  await link(alice, 'alice', 'shared');
+  let data = await state(alice);
+  const savingsCategory = data.categories[5].id;
+  const pac = data.transactions.find(t => t.description === 'Trade Republic Bank GmbH');
+  assert.equal(pac.category_id, savingsCategory, 'a known savings provider is filed under Risparmio');
+  assert.notEqual(data.transactions.find(t => t.description === 'Cassa di Risparmio di Asti').category_id, savingsCategory, 'bank names with "risparmio" are not savings');
+  assert.deepEqual(data.bank.savings.map(d => [d.name, d.goal_id, d.enabled, d.linked]), [['Trade Republic Bank GmbH', null, true, false]]);
+
+  // Any member can connect the destination to a goal: the next deposits feed it.
+  const goal = await (await request('/goals', { method: 'POST', session: bob, body: { title: 'Fondo emergenze', horizon: 'short', target: 500000, saved: 10000 } })).json();
+  assert.equal((await request(`/bank/savings/${data.bank.savings[0].id}`, { method: 'PATCH', session: bob, body: { goalId: goal.id } })).status, 200);
+  provider.data.transactions['uid-a'].push(tx('p3', '250.00', 'DBIT', '2026-10-12', { creditor: { name: 'TRB GmbH' }, creditor_account: { iban: TR }, remittance_information: ['Ricarica'] }));
+  instance.db.prepare('UPDATE bank_connections SET last_attempt_at = NULL').run();
+  await request('/bank/refresh', { method: 'POST', session: alice });
+  data = await state(alice);
+  const deposit = data.transactions.find(t => t.amount === 25000);
+  assert.equal(deposit.category_id, savingsCategory, 'the same IBAN is recognised without keywords');
+  const savedGoal = () => data.goals.find(g => g.id === goal.id);
+  assert.deepEqual([savedGoal().saved, savedGoal().initial_saved], [35000, 10000]);
+  assert.deepEqual(data.contributions.filter(c => c.goal_id === goal.id).map(c => [c.amount, c.author]), [[25000, 'alice']]);
+
+  // Correcting the amount updates the goal; deleting the expense removes the contribution.
+  assert.equal((await request(`/transactions/${deposit.id}`, { method: 'PUT', session: alice, body: { kind: 'expense', amount: 26000, categoryId: savingsCategory, description: deposit.description, date: deposit.date } })).status, 200);
+  data = await state(alice); assert.equal(savedGoal().saved, 36000);
+  assert.equal((await request(`/transactions/${deposit.id}`, { method: 'DELETE', session: alice })).status, 200);
+  data = await state(alice); assert.equal(savedGoal().saved, 10000); assert.equal(data.contributions.length, 0);
+
+  // A payee filed under Risparmio by hand becomes a savings destination too.
+  const other = data.transactions.find(t => t.description === 'Cassa di Risparmio di Asti');
+  await request(`/transactions/${other.id}`, { method: 'PUT', session: alice, body: { kind: 'expense', amount: 12000, categoryId: savingsCategory, description: other.description, date: other.date } });
+  provider.data.transactions['uid-a'].push(tx('p4', '80.00', 'DBIT', '2026-10-13', { creditor: { name: 'Cassa di Risparmio di Asti' }, remittance_information: ['Libretto'] }));
+  instance.db.prepare('UPDATE bank_connections SET last_attempt_at = NULL').run();
+  await request('/bank/refresh', { method: 'POST', session: alice });
+  data = await state(alice);
+  assert.equal(data.transactions.find(t => t.amount === 8000).category_id, savingsCategory);
+  const learnt = data.bank.savings.find(d => d.name === 'Cassa di Risparmio di Asti');
+  assert.ok(learnt);
+  // Turning a destination off stops the automatic filing.
+  assert.equal((await request(`/bank/savings/${learnt.id}`, { method: 'PATCH', session: alice, body: { enabled: false } })).status, 200);
+  const eve = await register('eve@example.it');
+  assert.equal((await request(`/bank/savings/${learnt.id}`, { method: 'PATCH', session: eve, body: { goalId: null } })).status, 404);
+  assert.equal((await request(`/bank/savings/${learnt.id}`, { method: 'PATCH', session: alice, body: { goalId: (await (await request('/goals', { method: 'POST', session: eve, body: { title: 'Altro', horizon: 'short', target: 100 } })).json()).id } })).status, 404);
+});
+
+test('a linked savings account turns family transfers into savings and keeps its own movements out of the budget', async () => {
+  await start({ bankProvider: provider });
+  const { alice, bob } = await family();
+  provider.data.transactions = {
+    'uid-a': [tx('t1', '300.00', 'DBIT', '2026-10-04', { creditor: { name: 'Bob' }, creditor_account: { iban: IBAN_B }, remittance_information: ['Accantonamento'] })],
+    'uid-b': [tx('t2', '300.00', 'CRDT', '2026-10-04', { debtor_account: { iban: IBAN_A } }), tx('etf', '290.00', 'DBIT', '2026-10-05', { creditor: { name: 'Acquisto ETF' } }), tx('w1', '100.00', 'DBIT', '2026-10-09', { creditor: { name: 'Alice' }, creditor_account: { iban: IBAN_A } })],
+  };
+  provider.data.transactions['uid-a'].push(tx('t3', '100.00', 'CRDT', '2026-10-09', { debtor_account: { iban: IBAN_B } }));
+  await link(alice, 'alice', 'shared');
+  await link(bob, 'bob', 'shared');
+  let data = await state(alice);
+  assert.equal(data.transactions.some(t => [30000, 10000].includes(t.amount)), false, 'between current accounts these are giroconti');
+  assert.equal(data.transactions.some(t => t.description === 'Acquisto ETF'), true);
+  const bobAccount = data.bank.accounts.find(a => a.name === 'Conto Bob');
+  assert.equal((await request(`/bank/accounts/${bobAccount.id}`, { method: 'PATCH', session: bob, body: { savings: true } })).status, 200);
+  data = await state(alice);
+  assert.equal(data.bank.accounts.find(a => a.id === bobAccount.id).savings, true);
+  const deposit = data.transactions.find(t => t.amount === 30000);
+  assert.equal(deposit.kind, 'expense'); assert.equal(deposit.category_id, data.categories[5].id, 'deposits into the savings account are savings');
+  assert.equal(data.transactions.some(t => t.description === 'Acquisto ETF'), false, 'purchases inside the savings account leave the budget');
+  assert.equal(data.transactions.some(t => t.amount === 10000), false, 'withdrawals from savings stay giroconti');
+  assert.equal(data.bank.total, 145055 - 2010, 'the savings balance stays in the family total');
+  assert.deepEqual(data.bank.savings.map(d => [d.name, d.linked]), [['Conto Bob', true]]);
+  assert.equal((await request(`/bank/savings/${data.bank.savings[0].id}`, { method: 'PATCH', session: alice, body: { enabled: false } })).status, 400);
+  // Switching it off restores the previous behaviour.
+  assert.equal((await request(`/bank/accounts/${bobAccount.id}`, { method: 'PATCH', session: bob, body: { savings: false } })).status, 200);
+  data = await state(alice);
+  assert.equal(data.transactions.some(t => t.amount === 30000), false);
+  assert.equal(data.transactions.some(t => t.description === 'Acquisto ETF'), true);
 });

@@ -43,8 +43,9 @@ export interface Deadline {
 
 export interface BankAccount {
   id: string; connection_id: string; name: string; bank: string; owner: string; mine: boolean; iban_last4: string | null; currency: string;
-  visibility: 'shared' | 'balance'; import_from: string | null; balance: number | null; balance_kind: 'available' | 'booked' | null; balance_at: string | null;
+  visibility: 'shared' | 'balance'; savings: boolean; import_from: string | null; balance: number | null; balance_kind: 'available' | 'booked' | null; balance_at: string | null;
   status: 'active' | 'expired' | 'error'; valid_until: string; last_sync_at: string | null; last_error: string | null;
 }
 export interface BankMovement { id: string; account_id: string; kind: 'income' | 'expense'; amount: number; date: string; description: string; status: 'stored' | 'imported' | 'matched' | 'transfer'; transaction_id: string | null }
-export interface BankState { configured: boolean; total: number; accounts: BankAccount[]; movements: BankMovement[] }
+export interface SavingsDestination { id: string; name: string; goal_id: string | null; enabled: boolean; linked: boolean }
+export interface BankState { configured: boolean; total: number; accounts: BankAccount[]; movements: BankMovement[]; savings: SavingsDestination[] }

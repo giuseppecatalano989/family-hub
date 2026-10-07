@@ -149,6 +149,8 @@ export function streamFamilyBackup(db, dataDir, householdId, response, next) {
       data.transactions = data.transactions.map(t => hidden.has(t.id) ? { ...t, description: 'Movimento bancario privato' } : t);
       data.bank_connections = query('SELECT id, user_id, aspsp_name, aspsp_country, valid_until, status, last_sync_at, created_at FROM bank_connections WHERE household_id = ?', householdId);
       data.bank_accounts = query('SELECT id, connection_id, name, iban_last4, currency, visibility, import_from, balance, balance_kind, balance_at, created_at FROM bank_accounts WHERE household_id = ?', householdId);
+      data.savings_destinations = query('SELECT id, name, goal_id, enabled, created_at FROM savings_destinations WHERE household_id = ?', householdId);
+      data.savings_contributions = query('SELECT s.* FROM savings_contributions s JOIN transactions t ON t.id = s.transaction_id WHERE t.household_id = ?', householdId);
       data.bank_movements = query("SELECT m.id, m.account_id, m.kind, m.amount, m.date, m.description, m.status, m.transaction_id, m.created_at FROM bank_movements m JOIN bank_accounts a ON a.id = m.account_id WHERE m.household_id = ? AND a.visibility = 'shared'", householdId);
     }
     data.meal_shopping = query('SELECT s.* FROM meal_shopping s JOIN meals m ON m.id = s.meal_id WHERE m.household_id = ?', householdId);

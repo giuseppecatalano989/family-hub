@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Landmark, RefreshCw, Trash2, Plus, ShieldCheck, ArrowDownLeft, ArrowUpRight, AlertCircle } from 'lucide-react';
+import { Landmark, RefreshCw, Trash2, Plus, ShieldCheck, ArrowDownLeft, ArrowUpRight, AlertCircle, PiggyBank } from 'lucide-react';
 import { Empty, Modal, SectionHeading } from './components';
 import { api } from './api';
 import { money, readableDate } from './finance';
@@ -23,7 +23,7 @@ export function Bank({ data, act, busy }: Props) {
         const left = daysLeft(account);
         const expired = account.status === 'expired' || left < 0;
         return <article className="panel recurring-card bank-card" key={account.id}>
-          <div className="recurring-top"><span className={`badge ${account.visibility === 'shared' ? 'green' : ''}`}>{account.visibility === 'shared' ? 'Condiviso' : 'Movimenti privati'}</span>{account.mine && <div className="row-actions">
+          <div className="recurring-top"><span className="bank-badges"><span className={`badge ${account.visibility === 'shared' ? 'green' : ''}`}>{account.visibility === 'shared' ? 'Condiviso' : 'Movimenti privati'}</span>{account.savings && <span className="badge green">Risparmio</span>}</span>{account.mine && <div className="row-actions">
             <button className="icon-button" aria-label={`Aggiorna ${account.name}`} title="Aggiorna" disabled={busy || expired} onClick={() => void act(`/bank/connections/${account.connection_id}/sync`, 'POST').catch(() => {})}><RefreshCw size={16} /></button>
             <button className="icon-button danger" aria-label={`Scollega ${account.bank}`} title="Scollega" disabled={busy} onClick={() => { if (confirm(`Scollegare ${account.bank}? Saldo e copie dei movimenti bancari verranno rimossi; le registrazioni già aggiunte a Entrate e Uscite restano.`)) void act(`/bank/connections/${account.connection_id}`, 'DELETE').catch(() => {}); }}><Trash2 size={16} /></button>
           </div>}</div>
@@ -37,8 +37,16 @@ export function Bank({ data, act, busy }: Props) {
             : <small>Consenso valido fino al {readableDate(account.valid_until.slice(0, 10))}</small>}
           {account.mine && account.last_error && !expired && <div className="bank-warning"><AlertCircle size={15} /><span>{account.last_error}</span></div>}
           {account.mine && <label className="bank-visibility">Con la famiglia condividi<select value={account.visibility} disabled={busy} onChange={e => void act(`/bank/accounts/${account.id}`, 'PATCH', { visibility: e.target.value }).catch(() => {})}><option value="shared">Saldo e movimenti</option><option value="balance">Saldo e totali, movimenti privati</option></select></label>}
+          {account.mine && <label className="checkbox-label bank-savings-toggle"><input type="checkbox" checked={account.savings} disabled={busy} onChange={e => void act(`/bank/accounts/${account.id}`, 'PATCH', { savings: e.target.checked }).catch(() => {})} />Conto risparmio (es. Trade Republic, conto deposito): i versamenti dagli altri conti diventano risparmio, i movimenti interni restano fuori dal budget</label>}
         </article>;
       })}</div> : <section className="panel"><Empty icon={<Landmark size={26} />} title="Nessun conto collegato" description="Collega il tuo conto in sola lettura: il saldo entra nel totale di famiglia e i movimenti diventano entrate e uscite del budget." action="Collega una banca" onAction={() => setConnect({})} /></section>}
+    </section>
+    <section className="panel planning-section bank-savings"><SectionHeading title="Dove risparmiate" />
+      {bank.savings.length ? bank.savings.map(d => <div className="bank-savings-row" key={d.id}><span className="stat-icon lavender"><PiggyBank size={18} /></span><div className="bank-savings-name"><strong>{d.name}</strong><span>{d.linked ? 'Conto risparmio collegato' : d.enabled ? 'Riconosciuto automaticamente' : 'Non considerato risparmio'}</span></div>
+        <label className="bank-savings-goal"><span className="sr-only">Obiettivo per {d.name}</span><select value={d.goal_id || ''} disabled={busy || !d.enabled} onChange={e => void act(`/bank/savings/${d.id}`, 'PATCH', { goalId: e.target.value || null }).catch(() => {})}><option value="">Solo categoria Risparmio</option>{data.goals.map(g => <option key={g.id} value={g.id}>Obiettivo: {g.title}</option>)}</select></label>
+        {!d.linked && <button className="text-button" disabled={busy} onClick={() => void act(`/bank/savings/${d.id}`, 'PATCH', { enabled: !d.enabled }).catch(() => {})}>{d.enabled ? 'Non è un risparmio' : 'È un risparmio'}</button>}</div>)
+        : <p className="ledger-empty">I bonifici verso conti risparmio e investimento (Trade Republic, Scalable Capital, Moneyfarm, conti deposito, fondi pensione…) compariranno qui. Puoi anche spostare un’uscita nella categoria Risparmio: i bonifici successivi allo stesso destinatario seguiranno la scelta.</p>}
+      <div className="panel-tip"><PiggyBank size={18} /><span>Le uscite verso queste destinazioni vanno nella categoria Risparmio. Se scegli un obiettivo, ogni nuovo versamento diventa anche un suo accantonamento; eliminando l’uscita si rimuove anche l’accantonamento.</span></div>
     </section>
     <section className="panel planning-section transactions-panel"><SectionHeading title="Movimenti bancari del mese" />
       {bank.movements.length ? bank.movements.map(m => { const account = accounts.get(m.account_id); return <div className="transaction-row" key={m.id}><span className={`transaction-icon ${m.kind === 'income' ? 'income' : ''}`}>{m.kind === 'income' ? <ArrowDownLeft size={20} /> : <ArrowUpRight size={20} />}</span><div className="transaction-description"><strong>{m.description}</strong><span>{statusLabels[m.status]}{m.status === 'imported' && !m.transaction_id ? ' (poi rimosso)' : ''}<span className="dot-separator">·</span>{readableDate(m.date)}</span></div><span className="transaction-author">{account ? `${account.bank}${account.mine ? '' : ` · ${account.owner}`}` : ''}</span><strong className={`transaction-amount ${m.kind === 'income' ? 'positive' : ''}`}>{m.kind === 'income' ? '+' : '−'}{money(m.amount)}</strong></div>; })
