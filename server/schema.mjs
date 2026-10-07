@@ -147,7 +147,8 @@ export const DEADLINE_SCHEMA = `
 TABLES.push('deadlines', 'deadline_receipts', 'deadline_migrations');
 
 // Read-only bank data (AIS). Provider sessions are stored encrypted; balances
-// and amounts are integer cents. Movements of "balance" accounts stay private.
+// and amounts are integer cents. Records imported from "balance" accounts count
+// in the budget but other members only receive monthly totals per category.
 export const BANK_SCHEMA = `
   CREATE TABLE IF NOT EXISTS bank_auth_requests (
     state_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -157,7 +158,7 @@ export const BANK_SCHEMA = `
   CREATE TABLE IF NOT EXISTS bank_connections (
     id TEXT PRIMARY KEY, household_id TEXT NOT NULL REFERENCES households(id), user_id TEXT NOT NULL REFERENCES users(id),
     aspsp_name TEXT NOT NULL, aspsp_country TEXT NOT NULL, session_secret TEXT, valid_until TEXT NOT NULL,
-    status TEXT NOT NULL CHECK(status IN ('active','expired','error')), last_sync_at TEXT, last_error TEXT, created_at TEXT NOT NULL
+    status TEXT NOT NULL CHECK(status IN ('active','expired','error')), last_sync_at TEXT, last_attempt_at TEXT, last_error TEXT, created_at TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS bank_accounts (
     id TEXT PRIMARY KEY, household_id TEXT NOT NULL REFERENCES households(id),
@@ -177,5 +178,8 @@ export const BANK_SCHEMA = `
     UNIQUE(account_id, external_id)
   );
   CREATE INDEX IF NOT EXISTS bank_movements_date ON bank_movements(household_id, date);
+  CREATE TABLE IF NOT EXISTS private_transactions (
+    transaction_id TEXT PRIMARY KEY REFERENCES transactions(id) ON DELETE CASCADE, owner_id TEXT NOT NULL REFERENCES users(id)
+  );
 `;
-TABLES.push('bank_connections', 'bank_accounts', 'bank_movements');
+TABLES.push('bank_connections', 'bank_accounts', 'bank_movements', 'private_transactions');

@@ -113,6 +113,17 @@ export default function App() {
     window.addEventListener('focus', update);
     return () => { requestId.current++; window.clearInterval(interval); window.removeEventListener('focus', update); };
   }, [user?.id, refresh]);
+  // While the app is open, members refresh their own bank accounts every 5 minutes;
+  // the server applies the same limit and the unattended one for other members.
+  const refreshRef = useRef(refresh); refreshRef.current = refresh;
+  const hasBank = !!data?.bank.configured && !!data.bank.accounts.length;
+  useEffect(() => {
+    if (!user || !hasBank) return;
+    const run = () => { if (!document.hidden) void api<{ synced: number }>('/bank/refresh', 'POST').then(r => { if (r.synced) void refreshRef.current().catch(() => {}); }).catch(() => {}); };
+    run();
+    const interval = window.setInterval(run, 5 * 60000);
+    return () => window.clearInterval(interval);
+  }, [user?.id, hasBank]);
   useEffect(() => { const handler = () => { setPage(pageFromHash()); if (new URLSearchParams(window.location.hash.slice(1)).has('reset')) { setAuthGeneration(n => n + 1); setRecovering(true); } }; window.addEventListener('hashchange', handler); return () => window.removeEventListener('hashchange', handler); }, []);
   useEffect(() => { document.title = `${page === 'account' ? 'Il tuo account' : navigation.find(n => n.id === page)?.label || 'Family Hub'} · Family Hub`; }, [page]);
   useEffect(() => { if (!toast || toast.error) return; const timer = setTimeout(() => setToast(null), 4000); return () => clearTimeout(timer); }, [toast]);

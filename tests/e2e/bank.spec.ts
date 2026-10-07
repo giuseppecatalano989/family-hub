@@ -24,7 +24,7 @@ test('a member links a bank in read-only mode, sees the family balance and impor
   await go(page, 'Entrate'); await expect(page.locator('.transaction-row', { hasText: 'Stipendio Rossi' })).toContainText('1.800,00');
   await go(page, 'Panoramica'); await expect(page.getByRole('button', { name: 'Saldo dei conti collegati: vai ai conti bancari' })).toContainText('2.345,67');
   await page.getByRole('button', { name: 'Saldo dei conti collegati: vai ai conti bancari' }).click();
-  await page.getByLabel('Con la famiglia condividi').selectOption('balance'); await expect(card.locator('.badge')).toHaveText('Solo saldo');
+  await page.getByLabel('Con la famiglia condividi').selectOption('balance'); await expect(card.locator('.badge')).toHaveText('Movimenti privati'); await go(page, 'Uscite'); await expect(page.locator('.transaction-row', { hasText: 'Esselunga' })).toContainText('Privato'); await go(page, 'Conti bancari');
   page.once('dialog', d => d.accept()); await page.getByRole('button', { name: 'Scollega Intesa Sanpaolo' }).click();
   await expect(page.getByRole('heading', { name: 'Nessun conto collegato' })).toBeVisible();
   await go(page, 'Uscite'); await expect(page.locator('.transaction-row', { hasText: 'Esselunga' })).toBeVisible();

@@ -25,6 +25,9 @@ export async function removeMember({ db, requestId, memberName, adminName, takeB
     // Removes the member's bank links, balances and copied movements; imported records stay.
     await db.prepare('DELETE FROM bank_auth_requests WHERE user_id = ?').run(id);
     await db.prepare('DELETE FROM bank_connections WHERE user_id = ?').run(id);
+    // Private records keep counting in the budget without revealing their details.
+    await db.prepare("UPDATE transactions SET description = 'Movimento bancario privato' WHERE id IN (SELECT transaction_id FROM private_transactions WHERE owner_id = ?)").run(id);
+    await db.prepare('DELETE FROM private_transactions WHERE owner_id = ?').run(id);
     await db.prepare('DELETE FROM sessions WHERE user_id = ?').run(id);
     await db.prepare('DELETE FROM password_resets WHERE user_id = ?').run(id);
     const removed = await db.prepare("DELETE FROM users WHERE id = ? AND role = 'member'").run(id);

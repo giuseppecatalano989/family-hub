@@ -1,6 +1,6 @@
 # Integrazione bancaria
 
-Attiva dal 7 ottobre 2026 su richiesta esplicita, che estende la nota del 4 ottobre ai **saldi**. Il funzionamento per le persone è descritto nel README, sezione “Conti bancari (sola lettura)”.
+Attiva dal 7 ottobre 2026 su richiesta esplicita, che estende la nota del 4 ottobre ai **saldi** e include nel budget anche i movimenti dei conti con movimenti privati. Il funzionamento per le persone è descritto nel README, sezione “Conti bancari (sola lettura)”.
 
 ## Fornitore
 
@@ -11,9 +11,9 @@ Enable Banking (`server/bank.mjs`). È stato preferito a GoCardless Bank Account
 - Solo consenso AIS di lettura (`/auth`, `/sessions`, `/accounts/{uid}/balances`, `/accounts/{uid}/transactions`). Nessun flusso PIS: il codice non contiene chiamate a pagamenti, bonifici o altre disposizioni.
 - Il consenso avviene sul sito o nell’app della banca: Family Hub non chiede né conserva credenziali bancarie. Lo stato del redirect è monouso, scade dopo 30 minuti, è conservato solo come hash e deve appartenere all’utente con la sessione attiva.
 - Chiave privata e identificativo dell’applicazione restano nelle variabili private del backend. Le sessioni Enable Banking sono cifrate nel database; gli IBAN non sono conservati in chiaro (solo ultime quattro cifre e un’impronta per riconoscere giroconti e rinnovi).
-- Accesso non presidiato al massimo una volta ogni 20 ore per collegamento, come previsto dai limiti PSD2; gli aggiornamenti manuali inviano gli header PSU del titolare presente.
+- Con l’app aperta, ogni titolare aggiorna i propri conti ogni 5 minuti inviando gli header PSU (titolare presente). L’accesso non presidiato ai conti di altri membri, dal cron o dalle app aperte, avviene al massimo ogni 6 ore per collegamento, entro le quattro letture giornaliere previste dalla PSD2.
 - Disconnessione e revoca disponibili al titolare; consenso fino a 180 giorni, rinnovabile mantenendo lo stesso conto.
-- Visibilità scelta per conto: “Saldo e movimenti” o “Solo saldo”. I movimenti dei conti “Solo saldo” non sono visibili agli altri membri, non entrano nel budget e non sono esportati nello ZIP familiare.
+- Visibilità scelta per conto: “Saldo e movimenti” o “Movimenti privati”. Entrambe contano nel budget; per i movimenti privati gli altri membri ricevono soltanto totali per mese, tipo e categoria (anche in CSV), e lo ZIP familiare ne omette i dettagli.
 - I movimenti in attesa (non contabilizzati) e i conti non in euro non entrano nei totali.
 
 Un consenso esclusivamente AIS non autorizza disposizioni sul conto. Non si può garantire un rischio nullo: rimangono rischi di accesso ai dati e vulnerabilità dell’app o del fornitore.

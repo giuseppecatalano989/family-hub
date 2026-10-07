@@ -422,11 +422,12 @@ test('bank links share balances across instances, sync from the protected cron a
   assert.equal(data.transactions.filter(t => t.description === 'Esselunga').length, 1);
   assert.equal(data.transactions.find(t => t.description === 'Esselunga').category_id, data.categories[1].id);
   assert.equal(data.bank.movements.length, 1, 'the member keeps balance-only movements private');
+  assert.deepEqual(data.transactions.filter(t => t.privacy === 'others').map(t => [t.description, t.amount]), [['Movimenti privati di Prova (1)', 1990]], 'private movements still count in the budget');
   const pool = new Pool({ connectionString });
   try {
     const secrets = (await pool.query('SELECT session_secret FROM casa.bank_connections')).rows;
     assert.ok(secrets.every(r => r.session_secret.startsWith('v1.') && !r.session_secret.includes('sess-')));
-    await pool.query("UPDATE casa.bank_connections SET last_sync_at = '2026-10-13T00:00:00.000Z'");
+    await pool.query("UPDATE casa.bank_connections SET last_attempt_at = '2026-10-15T03:00:00.000Z'");
   } finally { await pool.end(); }
   const before = calls.length;
   assert.equal((await fetch(`${second.base}/internal/backup`, { headers: { authorization: 'Bearer test-cron-local-only' } })).status, 200);

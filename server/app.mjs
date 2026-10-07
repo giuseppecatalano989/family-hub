@@ -14,7 +14,7 @@ import { RECOVERY_SCHEMA, createRecovery } from './recovery.mjs';
 import { installGoalSavings } from './goal-savings.mjs';
 import { resetEmailSender, DEFAULT_APP_URL } from './reset-email.mjs';
 import { installChunkUploads } from './uploads.mjs';
-import { installBank, enableBankingProvider } from './bank.mjs';
+import { installBank, enableBankingProvider, presentTransactions } from './bank.mjs';
 const MAX_CENTS = 1000000000;
 const COLORS = ['mint', 'amber', 'blue', 'rose', 'neutral'];
 const SESSION_MS = 14 * 86400000;
@@ -321,7 +321,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             household: await one('SELECT id, name FROM households WHERE id = ?', hid),
             members: await all('SELECT id, name, role FROM users WHERE household_id = ? ORDER BY role, name', hid),
             categories: await all('SELECT * FROM categories WHERE household_id = ? ORDER BY position', hid),
-            transactions: await all('SELECT t.*, u.name AS author, o.rule_id AS recurring_id, (SELECT a.name FROM bank_movements m JOIN bank_accounts a ON a.id = m.account_id WHERE m.transaction_id = t.id) AS bank_account FROM transactions t JOIN users u ON u.id = t.author_id LEFT JOIN recurring_occurrences o ON o.transaction_id = t.id WHERE t.household_id = ? AND substr(t.date, 1, 7) = ? ORDER BY t.date DESC, t.created_at DESC', hid, month),
+            transactions: presentTransactions(await all('SELECT t.*, u.name AS author, o.rule_id AS recurring_id, p.owner_id AS private_owner, (SELECT a.name FROM bank_movements m JOIN bank_accounts a ON a.id = m.account_id WHERE m.transaction_id = t.id) AS bank_account FROM transactions t JOIN users u ON u.id = t.author_id LEFT JOIN recurring_occurrences o ON o.transaction_id = t.id LEFT JOIN private_transactions p ON p.transaction_id = t.id WHERE t.household_id = ? AND substr(t.date, 1, 7) = ? ORDER BY t.date DESC, t.created_at DESC', hid, month), req.user.id),
             ...await savings.state(hid),
             shopping: await all('SELECT s.*, u.name AS author FROM shopping s JOIN users u ON u.id = s.author_id WHERE s.household_id = ? ORDER BY s.checked, s.created_at DESC', hid),
             notes: notes.map(note => ({ ...note, attachments: attachments.filter(a => a.note_id === note.id).map(({ storage_name, ...a }) => a) })),
@@ -332,6 +332,12 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         if (!record)
             fail('Elemento non trovato.', 404);
         return record;
+    }
+    // Records imported from another member's balance-only account stay theirs.
+    async function editableTransaction(id, user) {
+        await owned('transactions', id, user);
+        const privacy = await one('SELECT owner_id FROM private_transactions WHERE transaction_id = ?', id);
+        if (privacy && privacy.owner_id !== user.id) fail('Elemento non trovato.', 404);
     }
     async function transactionInput(body, user) {
         if (!['income', 'expense'].includes(body.kind))
@@ -348,7 +354,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         res.status(201).json({ id });
     });
     app.put('/api/transactions/:id', async (req, res) => {
-        await owned('transactions', req.params.id, req.user);
+        await editableTransaction(req.params.id, req.user);
         const values = await transactionInput(req.body, req.user);
         if (values[0] !== 'expense' && await one('SELECT id FROM bill_payments WHERE transaction_id = ?', req.params.id))
             fail('Il pagamento di una bolletta deve rimanere un’uscita.');
@@ -362,7 +368,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         res.json({ ok: true });
     });
     app.delete('/api/transactions/:id', async (req, res) => {
-        await owned('transactions', req.params.id, req.user);
+        await editableTransaction(req.params.id, req.user);
         await run('DELETE FROM transactions WHERE id = ? AND household_id = ?', req.params.id, req.user.household_id);
         res.json({ ok: true });
     });
@@ -545,7 +551,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
                 str = "'" + str;
             return '"' + str.replaceAll('"', '""') + '"';
         };
-        const rows = await all(`SELECT t.date, t.kind, t.description, t.amount, c.name AS category FROM transactions t LEFT JOIN categories c ON c.id = t.category_id WHERE t.household_id = ? ORDER BY t.date DESC`, hid);
+        const rows = presentTransactions(await all(`SELECT t.date, t.kind, t.description, t.amount, t.category_id, c.name AS category, u.name AS author, p.owner_id AS private_owner FROM transactions t JOIN users u ON u.id = t.author_id LEFT JOIN categories c ON c.id = t.category_id LEFT JOIN private_transactions p ON p.transaction_id = t.id WHERE t.household_id = ? ORDER BY t.date DESC`, hid), req.user.id);
         const csv = [['Data', 'Tipo', 'Descrizione', 'Importo EUR', 'Categoria'], ...rows.map(t => [t.date, t.kind === 'income' ? 'Entrata' : 'Uscita', t.description, (t.amount / 100).toFixed(2).replace('.', ','), t.category])].map(row => row.map(escape).join(';')).join('\r\n');
         res.attachment('movimenti-casa.csv').type('text/csv; charset=utf-8').send('\uFEFF' + csv);
     });

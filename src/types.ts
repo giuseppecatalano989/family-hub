@@ -1,6 +1,6 @@
 export interface User { id: string; name: string; email: string; role: 'admin' | 'member'; householdId: string }
 export interface Category { id: string; name: string; color: string; percentage: number }
-export interface Transaction { id: string; kind: 'income' | 'expense'; amount: number; category_id: string | null; description: string; date: string; author: string; recurring_id?: string | null; bank_account?: string | null }
+export interface Transaction { id: string; kind: 'income' | 'expense'; amount: number; category_id: string | null; description: string; date: string; author: string; recurring_id?: string | null; bank_account?: string | null; privacy?: 'mine' | 'others' }
 export interface Goal { id: string; title: string; horizon: 'short' | 'medium' | 'long'; target: number; saved: number; initial_saved: number; due_date: string | null }
 export interface Contribution { id: string; goal_id: string; amount: number; author: string; created_at: string }
 export interface ShoppingItem { id: string; name: string; quantity: string; section: string; checked: number; author: string }

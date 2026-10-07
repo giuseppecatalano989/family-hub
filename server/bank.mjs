@@ -2,10 +2,28 @@ import { createCipheriv, createDecipheriv, createHash, createPrivateKey, hkdfSyn
 import { BANK_SCHEMA } from './schema.mjs';
 
 // Account information only (AIS): this module never calls payment endpoints.
+// Other members see private records as monthly totals per owner, type and category.
+export function presentTransactions(rows, userId) {
+  const groups = new Map(); const result = [];
+  for (const { private_owner: owner, ...row } of rows) {
+    if (!owner) { result.push(row); continue; }
+    if (owner === userId) { result.push({ ...row, privacy: 'mine' }); continue; }
+    const key = [owner, row.kind, row.category_id || '', row.date.slice(0, 7)].join(':');
+    const group = groups.get(key);
+    if (group) { group.amount += row.amount; group.count++; if (row.date > group.date) group.date = row.date; continue; }
+    const created = { id: `private:${key}`, kind: row.kind, amount: row.amount, category_id: row.category_id, category: row.category, date: row.date, author: row.author, count: 1, recurring_id: null, bank_account: null, privacy: 'others' };
+    groups.set(key, created); result.push(created);
+  }
+  for (const group of groups.values()) { group.description = `Movimenti privati di ${group.author} (${group.count})`; delete group.count; }
+  return result;
+}
 const sha256 = value => createHash('sha256').update(value).digest('hex');
 const DAY = 86400000;
 const MAX_CONSENT_SECONDS = 180 * 86400;
-const MANUAL_SYNC_MS = 5 * 60000;
+// Owners present in the app refresh every 5 minutes; without them PSD2 allows
+// four unattended reads a day, so other members' accounts wait 6 hours.
+const PRESENT_SYNC_MS = 5 * 60000;
+const UNATTENDED_SYNC_MS = 6 * 3600000;
 export const romeToday = (time = Date.now()) => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Rome' }).format(new Date(time));
 export function addDays(value, days) {
   const date = new Date(`${value}T12:00:00Z`); date.setUTCDate(date.getUTCDate() + days);
@@ -190,15 +208,15 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
   // Runs inside a transaction. Imports shared accounts only, links movements to
   // equal manual records within three days and skips transfers between shared accounts.
   async function importPending(hid) {
-    const shared = new Set((await all("SELECT iban_hash FROM bank_accounts WHERE household_id = ? AND visibility = 'shared' AND iban_hash IS NOT NULL", hid)).map(r => r.iban_hash));
-    // A second shared account can reveal transfers already imported from the first.
+    const shared = new Set((await all('SELECT iban_hash FROM bank_accounts WHERE household_id = ? AND iban_hash IS NOT NULL', hid)).map(r => r.iban_hash));
+    // A second linked account can reveal transfers already imported from the first.
     for (const movement of await all("SELECT id, transaction_id, counterparty_hash FROM bank_movements WHERE household_id = ? AND status = 'imported' AND counterparty_hash IS NOT NULL", hid)) {
       if (!shared.has(movement.counterparty_hash)) continue;
       await run("UPDATE bank_movements SET status = 'transfer', transaction_id = NULL WHERE id = ?", movement.id);
       if (movement.transaction_id) await run('DELETE FROM transactions WHERE id = ? AND household_id = ?', movement.transaction_id, hid);
     }
-    const rows = await all(`SELECT m.*, c.user_id FROM bank_movements m JOIN bank_accounts a ON a.id = m.account_id JOIN bank_connections c ON c.id = a.connection_id
-      WHERE m.household_id = ? AND m.status = 'stored' AND a.visibility = 'shared' AND a.import_from IS NOT NULL AND m.date >= a.import_from ORDER BY m.date, m.external_id`, hid);
+    const rows = await all(`SELECT m.*, c.user_id, a.visibility FROM bank_movements m JOIN bank_accounts a ON a.id = m.account_id JOIN bank_connections c ON c.id = a.connection_id
+      WHERE m.household_id = ? AND m.status = 'stored' AND a.import_from IS NOT NULL AND m.date >= a.import_from ORDER BY m.date, m.external_id`, hid);
     if (!rows.length) return;
     const categories = await all('SELECT id FROM categories WHERE household_id = ? ORDER BY position', hid);
     for (const movement of rows) {
@@ -213,6 +231,7 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
       const id = randomUUID();
       const category = movement.kind === 'expense' ? await guessCategory(hid, movement, categories) : null;
       await run('INSERT INTO transactions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', id, hid, movement.kind, movement.amount, category, movement.description, movement.date, movement.user_id, now());
+      if (movement.visibility === 'balance') await run('INSERT INTO private_transactions VALUES (?, ?)', id, movement.user_id);
       await run("UPDATE bank_movements SET status = 'imported', transaction_id = ? WHERE id = ?", id, movement.id);
     }
   }
@@ -224,6 +243,7 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
       return 'expired';
     }
     const accounts = await all('SELECT * FROM bank_accounts WHERE connection_id = ?', connection.id);
+    await run('UPDATE bank_connections SET last_attempt_at = ? WHERE id = ?', now(), connection.id);
     const fetched = [];
     try {
       for (const account of accounts) {
@@ -272,7 +292,7 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
       const connectionId = randomUUID();
       const validUntil = Number.isFinite(Date.parse(created.validUntil)) ? new Date(Date.parse(created.validUntil)).toISOString() : new Date(clock() + 90 * DAY).toISOString();
       const replaced = await atomic(async () => {
-        await run("INSERT INTO bank_connections VALUES (?, ?, ?, ?, ?, ?, ?, 'active', NULL, NULL, ?)", connectionId, request.household_id, request.user_id, request.aspsp_name, request.aspsp_country, encrypt(created.sessionId), validUntil, now());
+        await run("INSERT INTO bank_connections VALUES (?, ?, ?, ?, ?, ?, ?, 'active', NULL, NULL, NULL, ?)", connectionId, request.household_id, request.user_id, request.aspsp_name, request.aspsp_country, encrypt(created.sessionId), validUntil, now());
         for (const account of created.accounts) {
           const hashValue = ibanHash(account.iban);
           // Renewing a consent keeps the account, its visibility and its history.
@@ -281,7 +301,7 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
           if (existing) await run('UPDATE bank_accounts SET connection_id = ?, provider_uid = ? WHERE id = ?', connectionId, account.uid, existing.id);
           else await run('INSERT INTO bank_accounts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?) ON CONFLICT(connection_id, provider_uid) DO NOTHING',
             randomUUID(), request.household_id, connectionId, account.uid, account.name, hashValue, normalizeIban(account.iban)?.slice(-4) || null, account.currency,
-            request.visibility, request.visibility === 'shared' ? monthStart() : null, now());
+            request.visibility, monthStart(), now());
         }
         const empty = await all(`SELECT id, session_secret FROM bank_connections c WHERE c.user_id = ? AND c.id <> ? AND NOT EXISTS (SELECT 1 FROM bank_accounts a WHERE a.connection_id = c.id)`, request.user_id, connectionId);
         for (const old of empty) await run('DELETE FROM bank_connections WHERE id = ?', old.id);
@@ -328,10 +348,22 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
       app.post('/api/bank/connections/:id/sync', async (req, res) => {
         requireProvider();
         const connection = await ownConnection(req.params.id, req.user);
-        if (connection.status === 'active' && connection.last_sync_at && clock() - Date.parse(connection.last_sync_at) < MANUAL_SYNC_MS) fail('Conti aggiornati da pochi minuti. Riprova più tardi.', 429);
+        if (connection.last_attempt_at && clock() - Date.parse(connection.last_attempt_at) < PRESENT_SYNC_MS) fail('Conti aggiornati da pochi minuti. Riprova più tardi.', 429);
         const error = await syncConnection(connection, psuOf(req));
         if (error) fail(error === 'expired' ? 'Il consenso della banca è scaduto. Ricollega il conto.' : messages[error], 502);
         res.json({ ok: true });
+      });
+      // Called by open apps every 5 minutes: the owner's accounts refresh with the
+      // owner present; other members' accounts only within the unattended limit.
+      app.post('/api/bank/refresh', async (req, res) => {
+        if (!provider) return res.json({ synced: 0 });
+        let synced = 0;
+        for (const connection of await all("SELECT * FROM bank_connections WHERE household_id = ? AND status IN ('active', 'error')", req.user.household_id)) {
+          const mine = connection.user_id === req.user.id;
+          if (connection.last_attempt_at && clock() - Date.parse(connection.last_attempt_at) < (mine ? PRESENT_SYNC_MS : UNATTENDED_SYNC_MS)) continue;
+          if (!await syncConnection(connection, mine ? psuOf(req) : null)) synced++;
+        }
+        res.json({ synced });
       });
       app.delete('/api/bank/connections/:id', async (req, res) => {
         const connection = await ownConnection(req.params.id, req.user);
@@ -346,7 +378,13 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
           const account = await one('SELECT a.* FROM bank_accounts a JOIN bank_connections c ON c.id = a.connection_id WHERE a.id = ? AND a.household_id = ? AND c.user_id = ?', req.params.id, req.user.household_id, req.user.id);
           if (!account) fail('Conto non trovato.', 404);
           if (account.visibility === req.body.visibility) return;
-          await run('UPDATE bank_accounts SET visibility = ?, import_from = ? WHERE id = ?', req.body.visibility, req.body.visibility === 'shared' ? monthStart() : null, account.id);
+          await run('UPDATE bank_accounts SET visibility = ?, import_from = ? WHERE id = ?', req.body.visibility, account.import_from || monthStart(), account.id);
+          // Records already imported from this account follow the new choice.
+          const imported = await all("SELECT transaction_id FROM bank_movements WHERE account_id = ? AND status = 'imported' AND transaction_id IS NOT NULL", account.id);
+          for (const { transaction_id: id } of imported) {
+            if (req.body.visibility === 'balance') await run('INSERT INTO private_transactions VALUES (?, ?) ON CONFLICT(transaction_id) DO NOTHING', id, req.user.id);
+            else await run('DELETE FROM private_transactions WHERE transaction_id = ?', id);
+          }
           await importPending(req.user.household_id);
         });
         res.json({ ok: true });
@@ -367,12 +405,12 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
         movements: movements.map(m => ({ ...m, amount: Number(m.amount) })),
       };
     },
-    // Unattended runs, at most once per connection every 20 hours (PSD2 limits background access).
-    async synchronizeAll({ minAgeMs = 20 * 3600000 } = {}) {
+    // Unattended runs stay within four reads a day per connection (PSD2).
+    async synchronizeAll({ minAgeMs = UNATTENDED_SYNC_MS } = {}) {
       if (!provider) return;
       await run('DELETE FROM bank_auth_requests WHERE expires <= ?', clock());
       for (const connection of await all("SELECT * FROM bank_connections WHERE status IN ('active', 'error')")) {
-        if (connection.last_sync_at && clock() - Date.parse(connection.last_sync_at) < minAgeMs) continue;
+        if (connection.last_attempt_at && clock() - Date.parse(connection.last_attempt_at) < minAgeMs) continue;
         try { await syncConnection(connection, null); }
         catch (error) { console.error('Aggiornamento bancario non riuscito:', error.message); }
       }

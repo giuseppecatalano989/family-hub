@@ -175,7 +175,7 @@ test('linking shared and balance-only accounts builds a family total, imports an
   assert.equal(data.bank.movements.find(m => m.description === 'CONAD SUPERSTORE').status, 'matched');
   assert.equal(data.bank.movements.some(m => m.description === 'In attesa'), false);
 
-  // Bob shares only the balance: his movements stay private and outside the budget.
+  // Bob keeps his movements private: they count in the budget, Alice only sees totals.
   assert.equal((await link(bob, 'bob', 'balance')).headers.get('location'), '/?banca=collegato#bank');
   data = await state(alice);
   assert.equal(data.bank.total, 145055 - 2010);
@@ -183,14 +183,28 @@ test('linking shared and balance-only accounts builds a family total, imports an
   assert.equal(bobAccount.mine, false); assert.equal(bobAccount.balance, -2010);
   assert.equal(data.bank.movements.some(m => m.account_id === bobAccount.id), false);
   assert.equal(data.transactions.some(t => t.description === 'Pizzeria Da Mario'), false);
-  assert.equal((await state(bob)).bank.movements.filter(m => m.account_id === bobAccount.id).length, 2);
+  const totals = data.transactions.find(t => t.privacy === 'others');
+  assert.deepEqual({ description: totals.description, amount: totals.amount, category: totals.category_id, kind: totals.kind }, { description: 'Movimenti privati di bob (1)', amount: 3300, category: data.categories[4].id, kind: 'expense' });
+  assert.equal(JSON.stringify(data.transactions).includes('Pizzeria'), false);
+  assert.equal(data.transactions.some(t => t.description === 'Bonifico a Bob' || t.description === 'Da Alice'), false, 'transfers between family accounts are giroconti, even when private');
+  const bobView = await state(bob);
+  const pizza = bobView.transactions.find(t => t.description === 'Pizzeria Da Mario');
+  assert.equal(pizza.privacy, 'mine'); assert.equal(pizza.author, 'bob');
+  assert.equal(bobView.bank.movements.filter(m => m.account_id === bobAccount.id).length, 2);
+  assert.equal((await request(`/transactions/${pizza.id}`, { method: 'PUT', session: alice, body: { kind: 'expense', amount: 1, categoryId: data.categories[0].id, description: 'x', date: '2026-10-06' } })).status, 404);
+  assert.equal((await request(`/transactions/${pizza.id}`, { method: 'DELETE', session: alice })).status, 404);
+  assert.equal((await request(`/transactions/${encodeURIComponent(totals.id)}`, { method: 'DELETE', session: alice })).status, 404);
+  const csv = await (await request('/export', { session: alice })).text();
+  assert.match(csv, /Movimenti privati di bob \(1\)/); assert.doesNotMatch(csv, /Pizzeria/);
+  assert.match(await (await request('/export', { session: bob })).text(), /Pizzeria Da Mario/);
   assert.equal((await request(`/bank/accounts/${bobAccount.id}`, { method: 'PATCH', session: alice, body: { visibility: 'shared' } })).status, 404);
   assert.equal((await request(`/bank/connections/${bobAccount.connection_id}`, { method: 'DELETE', session: alice })).status, 404);
 
-  // Sharing Bob's account imports his month and turns the transfer into a giroconto.
+  // Sharing Bob's account reveals the records already counted in the budget.
   assert.equal((await request(`/bank/accounts/${bobAccount.id}`, { method: 'PATCH', session: bob, body: { visibility: 'shared' } })).status, 200);
   data = await state(alice);
   assert.equal(data.transactions.find(t => t.description === 'Pizzeria Da Mario').category_id, data.categories[4].id);
+  assert.equal(data.transactions.some(t => t.privacy), false);
   assert.equal(data.transactions.some(t => t.description === 'Bonifico a Bob' || t.description === 'Da Alice'), false);
   assert.deepEqual(data.bank.movements.filter(m => m.status === 'transfer').map(m => m.description).sort(), ['Bonifico a Bob', 'Da Alice']);
 
@@ -201,7 +215,7 @@ test('linking shared and balance-only accounts builds a family total, imports an
   const aliceAccount = data.bank.accounts.find(a => a.name === 'Conto Alice');
   const throttled = await request(`/bank/connections/${aliceAccount.connection_id}/sync`, { method: 'POST', session: alice });
   assert.equal(throttled.status, 429);
-  instance.db.prepare('UPDATE bank_connections SET last_sync_at = ?').run('2026-10-14T00:00:00.000Z');
+  instance.db.prepare('UPDATE bank_connections SET last_attempt_at = ?').run('2026-10-15T09:54:00.000Z');
   assert.equal((await request(`/bank/connections/${aliceAccount.connection_id}/sync`, { method: 'POST', session: alice })).status, 200);
   data = await state(alice);
   assert.equal(data.transactions.some(t => t.description === 'Azienda Srl'), false);
@@ -236,12 +250,21 @@ test('renewing a consent keeps the account; background sync respects limits; exp
   const calls = transactionCalls();
   await instance.bank.synchronizeAll();
   assert.equal(transactionCalls(), calls, 'recent connections are not polled again');
-  instance.db.prepare('UPDATE bank_connections SET last_sync_at = ?').run('2026-10-13T00:00:00.000Z');
+  // Open apps refresh their owner's accounts every 5 minutes, others' only every 6 hours.
+  const setAttempt = value => instance.db.prepare('UPDATE bank_connections SET last_attempt_at = ?').run(value);
+  assert.deepEqual(await (await request('/bank/refresh', { method: 'POST', session: alice })).json(), { synced: 0 });
+  setAttempt('2026-10-15T09:54:00.000Z');
+  assert.deepEqual(await (await request('/bank/refresh', { method: 'POST', session: alice })).json(), { synced: 1 });
+  assert.equal(transactionCalls(), calls + 1);
+  setAttempt('2026-10-15T05:00:00.000Z');
   await instance.bank.synchronizeAll();
-  assert.equal(transactionCalls(), calls + 2);
-  instance.db.prepare("UPDATE bank_connections SET valid_until = '2026-10-01T00:00:00.000Z', last_sync_at = NULL").run();
+  assert.equal(transactionCalls(), calls + 1, 'unattended reads wait six hours');
+  setAttempt('2026-10-15T03:59:00.000Z');
   await instance.bank.synchronizeAll();
-  assert.equal(transactionCalls(), calls + 2);
+  assert.equal(transactionCalls(), calls + 3);
+  instance.db.prepare("UPDATE bank_connections SET valid_until = '2026-10-01T00:00:00.000Z', last_attempt_at = NULL").run();
+  await instance.bank.synchronizeAll();
+  assert.equal(transactionCalls(), calls + 3);
   assert.deepEqual(instance.db.prepare('SELECT DISTINCT status FROM bank_connections').all().map(r => r.status), ['expired']);
 
   const exported = await request('/backups/export', { session: alice });
@@ -252,4 +275,6 @@ test('renewing a consent keeps the account; background sync respects limits; exp
   assert.equal(payload.bank_accounts.length, 2);
   assert.equal(json.includes('session_secret'), false); assert.equal(json.includes('iban_hash'), false);
   assert.equal(payload.bank_movements.length, 0, 'no shared accounts left: private movements are not exported');
+  assert.equal(json.includes('Pizzeria') || json.includes('CONAD') || json.includes('Azienda Srl'), false);
+  assert.ok(payload.transactions.filter(t => t.description === 'Movimento bancario privato').length >= 4, 'private records stay in the budget without details');
 });

@@ -145,6 +145,8 @@ export function streamFamilyBackup(db, dataDir, householdId, response, next) {
     data.bill_payments = query('SELECT p.* FROM bill_payments p JOIN bills b ON b.id = p.bill_id WHERE b.household_id = ?', householdId);
     // Bank data: no provider sessions or IBAN hashes; private movements stay with their owner.
     if (db.prepare("SELECT name FROM sqlite_master WHERE name = 'bank_accounts'").get()) {
+      const hidden = new Set(query('SELECT p.transaction_id FROM private_transactions p JOIN transactions t ON t.id = p.transaction_id WHERE t.household_id = ?', householdId).map(r => r.transaction_id));
+      data.transactions = data.transactions.map(t => hidden.has(t.id) ? { ...t, description: 'Movimento bancario privato' } : t);
       data.bank_connections = query('SELECT id, user_id, aspsp_name, aspsp_country, valid_until, status, last_sync_at, created_at FROM bank_connections WHERE household_id = ?', householdId);
       data.bank_accounts = query('SELECT id, connection_id, name, iban_last4, currency, visibility, import_from, balance, balance_kind, balance_at, created_at FROM bank_accounts WHERE household_id = ?', householdId);
       data.bank_movements = query("SELECT m.id, m.account_id, m.kind, m.amount, m.date, m.description, m.status, m.transaction_id, m.created_at FROM bank_movements m JOIN bank_accounts a ON a.id = m.account_id WHERE m.household_id = ? AND a.visibility = 'shared'", householdId);
