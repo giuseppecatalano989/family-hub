@@ -17,6 +17,8 @@ export function totals(transactions: Transaction[]) {
   const expense = transactions.filter(t => t.kind === 'expense').reduce((sum, t) => sum + t.amount, 0);
   return { income, expense, balance: income - expense };
 }
+// Recurring incomes not yet credited by the bank, already counted in the budget.
+export const expectedIncome = (transactions: Transaction[]) => transactions.filter(t => t.kind === 'income' && t.expected).reduce((sum, t) => sum + t.amount, 0);
 // Allocate rounding cents deterministically so the category budgets equal the income.
 export function allocateBudget(income: number, categories: Category[]) {
   const rows = categories.map((c, index) => ({ id: c.id, amount: Math.floor(income * c.percentage / 10000), remainder: income * c.percentage % 10000, index }));
