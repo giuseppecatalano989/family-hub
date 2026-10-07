@@ -119,3 +119,16 @@
 
 /* Correzione degli accantonamenti per obiettivo */
 .savings-editor-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:20px}.savings-notice{font-size:.8rem;color:var(--green);margin-top:16px;line-height:1.6}.savings-history{margin-top:28px}.savings-history h3{font-size:.85rem;margin-bottom:12px}.savings-row{display:grid;grid-template-columns:minmax(0,1fr) max-content auto;align-items:center;gap:12px;padding:16px 0;border-top:1px solid var(--line)}.savings-row-main{min-width:0}.savings-row-main strong{display:block;font-size:.8rem;line-height:1.5;overflow-wrap:anywhere}.savings-row-main span{display:block;font-size:.7rem;color:var(--muted);line-height:1.6;margin-top:4px;overflow-wrap:anywhere}.savings-amount{font-size:.82rem;white-space:nowrap;font-variant-numeric:tabular-nums}.savings-row .row-actions{flex-wrap:nowrap}.savings-row .icon-button:disabled{cursor:default;opacity:.4}@media(max-width:760px){.savings-row{gap:8px}.savings-editor-actions .button{font-size:.72rem;padding:10px 12px}}
+
+.bank-card .bank-warning{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:10px;font-size:13.73px;color:#a55f3f}
+.bank-card .bank-warning .text-button{padding:0}
+.bank-visibility{display:block;margin-top:16px;font-size:13.73px;color:var(--muted)}
+.bank-visibility select{margin-top:6px;width:100%}
+.bank-choice{border:0;padding:0;margin:0 0 14px;display:grid;gap:10px}
+.bank-choice legend{font-size:14.87px;margin-bottom:8px}
+.bank-summary{display:flex;align-items:center;gap:14px;width:100%;margin:0 0 24px;padding:18px 23px;border:1px solid var(--line);border-radius:11px;background:#fff;font:inherit;text-align:left;cursor:pointer;color:inherit}
+.bank-summary:hover{border-color:var(--green)}
+.bank-summary>span:nth-child(2){flex:1;font-size:14.87px;color:var(--muted)}
+.bank-summary strong{font-size:22px}
+.bank-summary small{color:var(--muted);font-size:13.73px}
+@media(max-width:650px){.bank-summary{flex-wrap:wrap}.bank-summary small{width:100%}}

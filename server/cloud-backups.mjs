@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ZipArchive } from 'archiver';
-import { BASE_SCHEMA, WORKFLOW_SCHEMA, TABLES, PLANNING_SCHEMA, WASTE_SCHEMA, DEADLINE_SCHEMA } from './schema.mjs';
+import { BASE_SCHEMA, WORKFLOW_SCHEMA, TABLES, PLANNING_SCHEMA, WASTE_SCHEMA, DEADLINE_SCHEMA, BANK_SCHEMA } from './schema.mjs';
 import { snapshotInstance, streamFamilyBackup } from './backups.mjs';
 
 const conditions = {
@@ -27,7 +27,7 @@ async function portableCopy(db, householdId) {
   mkdirSync(path.join(dataDir, 'uploads'), { mode: 0o700 });
   const copy = new DatabaseSync(path.join(dataDir, 'casa.sqlite'));
   try {
-    copy.exec(BASE_SCHEMA); copy.exec(WORKFLOW_SCHEMA); copy.exec(PLANNING_SCHEMA); copy.exec(WASTE_SCHEMA); copy.exec(DEADLINE_SCHEMA);
+    copy.exec(BASE_SCHEMA); copy.exec(WORKFLOW_SCHEMA); copy.exec(PLANNING_SCHEMA); copy.exec(WASTE_SCHEMA); copy.exec(DEADLINE_SCHEMA); copy.exec(BANK_SCHEMA);
     await db.atomic(async () => {
       copy.exec('BEGIN');
       for (const table of TABLES) {

@@ -1,6 +1,6 @@
 export interface User { id: string; name: string; email: string; role: 'admin' | 'member'; householdId: string }
 export interface Category { id: string; name: string; color: string; percentage: number }
-export interface Transaction { id: string; kind: 'income' | 'expense'; amount: number; category_id: string | null; description: string; date: string; author: string; recurring_id?: string | null }
+export interface Transaction { id: string; kind: 'income' | 'expense'; amount: number; category_id: string | null; description: string; date: string; author: string; recurring_id?: string | null; bank_account?: string | null }
 export interface Goal { id: string; title: string; horizon: 'short' | 'medium' | 'long'; target: number; saved: number; initial_saved: number; due_date: string | null }
 export interface Contribution { id: string; goal_id: string; amount: number; author: string; created_at: string }
 export interface ShoppingItem { id: string; name: string; quantity: string; section: string; checked: number; author: string }
@@ -20,6 +20,7 @@ export interface FamilyState {
   recurring: RecurringRule[]; budgetTemplates: BudgetTemplate[]; activeTemplateId: string | null;
   categories: Category[]; transactions: Transaction[]; goals: Goal[]; contributions: Contribution[]; shopping: ShoppingItem[]; notes: Note[];
   deadlines: Deadline[]; waste: WasteSchedule[]; bills: Bill[]; meals: Meal[]; week: string; backups: BackupStatus | null;
+  bank: BankState;
 }
 export interface RecurringRule {
   id: string; kind: 'income' | 'expense'; start_month: string; effective_month: string;
@@ -39,3 +40,11 @@ export interface Deadline {
   category_id: string | null; reminder_days: number; active: number;
   managed: { transaction_id: string | null; amount: number | null; category_id: string | null; handled_date: string; author: string } | null;
 }
+
+export interface BankAccount {
+  id: string; connection_id: string; name: string; bank: string; owner: string; mine: boolean; iban_last4: string | null; currency: string;
+  visibility: 'shared' | 'balance'; import_from: string | null; balance: number | null; balance_kind: 'available' | 'booked' | null; balance_at: string | null;
+  status: 'active' | 'expired' | 'error'; valid_until: string; last_sync_at: string | null; last_error: string | null;
+}
+export interface BankMovement { id: string; account_id: string; kind: 'income' | 'expense'; amount: number; date: string; description: string; status: 'stored' | 'imported' | 'matched' | 'transfer'; transaction_id: string | null }
+export interface BankState { configured: boolean; total: number; accounts: BankAccount[]; movements: BankMovement[] }

@@ -14,6 +14,7 @@ import { RECOVERY_SCHEMA, createRecovery } from './recovery.mjs';
 import { installGoalSavings } from './goal-savings.mjs';
 import { resetEmailSender, DEFAULT_APP_URL } from './reset-email.mjs';
 import { installChunkUploads } from './uploads.mjs';
+import { installBank, enableBankingProvider } from './bank.mjs';
 const MAX_CENTS = 1000000000;
 const COLORS = ['mint', 'amber', 'blue', 'rose', 'neutral'];
 const SESSION_MS = 14 * 86400000;
@@ -54,7 +55,7 @@ function passwordMatches(password, stored) {
     const candidate = scryptSync(password, salt, 64);
     return timingSafeEqual(candidate, Buffer.from(key, 'hex'));
 }
-export function createApp({ dataDir, production = false, trustProxy = false, distDir, automaticBackups = false, backupDir, database, cloudBackups, cronSecret, resetMailer = resetEmailSender(), appUrl = DEFAULT_APP_URL, scheduleResetDelivery } = {}) {
+export function createApp({ dataDir, production = false, trustProxy = false, distDir, automaticBackups = false, backupDir, database, cloudBackups, cronSecret, resetMailer = resetEmailSender(), appUrl = DEFAULT_APP_URL, scheduleResetDelivery, bankProvider = enableBankingProvider(), bankRedirectUrl = process.env.ENABLE_BANKING_REDIRECT_URL || `${appUrl}/api/bank/callback`, clock } = {}) {
     if (!dataDir)
         throw new Error('dataDir is required');
     mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -94,10 +95,11 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
     // One SQLite connection cannot interleave asynchronous transactions. Cloud
     // instances also serialize their own requests; PostgreSQL locks coordinate instances.
     let queue = Promise.resolve();
+    const reserve = () => { const previous = queue; let release; queue = new Promise(resolve => { release = resolve; }); return { previous, release }; };
+    // Background jobs use the same queue as requests.
+    const exclusive = async callback => { const { previous, release } = reserve(); await previous; try { return await callback(); } finally { release(); } };
     app.use('/api', async (req, res, next) => {
-        const previous = queue;
-        let release;
-        queue = new Promise(resolve => { release = resolve; });
+        const { previous, release } = reserve();
         await previous;
         if (res.destroyed) {
             release();
@@ -115,6 +117,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             if (!expected || expected.length !== actual.length || !timingSafeEqual(expected, actual))
                 return res.status(401).json({ error: 'Accesso non consentito.' });
             await planning.synchronizeAll();
+            try { await bank.synchronizeAll(); } catch (error) { console.error('Aggiornamento bancario non riuscito:', error.message); }
             await cloudBackups.runIfDue();
             const status = await cloudBackups.status();
             res.status(status.error ? 503 : 200).json({ status: status.error ? 'error' : 'ok' });
@@ -179,6 +182,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
     app.get('/api/auth/recovery-status', (req, res) => res.json({ available: !!resetMailer }));
     app.post('/api/auth/forgot-password', recovery.forgot);
     app.post('/api/auth/reset-password', recovery.reset);
+    const bank = installBank(app, { db, one, all, run, atomic, fail, getSession }, { provider: bankProvider, redirectUrl: bankRedirectUrl, ...(clock ? { clock } : {}) });
     app.post('/api/auth/register', async (req, res) => {
         const name = text(req.body.name, 'Nome', 80);
         const email = text(req.body.email, 'Email', 254).toLowerCase();
@@ -289,6 +293,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
     const planning = installPlanning(app, { db, one, all, run, atomic, owned, fail, text, cents, now });
     const waste = installWaste(app, { db, all, run, owned, fail, text });
     const savings = installGoalSavings(app, { one, all, run, atomic, owned, fail, cents, now });
+    bank.routes();
     const backups = cloudBackups || createBackupManager({ db, dataDir, backupDir, enabled: automaticBackups });
     app.get('/api/backups/export', async (req, res, next) => {
         if (req.user.role !== 'admin')
@@ -312,10 +317,11 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             ...await planning.state(req.user, month),
             ...await workflows.state(req.user, month, req.query.week),
             backups: req.user.role === 'admin' ? await backups.status() : null,
+            bank: await bank.state(req.user, month),
             household: await one('SELECT id, name FROM households WHERE id = ?', hid),
             members: await all('SELECT id, name, role FROM users WHERE household_id = ? ORDER BY role, name', hid),
             categories: await all('SELECT * FROM categories WHERE household_id = ? ORDER BY position', hid),
-            transactions: await all('SELECT t.*, u.name AS author, o.rule_id AS recurring_id FROM transactions t JOIN users u ON u.id = t.author_id LEFT JOIN recurring_occurrences o ON o.transaction_id = t.id WHERE t.household_id = ? AND substr(t.date, 1, 7) = ? ORDER BY t.date DESC, t.created_at DESC', hid, month),
+            transactions: await all('SELECT t.*, u.name AS author, o.rule_id AS recurring_id, (SELECT a.name FROM bank_movements m JOIN bank_accounts a ON a.id = m.account_id WHERE m.transaction_id = t.id) AS bank_account FROM transactions t JOIN users u ON u.id = t.author_id LEFT JOIN recurring_occurrences o ON o.transaction_id = t.id WHERE t.household_id = ? AND substr(t.date, 1, 7) = ? ORDER BY t.date DESC, t.created_at DESC', hid, month),
             ...await savings.state(hid),
             shopping: await all('SELECT s.*, u.name AS author FROM shopping s JOIN users u ON u.id = s.author_id WHERE s.household_id = ? ORDER BY s.checked, s.created_at DESC', hid),
             notes: notes.map(note => ({ ...note, attachments: attachments.filter(a => a.note_id === note.id).map(({ storage_name, ...a }) => a) })),
@@ -561,5 +567,5 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             console.error('Server error:', error.message);
         res.status(error.status || 500).json({ error: error.status ? error.message : 'Si è verificato un errore. Riprova.' });
     });
-    return { app, db, backups, close: () => { backups.stop(); return db.close(); } };
+    return { app, db, backups, bank: { configured: bank.configured, synchronizeAll: () => exclusive(() => bank.synchronizeAll()) }, close: () => { backups.stop(); return db.close(); } };
 }

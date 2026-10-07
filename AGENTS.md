@@ -36,3 +36,8 @@
 
 - Il recupero password usa `server/recovery.mjs`: link monouso di 30 minuti, hash soltanto nel database, risposta pubblica generica e limite di invio. Consumo, cambio password, revoca sessioni e invalidazione dei link sono atomici su SQLite e PostgreSQL. Non consentire recuperi amministrativi di altri utenti né restituire chiavi nella risposta API.
 - L’invio email usa credenziali backend Brevo o Resend; su Vercel `waitUntil` conserva il lavoro dopo la risposta. Non esporre chiavi, destinatari o link nei log. I link non vanno inclusi nei backup; i test devono simulare l’invio e usare dati temporanei.
+
+- I conti bancari usano `server/bank.mjs` con Enable Banking in sola lettura (AIS): non aggiungere chiamate a pagamenti o disposizioni. Chiave privata e ID applicazione restano nel backend senza prefisso `VITE_`; le sessioni del fornitore sono cifrate e non vanno mai registrate nei log, nelle risposte API o nello ZIP familiare.
+- Lo stato del redirect bancario è monouso, con hash, scadenza e legato all'utente in sessione. Le chiamate al fornitore avvengono fuori dalle transazioni; saldi, movimenti e importazioni si scrivono atomicamente. Gli importi bancari restano interi in centesimi.
+- Ogni conto è "shared" o "balance": il saldo familiare li somma entrambi, ma i movimenti dei conti "balance" restano visibili solo al titolare e non diventano entrate o uscite. Solo il titolare cambia visibilità, aggiorna o scollega. L'importazione è unica per conto e riferimento, collega le registrazioni manuali equivalenti, esclude i giroconti tra conti condivisi e non reimporta movimenti la cui registrazione è stata eliminata.
+- I test bancari usano un fornitore simulato o `tests/e2e/bank-mock.mjs`; `ENABLE_BANKING_API_URL` accetta HTTP soltanto su loopback.

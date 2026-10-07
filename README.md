@@ -68,6 +68,20 @@ La sezione **Famiglia e inviti** genera un link valido sette giorni, oltre al co
 
 Le nuove tabelle sono create in modo additivo, senza modificare o cancellare i dati esistenti. Ricorrenze, versioni, mesi saltati e template fanno parte dei backup dell'istanza, del ripristino cloud e dell'esportazione familiare. I backup precedenti alle nuove tabelle possono ancora essere ripristinati in un nuovo database.
 
+## Conti bancari (sola lettura)
+
+La sezione **Conti bancari** collega i conti tramite [Enable Banking](https://enablebanking.com), con un consenso PSD2 di sola lettura (AIS): Family Hub legge **saldo e movimenti** e non può disporre pagamenti o bonifici. Le credenziali bancarie si inseriscono soltanto sul sito o nell’app della banca.
+
+- **Collega una banca** apre l’elenco delle banche italiane disponibili. Dopo l’autorizzazione la banca riporta all’app e il conto compare con il saldo (disponibile, se la banca lo fornisce, altrimenti contabile).
+- Ogni membro collega i propri conti e sceglie per ciascuno cosa condividere: **Saldo e movimenti** oppure **Solo il saldo**. Il **saldo familiare** somma tutti i conti in euro, anche quelli “Solo saldo”. I movimenti dei conti “Solo saldo” sono visibili soltanto al titolare e non entrano nel budget.
+- I movimenti contabilizzati dei conti condivisi, dal mese in cui il conto viene condiviso, diventano automaticamente **Entrate** e **Uscite** della famiglia. Un movimento con lo stesso tipo e importo di una registrazione manuale entro tre giorni viene collegato a quella, senza duplicati. I bonifici tra due conti condivisi della famiglia sono riconosciuti come giroconti e non contano né come entrata né come uscita.
+- La categoria delle uscite importate è proposta dalle correzioni precedenti per lo stesso esercente o da parole chiave note (supermercati, carburante, farmacie, utenze…). Le uscite non riconosciute restano **Da classificare**: modificale per scegliere la categoria, e le successive dello stesso esercente seguiranno la scelta. Una registrazione importata e poi eliminata non viene importata di nuovo.
+- L’aggiornamento automatico avviene una volta al giorno (cron Vercel o timer del server locale); il titolare può aggiornare a mano al massimo ogni cinque minuti. Il consenso dura fino a 180 giorni secondo la banca: alla scadenza **Rinnova** ricollega lo stesso conto conservando storico e visibilità. **Scollega** revoca la sessione presso Enable Banking e rimuove saldo e copie bancarie; le registrazioni già aggiunte a Entrate e Uscite restano.
+
+**Configurazione.** Crea un account Enable Banking e registra un’applicazione di produzione, indicando come redirect `https://<il-tuo-dominio>/api/bank/callback`. Nella modalità gratuita *restricted* vanno collegati prima, dal pannello Enable Banking, i conti che l’app potrà leggere: ogni titolare (per esempio entrambi i partner) completa lì l’autorizzazione del proprio conto. Nelle variabili private **Production** di Vercel imposta `ENABLE_BANKING_APP_ID` e `ENABLE_BANKING_PRIVATE_KEY` (il contenuto del file `.pem`, anche con `\n` al posto degli a capo, oppure in Base64). `ENABLE_BANKING_REDIRECT_URL` è facoltativa se il dominio coincide con quello predefinito dell’app. Non usare prefissi `VITE_` e non salvare la chiave nel repository. Senza configurazione la sezione mostra che il collegamento non è attivo.
+
+Le sessioni Enable Banking sono cifrate nel database (AES-256-GCM con una chiave derivata dalla chiave privata): cambiare chiave richiede di ricollegare i conti. Gli importi restano interi in centesimi. Le tabelle `bank_*` sono create in modo additivo e incluse nei backup dell’istanza; lo ZIP familiare contiene conti e saldi, i movimenti dei soli conti condivisi e nessuna sessione o impronta IBAN. Rimuovere un membro elimina i suoi collegamenti bancari e conserva le registrazioni importate.
+
 ## Conferimento rifiuti
 
 La sezione **Conferimento rifiuti** contiene un calendario settimanale condiviso. Crea e modifica una voce per ogni tipologia, scegliendo uno o più giorni (da lunedì a domenica), un colore, un orario o fascia facoltativa e indicazioni utili. Organico, carta/cartone, plastica/metalli, vetro e indifferenziato sono scorciatoie per il nome: non inseriscono giorni ipotizzati. Sono ammesse anche tipologie personalizzate.
@@ -185,11 +199,11 @@ npm test
 npm run test:e2e
 ```
 
-I test Node verificano account e sessioni, inviti, condivisione e isolamento tra famiglie, CSRF, movimenti e mesi, budget, obiettivi, allegati, esportazione e persistenza dopo il riavvio, pagamenti senza duplicati, menu collegato alla spesa, limiti di mese e settimana, integrità dei backup, ripristino completo e conservazione delle ultime sette copie e segnalazione degli errori senza perdita dei dati. Verificano anche ricorrenze senza duplicati, modifiche datate, mesi saltati ed eliminazione delle ricorrenze, schemi fissi e impostazioni account. I test browser percorrono le sezioni di base con due account e i flussi di scadenze con e senza pagamento, menu, spesa, backup ZIP, redditi, ricorrenze, template e conferimento rifiuti, su desktop e su un viewport mobile. Verificano anche i download, il contenuto dell’archivio, l’assenza di errori JavaScript e di scorrimento orizzontale, oltre alla barra fissa durante lo scorrimento.
+I test Node verificano account e sessioni, inviti, condivisione e isolamento tra famiglie, CSRF, movimenti e mesi, budget, obiettivi, allegati, esportazione e persistenza dopo il riavvio, pagamenti senza duplicati, menu collegato alla spesa, limiti di mese e settimana, integrità dei backup, ripristino completo e conservazione delle ultime sette copie e segnalazione degli errori senza perdita dei dati. Verificano anche ricorrenze senza duplicati, modifiche datate, mesi saltati ed eliminazione delle ricorrenze, schemi fissi e impostazioni account, firma e chiamate del client Enable Banking, importazione e riconciliazione dei movimenti, giroconti, visibilità per conto, cifratura delle sessioni ed esportazioni senza dati privati. I test browser percorrono le sezioni di base con due account e i flussi di scadenze con e senza pagamento, menu, spesa, backup ZIP, redditi, ricorrenze, template, conferimento rifiuti e collegamento bancario (con un Enable Banking simulato in locale), su desktop e su un viewport mobile. Verificano anche i download, il contenuto dell’archivio, l’assenza di errori JavaScript e di scorrimento orizzontale, oltre alla barra fissa durante lo scorrimento.
 
 I test usano database temporanei separati, rimossi alla fine: non modificano `.data`. I risultati del browser rimangono in `test-results`, ignorato da Git.
 
-Nell’ambiente cloud è già disponibile `/usr/bin/chromium` e la configurazione lo usa automaticamente. Su un’altra macchina, puoi indicare un browser installato con `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` oppure installare quello di Playwright:
+Nell’ambiente cloud la configurazione usa automaticamente `/usr/bin/chromium`, se presente; altrimenti indica il browser preinstallato, per esempio `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/pw-browsers/chromium`. Su un’altra macchina, puoi indicare un browser installato con `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` oppure installare quello di Playwright:
 
 ```sh
 npm run test:browser:install
@@ -246,6 +260,7 @@ server/workflows.mjs     Menu, collegamenti alla spesa e compatibilità bollette
 server/waste.mjs         Calendario del conferimento rifiuti
 server/uploads.mjs       Allegati della lavagna caricati a parti
 server/recovery.mjs      Recupero password con link monouso
+server/bank.mjs          Conti bancari in sola lettura tramite Enable Banking
 server/reset-email.mjs   Invio email tramite Brevo o Resend
 server/backups.mjs       Snapshot, ZIP familiare, verifica e ripristino
 server/postgres.mjs      Persistenza PostgreSQL per Neon
@@ -267,8 +282,8 @@ public/                  Logo, icone e manifest dell’app
 3. Copie automatiche verso uno spazio esterno al server e importazione del ZIP familiare.
 4. Verifica email e gestione dei membri dall’interfaccia.
 
-La prima versione non include collegamenti alle banche, pagamenti o notifiche push. Il recupero password richiede la configurazione del servizio email descritta sopra. Il deployment gratuito richiede il collegamento dei propri account Vercel e Neon; la pubblicazione dell’ambiente Codex non pubblica la webapp. Il comando di build Vercel è `npm run build`, impostato nel progetto (o ricavato dal framework Vite).
+L’app non esegue pagamenti e non invia notifiche push; i conti bancari sono collegati in sola lettura. Il recupero password richiede la configurazione del servizio email descritta sopra. Il deployment gratuito richiede il collegamento dei propri account Vercel e Neon; la pubblicazione dell’ambiente Codex non pubblica la webapp. Il comando di build Vercel è `npm run build`, impostato nel progetto (o ricavato dal framework Vite).
 
 La rimozione di un membro richiesta al gestore usa esclusivamente il comando privato `server/member-removal-cli.mjs`, con `DATABASE_URL` backend e argomenti `--request-id`, `--member` e `--admin`. Richiede una corrispondenza univoca dei nomi nella stessa famiglia, conserva una copia privata prima della rimozione, revoca gli accessi e trasferisce i record condivisi all’amministratore. Non rimuove amministratori né dati familiari. Riutilizzare lo stesso identificativo di richiesta non elimina un account ricreato. Il comando non è esposto via HTTP e non fa parte della build ordinaria; può essere eseguito con un comando di build specifico di un singolo deployment.
 
-La richiesta di integrazione bancaria futura, esclusivamente di lettura dei movimenti e senza saldi né pagamenti, è annotata in [docs/banking-integration.md](docs/banking-integration.md).
+Scelte e limiti dell’integrazione bancaria, in sola lettura di saldo e movimenti e senza pagamenti, sono annotati in [docs/banking-integration.md](docs/banking-integration.md).

@@ -393,3 +393,47 @@ test('operator member removal preserves shared records, requires a backup and ne
   assert.equal((await removeMember(options)).repeated, true);
   assert.ok(await instance.db.prepare('SELECT id FROM users WHERE id = ?').get(recreated.user.id));
 });
+
+test('bank links share balances across instances, sync from the protected cron and stay out of family exports', async () => {
+  const NOW = Date.parse('2026-10-15T10:00:00Z');
+  const calls = [];
+  const provider = { secret: Buffer.alloc(32, 9),
+    async banks() { return [{ name: 'Intesa Sanpaolo', country: 'IT', maxConsentSeconds: 15552000 }]; },
+    async startAuthorization({ state: value }) { return `https://bank.example/auth?state=${value}`; },
+    async createSession(code) { return { sessionId: `sess-${code}`, validUntil: '2027-04-01T00:00:00Z', accounts: [{ uid: `uid-${code}`, iban: code === 'a' ? 'IT60X0542811101000000123456' : 'IT02A0301503200000003517230', name: `Conto ${code}`, currency: 'EUR' }] }; },
+    async balances(uid) { return [{ balance_type: 'ITAV', balance_amount: { amount: uid === 'uid-a' ? '12345678.90' : '-5.50', currency: 'EUR' } }]; },
+    async transactions(uid) { calls.push(uid); return [{ entry_reference: `${uid}-1`, transaction_amount: { amount: '19.90', currency: 'EUR' }, credit_debit_indicator: 'DBIT', status: 'BOOK', booking_date: '2026-10-02', creditor: { name: 'Esselunga' } }]; },
+    async endSession() {},
+  };
+  const first = await start({ bankProvider: provider, clock: () => NOW });
+  const second = await start({ bankProvider: provider, clock: () => NOW });
+  const owner = await register();
+  const invitation = await json(await request('/invitation', { method: 'POST', session: owner }));
+  const member = await register('member-bank@example.test', invitation.code);
+  async function link(session, code, visibility, target) {
+    const started = await json(await request('/bank/connections', { method: 'POST', session, body: { bank: 'Intesa Sanpaolo', visibility }, target }), 201);
+    const response = await fetch(`${target}/bank/callback?code=${code}&state=${new URL(started.url).searchParams.get('state')}`, { redirect: 'manual', headers: { cookie: session.cookie, 'x-forwarded-proto': 'https' } });
+    assert.equal(response.headers.get('location'), '/?banca=collegato#bank');
+  }
+  await link(owner, 'a', 'shared', first.base);
+  await link(member, 'b', 'balance', second.base);
+  const data = await json(await request('/state?month=2026-10&week=2026-10-05', { session: owner, target: second.base }));
+  assert.equal(data.bank.total, 1234567890 - 550);
+  assert.equal(data.transactions.filter(t => t.description === 'Esselunga').length, 1);
+  assert.equal(data.transactions.find(t => t.description === 'Esselunga').category_id, data.categories[1].id);
+  assert.equal(data.bank.movements.length, 1, 'the member keeps balance-only movements private');
+  const pool = new Pool({ connectionString });
+  try {
+    const secrets = (await pool.query('SELECT session_secret FROM casa.bank_connections')).rows;
+    assert.ok(secrets.every(r => r.session_secret.startsWith('v1.') && !r.session_secret.includes('sess-')));
+    await pool.query("UPDATE casa.bank_connections SET last_sync_at = '2026-10-13T00:00:00.000Z'");
+  } finally { await pool.end(); }
+  const before = calls.length;
+  assert.equal((await fetch(`${second.base}/internal/backup`, { headers: { authorization: 'Bearer test-cron-local-only' } })).status, 200);
+  assert.equal(calls.length, before + 2);
+  assert.equal((await json(await request('/state?month=2026-10&week=2026-10-05', { session: owner, target: first.base }))).transactions.filter(t => t.description === 'Esselunga').length, 1, 'cron re-sync does not duplicate imports');
+  const exported = await request('/backups/export', { session: owner, target: first.base });
+  const payload = JSON.parse(Buffer.from(unzipSync(new Uint8Array(await exported.arrayBuffer()))['casa.json']).toString('utf8'));
+  assert.equal(JSON.stringify(payload).includes('session_secret'), false);
+  assert.equal(payload.data.bank_accounts.length, 2); assert.equal(payload.data.bank_movements.length, 1);
+});
