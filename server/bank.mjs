@@ -265,8 +265,8 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
       await run('UPDATE goals SET saved = CASE WHEN saved > ? THEN saved - ? ELSE 0 END WHERE id = ?', link.amount, link.amount, link.goal_id);
     }
   }
-  // Removes a linked account with its bank copies. Records imported from it stay,
-  // unless it should never have been linked (a card), in which case they go too.
+  // Removes a linked account with its bank copies and, when asked, the records it
+  // imported (removed accounts and cards); records only matched to it stay.
   async function dropAccount(accountId, hid, dropImported) {
     if (dropImported) for (const { transaction_id: id } of await all("SELECT transaction_id FROM bank_movements WHERE account_id = ? AND status = 'imported' AND transaction_id IS NOT NULL", accountId)) {
       await releaseSavings(id);
@@ -401,6 +401,16 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
       await run('UPDATE bank_connections SET status = ?, last_error = ? WHERE id = ?', code === 'access' ? 'expired' : 'error', messages[code], connection.id);
       return code;
     }
+    // Accounts removed while their imports stayed are read once more, so that
+    // what they imported can be found and removed; a failed read is not retried.
+    const leftovers = [];
+    for (const exclusion of await all(`SELECT e.id, e.provider_uid FROM bank_account_exclusions e LEFT JOIN bank_exclusion_cleanups d ON d.exclusion_id = e.id
+      WHERE e.connection_id = ? AND e.provider_uid IS NOT NULL AND d.exclusion_id IS NULL`, connection.id)) {
+      let movements = [];
+      try { movements = normalizeTransactions(await provider.transactions(exclusion.provider_uid, addDays(romeToday(clock()), -90), psu)); }
+      catch { movements = []; }
+      leftovers.push({ exclusion, movements });
+    }
     await atomic(async () => {
       if (!await one('SELECT id FROM bank_connections WHERE id = ?', connection.id)) return;
       for (const { account, balance, movements } of fetched) {
@@ -411,6 +421,20 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'stored', NULL, ?) ON CONFLICT(account_id, external_id) DO NOTHING`,
             randomUUID(), connection.household_id, account.id, m.externalId, m.kind, m.amount, m.date, m.description, m.matchKey, m.counterpartyHash, m.salaryHint, m.savingsHint, now());
         }
+      }
+      for (const { exclusion, movements } of leftovers) {
+        if (!await one('SELECT id FROM bank_account_exclusions WHERE id = ?', exclusion.id)) continue;
+        for (const m of movements) {
+          // Only a record imported from it: same owner, amount, day and bank description, linked to nothing else.
+          const record = await one(`SELECT t.id FROM transactions t WHERE t.household_id = ? AND t.author_id = ? AND t.kind = ? AND t.amount = ? AND t.date = ? AND t.description = ?
+            AND NOT EXISTS (SELECT 1 FROM bank_movements b WHERE b.transaction_id = t.id) AND NOT EXISTS (SELECT 1 FROM recurring_occurrences o WHERE o.transaction_id = t.id)
+            AND NOT EXISTS (SELECT 1 FROM deadline_receipts r WHERE r.transaction_id = t.id) ORDER BY t.created_at, t.id LIMIT 1`,
+            connection.household_id, connection.user_id, m.kind, m.amount, m.date, m.description);
+          if (!record) continue;
+          await releaseSavings(record.id);
+          await run('DELETE FROM transactions WHERE id = ? AND household_id = ?', record.id, connection.household_id);
+        }
+        await run('INSERT INTO bank_exclusion_cleanups VALUES (?, ?, ?) ON CONFLICT(exclusion_id) DO NOTHING', exclusion.id, connection.household_id, now());
       }
       await run("UPDATE bank_connections SET status = 'active', last_sync_at = ?, last_error = NULL WHERE id = ?", now(), connection.id);
       await importPending(connection.household_id);
@@ -550,8 +574,11 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
             ON CONFLICT(user_id, account_key) DO UPDATE SET connection_id = excluded.connection_id, provider_uid = excluded.provider_uid, name = excluded.name`,
             randomUUID(), req.user.household_id, req.user.id, account.iban_hash ? `iban:${account.iban_hash}` : `uid:${account.provider_uid}`, account.connection_id, account.provider_uid,
             account.name, account.iban_hash, account.iban_last4, account.currency, now());
-          // It disappears with its bank copies and balance; records already in Entrate and Uscite stay.
-          await dropAccount(account.id, req.user.household_id, false);
+          // It disappears with its bank copies, balance and the records it imported;
+          // records entered by hand and only matched to it stay.
+          await dropAccount(account.id, req.user.household_id, true);
+          const exclusion = await one('SELECT id FROM bank_account_exclusions WHERE user_id = ? AND account_key = ?', req.user.id, account.iban_hash ? `iban:${account.iban_hash}` : `uid:${account.provider_uid}`);
+          await run('INSERT INTO bank_exclusion_cleanups VALUES (?, ?, ?) ON CONFLICT(exclusion_id) DO NOTHING', exclusion.id, req.user.household_id, now());
         });
         res.json({ ok: true });
       });
@@ -618,26 +645,15 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
     },
     // Movements of the selected month (with their category) and every bank expense
     // still to classify, whatever its month. Others' private movements stay hidden.
-    async state(user, month) {
+    async state(user) {
       const accounts = await all(`SELECT a.id, a.name, a.iban_last4, a.currency, a.visibility, a.savings, a.balance, a.balance_kind, a.balance_at, a.import_from,
         c.id AS connection_id, c.aspsp_name AS bank, c.status, c.valid_until, c.last_sync_at, c.last_error, c.user_id, u.name AS owner
         FROM bank_accounts a JOIN bank_connections c ON c.id = a.connection_id JOIN users u ON u.id = c.user_id
         WHERE a.household_id = ? ORDER BY u.name, c.aspsp_name, a.name`, user.household_id);
-      const movements = await all(`SELECT m.id, m.account_id, m.kind, m.amount, m.date, m.description, m.status, m.transaction_id, t.category_id, t.kind AS transaction_kind,
-        a.name AS account, a.iban_last4, c.aspsp_name AS bank, u.name AS owner, c.user_id
-        FROM bank_movements m JOIN bank_accounts a ON a.id = m.account_id JOIN bank_connections c ON c.id = a.connection_id JOIN users u ON u.id = c.user_id
-        LEFT JOIN transactions t ON t.id = m.transaction_id
-        WHERE m.household_id = ? AND substr(m.date, 1, 7) = ? AND (a.visibility = 'shared' OR c.user_id = ?) ORDER BY m.date DESC, m.external_id LIMIT 500`, user.household_id, month, user.id);
-      const uncategorized = await all(`SELECT t.id AS transaction_id, t.amount, t.date, t.description, a.name AS account, a.iban_last4, c.aspsp_name AS bank, u.name AS owner, c.user_id
-        FROM transactions t JOIN bank_movements m ON m.transaction_id = t.id JOIN bank_accounts a ON a.id = m.account_id JOIN bank_connections c ON c.id = a.connection_id
-        JOIN users u ON u.id = c.user_id LEFT JOIN private_transactions p ON p.transaction_id = t.id
-        WHERE t.household_id = ? AND t.kind = 'expense' AND t.category_id IS NULL AND (p.owner_id IS NULL OR p.owner_id = ?) ORDER BY t.date DESC, t.id LIMIT 200`, user.household_id, user.id);
       return {
         configured: !!provider,
         total: accounts.filter(a => a.currency === 'EUR' && a.balance !== null).reduce((sum, a) => sum + Number(a.balance), 0),
         accounts: accounts.map(({ user_id, last_error, ...a }) => ({ ...a, savings: !!a.savings, balance: a.balance === null ? null : Number(a.balance), mine: user_id === user.id, last_error: user_id === user.id ? last_error : null })),
-        movements: movements.map(({ user_id, transaction_kind, ...m }) => ({ ...m, amount: Number(m.amount), mine: user_id === user.id, classifiable: !!m.transaction_id && transaction_kind === 'expense' })),
-        uncategorized: uncategorized.map(({ user_id, ...t }) => ({ ...t, amount: Number(t.amount), mine: user_id === user.id })),
         // The owner's links; removed accounts are not shown.
         connections: await all('SELECT id, aspsp_name AS bank, status, valid_until, last_error FROM bank_connections WHERE household_id = ? AND user_id = ? ORDER BY created_at', user.household_id, user.id),
         savingsStrategy: (await one('SELECT strategy FROM savings_settings WHERE household_id = ?', user.household_id))?.strategy || 'proportional',

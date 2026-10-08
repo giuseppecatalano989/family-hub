@@ -9,7 +9,7 @@ import type { Page } from './pages';
 type Props = { data: FamilyState; act: (path: string, method: string, body?: unknown) => Promise<void>; busy: boolean; navigate: (page: Page) => void };
 
 // Linking only: connect, disconnect, renew and sharing. Balances live in the
-// overview; movements will have their own section; savings are split automatically.
+// overview, imported records in Entrate and Uscite; savings are split automatically.
 export function Bank({ data, act, busy, navigate }: Props) {
   const [connect, setConnect] = useState<{ bank?: string; visibility?: BankAccount['visibility'] } | null>(null);
   const bank = data.bank;
@@ -32,7 +32,7 @@ export function Bank({ data, act, busy, navigate }: Props) {
           </div>
           {accounts.length > 0 && <div className="recurring-grid">{accounts.map(account => <div className="recurring-card bank-card" key={account.id}>
             <div className="recurring-top"><span className="bank-badges"><span className={`badge ${account.visibility === 'shared' ? 'green' : ''}`}>{account.visibility === 'shared' ? 'Condiviso' : 'Movimenti privati'}</span>{account.savings && <span className="badge green">Risparmio</span>}</span>
-              {accounts.length > 1 && <button className="icon-button danger" aria-label={`Rimuovi ${account.name}`} title="Rimuovi conto" disabled={busy} onClick={() => { if (confirm(`Rimuovere “${account.name}”? Sparirà dalla vista e non verrà più letto né contato nel saldo; ${connection.bank} resta collegata. Per riaverlo dovrai scollegare e ricollegare la banca.`)) void act(`/bank/accounts/${account.id}`, 'DELETE').catch(() => {}); }}><X size={16} /></button>}</div>
+              {accounts.length > 1 && <button className="icon-button danger" aria-label={`Rimuovi ${account.name}`} title="Rimuovi conto" disabled={busy} onClick={() => { if (confirm(`Rimuovere “${account.name}”? Sparirà dalla vista e dal saldo, e verranno eliminate le entrate e le uscite importate da questo conto (restano quelle inserite a mano); ${connection.bank} resta collegata. Per riaverlo dovrai scollegare e ricollegare la banca.`)) void act(`/bank/accounts/${account.id}`, 'DELETE').catch(() => {}); }}><X size={16} /></button>}</div>
             <h4>{account.name}</h4>
             <p>{account.iban_last4 ? `•••• ${account.iban_last4}` : 'Conto senza IBAN'}</p>
             <label className="bank-visibility">Con la famiglia condividi<select value={account.visibility} disabled={busy} onChange={e => void act(`/bank/accounts/${account.id}`, 'PATCH', { visibility: e.target.value }).catch(() => {})}><option value="shared">Saldo e movimenti</option><option value="balance">Saldo e totali, movimenti privati</option></select></label>
@@ -44,7 +44,7 @@ export function Bank({ data, act, busy, navigate }: Props) {
       <div className="recurring-top"><span className="bank-badges"><span className={`badge ${account.visibility === 'shared' ? 'green' : ''}`}>{account.visibility === 'shared' ? 'Condiviso' : 'Movimenti privati'}</span>{account.savings && <span className="badge green">Risparmio</span>}</span></div>
       <h3>{account.name}</h3><p>{account.bank}{account.iban_last4 ? ` · •••• ${account.iban_last4}` : ''} · {account.owner}</p>
     </article>)}</div></section>}
-    <div className="panel-tip bank-tip"><ShieldCheck size={18} /><span>Solo lettura: Family Hub legge saldo e movimenti tramite Enable Banking e non può disporre pagamenti. Le credenziali restano sul sito della tua banca. I movimenti sono in Movimenti; la ripartizione dei risparmi in Impostazioni.</span></div>
+    <div className="panel-tip bank-tip"><ShieldCheck size={18} /><span>Solo lettura: Family Hub legge saldo e movimenti tramite Enable Banking e non può disporre pagamenti. Le credenziali restano sul sito della tua banca. I movimenti diventano entrate e uscite; la ripartizione dei risparmi è in Impostazioni.</span></div>
     {connect && <ConnectDialog key={connect.bank || 'new'} initial={connect} onClose={() => setConnect(null)} />}
   </>;
 }
