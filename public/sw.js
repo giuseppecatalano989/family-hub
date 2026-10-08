@@ -8,7 +8,9 @@ self.addEventListener('push', event => {
   try { data = event.data ? event.data.json() : {}; } catch { data = { body: event.data ? event.data.text() : '' }; }
   event.waitUntil(self.registration.showNotification(data.title || 'Family Hub', {
     body: data.body || '', tag: data.tag, renotify: !!data.tag, lang: 'it',
-    icon: '/family-hub-192.png', badge: '/family-hub-192.png', data: { url: data.url || '' },
+    // The badge is the logo's white silhouette on transparency: Android tints it
+    // in the status bar, while the full-colour logo is the notification's icon.
+    icon: '/family-hub-192.png', badge: '/family-hub-badge.png', data: { url: data.url || '' },
   }));
 });
 
