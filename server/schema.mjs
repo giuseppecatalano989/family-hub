@@ -113,8 +113,12 @@ export const PLANNING_SCHEMA = `
   CREATE TABLE IF NOT EXISTS budget_settings (
     household_id TEXT PRIMARY KEY REFERENCES households(id), active_template_id TEXT REFERENCES budget_templates(id)
   );
+  CREATE TABLE IF NOT EXISTS budget_versions (
+    household_id TEXT NOT NULL REFERENCES households(id), effective_month TEXT NOT NULL, entries TEXT NOT NULL,
+    PRIMARY KEY(household_id, effective_month)
+  );
 `;
-TABLES.push('recurring_rules', 'recurring_versions', 'recurring_occurrences', 'budget_templates', 'budget_settings');
+TABLES.push('recurring_rules', 'recurring_versions', 'recurring_occurrences', 'budget_templates', 'budget_settings', 'budget_versions');
 export const WASTE_SCHEMA = `
   CREATE TABLE IF NOT EXISTS waste_schedules (
     id TEXT PRIMARY KEY, household_id TEXT NOT NULL REFERENCES households(id),

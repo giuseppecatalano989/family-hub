@@ -14,7 +14,7 @@ function nextMonth(value) {
   const [year, month] = value.split('-').map(Number);
   return `${year + (month === 12 ? 1 : 0)}-${String(month === 12 ? 1 : month + 1).padStart(2, '0')}`;
 }
-export function installPlanning(app, { db, one, all, run, atomic, owned, fail, text, cents, now }) {
+export function installPlanning(app, { db, one, all, run, atomic, owned, fail, text, cents, now, clock = Date.now }) {
   if (!db.cloud) db.exec(PLANNING_SCHEMA);
   function month(value) {
     if (typeof value !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(value) || value < '1900-01' || value > '2199-12') fail('Mese non valido.');
@@ -114,6 +114,20 @@ export function installPlanning(app, { db, one, all, run, atomic, owned, fail, t
     });
     res.json({ ok: true });
   });
+  // Each month keeps the split in force when it closed: a change is saved for the
+  // current month (the last change of a month wins) and the split used until
+  // then becomes the one of every earlier month without its own.
+  const romeMonth = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit' }).format(new Date(clock()));
+  const splitOf = async hid => JSON.stringify(Object.fromEntries((await all('SELECT id, percentage FROM categories WHERE household_id = ? ORDER BY position', hid)).map(c => [c.id, c.percentage])));
+  async function changeSplit(hid, update) {
+    await run("INSERT INTO budget_versions VALUES (?, '1900-01', ?) ON CONFLICT(household_id, effective_month) DO NOTHING", hid, await splitOf(hid));
+    await update();
+    await run('INSERT INTO budget_versions VALUES (?, ?, ?) ON CONFLICT(household_id, effective_month) DO UPDATE SET entries = excluded.entries', hid, romeMonth(), await splitOf(hid));
+  }
+  async function splitFor(hid, target) {
+    const version = await one('SELECT entries FROM budget_versions WHERE household_id = ? AND effective_month <= ? ORDER BY effective_month DESC LIMIT 1', hid, target);
+    return version ? JSON.parse(version.entries) : null;
+  }
   async function ensureTemplates(hid) {
     const categories = await all('SELECT * FROM categories WHERE household_id = ? ORDER BY position', hid);
     for (const preset of [...BUDGET_PRESETS, { key: 'custom', name: 'Personalizzato', description: 'La vostra composizione, conservata anche dopo il ripristino.' }]) {
@@ -148,7 +162,8 @@ export function installPlanning(app, { db, one, all, run, atomic, owned, fail, t
       await ensureTemplates(req.user.household_id);
       const template = await owned('budget_templates', req.params.id, req.user);
       if (template.template_key === '50-30-20') fail('Questo schema non è più disponibile. Scegli un altro schema.', 400);
-      for (const row of await validatedEntries(JSON.parse(template.entries), req.user.household_id)) await run('UPDATE categories SET name = ?, percentage = ? WHERE id = ? AND household_id = ?', row.name, row.percentage, row.id, req.user.household_id);
+      const rows = await validatedEntries(JSON.parse(template.entries), req.user.household_id);
+      await changeSplit(req.user.household_id, async () => { for (const row of rows) await run('UPDATE categories SET name = ?, percentage = ? WHERE id = ? AND household_id = ?', row.name, row.percentage, row.id, req.user.household_id); });
       await run('INSERT INTO budget_settings VALUES (?, ?) ON CONFLICT(household_id) DO UPDATE SET active_template_id = excluded.active_template_id', req.user.household_id, template.id);
     });
     res.json({ ok: true });
@@ -161,7 +176,7 @@ export function installPlanning(app, { db, one, all, run, atomic, owned, fail, t
     });
     res.json({ ok: true });
   });
-  return { materialize,
+  return { materialize, changeSplit, splitFor,
     async synchronizeAll() { for (const { id } of await all('SELECT id FROM households')) await materialize(id); },
     async saveCustom(hid, entries) {
       await ensureTemplates(hid);

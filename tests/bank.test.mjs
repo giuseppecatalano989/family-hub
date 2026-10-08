@@ -695,3 +695,33 @@ test('the history fetched before the link is imported from its first whole month
   assert.equal(data.goals[0].saved, 0);
   assert.equal(data.transactions.filter(t => t.description === 'CONAD SUPERSTORE').length, 1);
 });
+
+test('salaries credited before a recurring income started join it in their own months', async () => {
+  await start({ bankProvider: provider });
+  const { alice } = await family();
+  provider.data.transactions = { 'uid-a': [
+    tx('aug', '1800.00', 'CRDT', '2026-08-27', { debtor: { name: 'Azienda Srl' } }),
+    tx('aug-refund', '50.00', 'CRDT', '2026-08-12', { debtor: { name: 'Azienda Srl' } }),
+    tx('sep', '1820.50', 'CRDT', '2026-09-26', { debtor: { name: 'Azienda Srl' } }),
+    tx('sale', '1790.00', 'CRDT', '2026-09-10', { debtor: { name: 'Mario Bianchi' }, remittance_information: ['Vendita auto'] }),
+  ], 'uid-b': [] };
+  await link(alice, 'alice', 'shared');
+  assert.equal((await request('/recurring', { method: 'POST', session: alice, body: { kind: 'income', name: 'Stipendio', amount: 180000, day: 27, startMonth: '2026-10', enabled: true } })).status, 201);
+  let september = await state(alice, '2026-09');
+  assert.equal(september.transactions.some(t => t.recurring_id), false);
+  instance.db.prepare('UPDATE bank_connections SET last_attempt_at = NULL').run();
+  assert.equal((await request('/bank/refresh', { method: 'POST', session: alice })).status, 200);
+  september = await state(alice, '2026-09');
+  const august = await state(alice, '2026-08');
+  const recurring = data => data.transactions.filter(t => t.recurring_id).map(t => [t.description, t.amount, t.date]);
+  assert.deepEqual(recurring(september), [['Azienda Srl', 182050, '2026-09-26']], 'the sale stays one-off');
+  assert.deepEqual(recurring(august), [['Azienda Srl', 180000, '2026-08-27']], 'the smaller credit from the employer stays one-off');
+  assert.deepEqual(september.history.slice(-2).map(m => m.budgetIncome), [180000, 182050]);
+  assert.equal(september.budgetFallback, null);
+  const october = await state(alice);
+  assert.deepEqual(recurring(october), [['Stipendio', 180000, '2026-10-27']], 'the rule still starts in October');
+  assert.equal(october.recurring[0].start_month, '2026-10');
+  instance.db.prepare('UPDATE bank_connections SET last_attempt_at = NULL').run();
+  assert.equal((await request('/bank/refresh', { method: 'POST', session: alice })).status, 200);
+  assert.equal(instance.db.prepare('SELECT COUNT(*) AS count FROM recurring_occurrences').get().count, 3, 'linking again changes nothing');
+});

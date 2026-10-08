@@ -405,7 +405,7 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
     // Movements inside a savings account (purchases, interest) never enter the budget.
     const rows = await all(`SELECT m.*, c.user_id, a.visibility, a.created_at AS linked_at FROM bank_movements m JOIN bank_accounts a ON a.id = m.account_id JOIN bank_connections c ON c.id = a.connection_id
       WHERE m.household_id = ? AND m.status = 'stored' AND a.savings = 0 AND a.import_from IS NOT NULL AND m.date >= a.import_from ORDER BY m.date, m.external_id`, hid);
-    if (!rows.length) return;
+    if (!rows.length) return linkEarlierSalaries(hid);
     const categories = await all('SELECT id FROM categories WHERE household_id = ? ORDER BY position', hid);
     for (const movement of rows) {
       if (movement.counterparty_hash && isTransfer(movement)) {
@@ -458,6 +458,46 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
       // among the goals, whose totals already include what was saved until then.
       const earlier = movement.date < `${romeToday(Date.parse(movement.linked_at)).slice(0, 7)}-01`;
       if (savings && !earlier && (!match || (await one('SELECT category_id FROM transactions WHERE id = ?', transactionId))?.category_id === savingsCategory(categories))) await allocateSavings(transactionId, hid);
+    }
+    await linkEarlierSalaries(hid);
+  }
+  // Salaries credited before a recurring income started (imported history) join
+  // that rule as corrected occurrences of their own month, with the same salary
+  // rules as the planned matches, so those months have a budget base too.
+  async function linkEarlierSalaries(hid) {
+    const rules = await all("SELECT id, start_month, author_id FROM recurring_rules WHERE household_id = ? AND kind = 'income'", hid);
+    if (!rules.length) return;
+    const versions = await all('SELECT v.rule_id, v.amount, v.enabled FROM recurring_versions v JOIN recurring_rules r ON r.id = v.rule_id WHERE r.household_id = ? ORDER BY v.effective_month', hid);
+    const payers = new Map((await all('SELECT p.rule_id, p.payer_key FROM salary_payers p JOIN recurring_rules r ON r.id = p.rule_id WHERE r.household_id = ?', hid)).map(p => [p.rule_id, p.payer_key]));
+    const taken = new Set((await all('SELECT o.rule_id, o.month FROM recurring_occurrences o JOIN recurring_rules r ON r.id = o.rule_id WHERE r.household_id = ?', hid)).map(o => `${o.rule_id}:${o.month}`));
+    const credits = await all(`SELECT m.id, m.account_id, m.amount, m.date, m.match_key, m.counterparty_hash, m.salary_hint, c.user_id, m.transaction_id FROM bank_movements m
+      JOIN bank_accounts a ON a.id = m.account_id JOIN bank_connections c ON c.id = a.connection_id JOIN transactions t ON t.id = m.transaction_id
+      WHERE m.household_id = ? AND m.kind = 'income' AND m.status IN ('imported', 'matched') AND t.kind = 'income' AND m.date < ?
+      AND NOT EXISTS (SELECT 1 FROM recurring_occurrences o WHERE o.transaction_id = t.id) ORDER BY m.date, m.id`, hid, `${rules.reduce((max, r) => r.start_month > max ? r.start_month : max, '')}-01`);
+    if (!credits.length) return;
+    const close = (a, b) => Math.abs(a - b) * 100 <= a * PLANNED_TOLERANCE;
+    const pairs = [];
+    for (const credit of credits) {
+      const payer = credit.counterparty_hash ? `iban:${credit.counterparty_hash}` : credit.match_key ? `name:${credit.match_key}` : null;
+      const repeated = async () => payer && (await all(`SELECT amount, date FROM bank_movements WHERE account_id = ? AND kind = 'income' AND id <> ? AND date >= ? AND date <= ? AND ${credit.counterparty_hash ? 'counterparty_hash' : 'match_key'} = ?`,
+        credit.account_id, credit.id, addDays(credit.date, -75), addDays(credit.date, 75), credit.counterparty_hash || credit.match_key))
+        .some(h => Math.abs(Date.parse(h.date) - Date.parse(credit.date)) >= 20 * DAY && close(h.amount, credit.amount));
+      for (const rule of rules) {
+        const month = credit.date.slice(0, 7);
+        const first = versions.find(v => v.rule_id === rule.id);
+        if (month >= rule.start_month || !first?.enabled || taken.has(`${rule.id}:${month}`)) continue;
+        const known = !!payer && payers.get(rule.id) === payer;
+        if (!known && !(close(first.amount, credit.amount) && (credit.salary_hint || await repeated()))) continue;
+        pairs.push({ credit, rule, month, payer, rank: [known ? 0 : 1, rule.author_id === credit.user_id ? 0 : 1, Math.abs(first.amount - credit.amount)] });
+      }
+    }
+    const used = new Set();
+    pairs.sort((a, b) => a.rank[0] - b.rank[0] || a.rank[1] - b.rank[1] || a.rank[2] - b.rank[2] || a.credit.id.localeCompare(b.credit.id));
+    for (const { credit, rule, month, payer } of pairs) {
+      if (used.has(credit.id) || taken.has(`${rule.id}:${month}`)) continue;
+      used.add(credit.id); taken.add(`${rule.id}:${month}`);
+      await run('INSERT INTO recurring_occurrences VALUES (?, ?, ?, ?, 1)', randomUUID(), rule.id, month, credit.transaction_id);
+      if (payer && !payers.has(rule.id)) { payers.set(rule.id, payer); await run('INSERT INTO salary_payers VALUES (?, ?) ON CONFLICT(rule_id) DO NOTHING', rule.id, payer); }
     }
   }
 

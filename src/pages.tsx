@@ -1,7 +1,7 @@
 import { Fragment, useState, type CSSProperties, type ReactNode } from 'react';
 import { ArrowDownLeft, ArrowUpRight, Wallet, PiggyBank, Target, ShoppingBasket, StickyNote, Plus, Pencil, Trash2, Pin, Paperclip, Check, Search, Download, ChevronRight, CircleCheck, TrendingUp, AlertCircle, Recycle, Utensils, CalendarClock, LayoutDashboard } from 'lucide-react';
 import { Empty, Progress, SectionHeading } from './components';
-import { allocateBudget, budgetIncome, localDate, money, readableDate, totals } from './finance';
+import { allocateBudget, budgetBase, budgetIncome, monthCategories, localDate, money, readableDate, totals } from './finance';
 import type { DashboardCard, FamilyState, MonthSummary, Transaction, Goal, Note, Meal, RecurringRule, WasteSchedule, Deadline } from './types';
 
 export type Page = 'settings' | 'waste' | 'incomes' | 'expenses' | 'account' | 'overview' | 'budget' | 'goals' | 'shopping' | 'notes' | 'bills' | 'meals';
@@ -30,8 +30,8 @@ function DashboardPanel({ title, page, action, navigate, className = '', childre
 
 export function Overview({ data, open, navigate }: Props) {
   const { income, expense, balance } = totals(data.transactions);
-  const base = budgetIncome(data.transactions);
-  const budgets = allocateBudget(base, data.categories);
+  const base = budgetBase(data);
+  const budgets = allocateBudget(base, monthCategories(data));
   const pending = data.shopping.filter(s => !s.checked);
   const weekday = (new Date().getDay() + 6) % 7;
   const wasteToday = data.waste.filter(w => w.days.includes(weekday));
@@ -73,12 +73,15 @@ export function Overview({ data, open, navigate }: Props) {
 }
 
 export function Budget({ data, open }: Props) {
-  const income = budgetIncome(data.transactions);
-  const budgets = allocateBudget(income, data.categories);
-  return <><div className="budget-intro"><div><span className="eyebrow">UN PIANO PER IL VOSTRO MESE</span><h2>Ogni euro, al posto giusto.</h2><p>Dividete le entrate per ciò che conta per voi.<br />Le percentuali sono uno schema condiviso, modificabile nel tempo.</p></div><div className="budget-income"><span>Entrate da ripartire</span><strong>{money(income)}</strong><small>entrate ricorrenti del mese</small></div></div><section className="panel"><div className="section-heading"><h2>La nostra ripartizione</h2><button className="button secondary" onClick={() => open({ type: 'budget' })}><Pencil size={16} />Modifica schema</button></div><div className="allocation-bar" role="img" aria-label={data.categories.map(c => `${c.name} ${c.percentage / 100}%`).join(', ')}>{data.categories.map(c => <span key={c.id} style={{ width: `${c.percentage / 100}%`, background: c.color }} />)}</div><div className="budget-grid">{data.categories.map(c => {
+  const income = budgetBase(data);
+  const borrowed = budgetIncome(data.transactions) === 0 && data.budgetFallback ? data.budgetFallback.month : null;
+  const categories = monthCategories(data);
+  const budgets = allocateBudget(income, categories);
+  const past = (data.history.at(-1)?.month ?? '') < localDate().slice(0, 7);
+  return <><div className="budget-intro"><div><span className="eyebrow">UN PIANO PER IL VOSTRO MESE</span><h2>Ogni euro, al posto giusto.</h2><p>Dividete le entrate per ciò che conta per voi.<br />Le percentuali sono uno schema condiviso, modificabile nel tempo.</p></div><div className="budget-income"><span>Entrate da ripartire</span><strong>{money(income)}</strong><small>{borrowed ? `entrate ricorrenti di ${monthLabel(borrowed, 'long')}` : 'entrate ricorrenti del mese'}</small></div></div><section className="panel"><div className="section-heading"><h2>La nostra ripartizione</h2><button className="button secondary" onClick={() => open({ type: 'budget' })}><Pencil size={16} />Modifica schema</button></div><div className="allocation-bar" role="img" aria-label={categories.map(c => `${c.name} ${c.percentage / 100}%`).join(', ')}>{categories.map(c => <span key={c.id} style={{ width: `${c.percentage / 100}%`, background: c.color }} />)}</div><div className="budget-grid">{categories.map(c => {
     const spent = spentByCategory(data, c.id); const limit = budgets[c.id]; const over = spent > limit;
     return <article className="budget-category" key={c.id}><div className="budget-category-heading"><span className="category-dot" style={{ background: c.color }} /><h3>{c.name}</h3><span className="percentage-badge" style={{ color: c.color, background: `${c.color}12` }}>{c.percentage / 100}%</span></div><div className="budget-amounts"><strong>{money(spent)}</strong><span>di {money(limit)}</span></div><Progress value={limit ? spent / limit * 100 : spent ? 100 : 0} color={over ? 'var(--red)' : c.color} /><p className={over ? 'negative' : ''}>{over ? `${money(spent - limit)} oltre il budget` : `${money(limit - spent)} ancora disponibili`}</p></article>;
-  })}</div><div className="panel-tip"><PiggyBank size={18} /><span>Scegliete uno schema predefinito oppure modificate Pers.: le percentuali devono sommare il 100%. Gli accantonamenti negli obiettivi si registrano separatamente dai movimenti.</span></div></section></>;
+  })}</div><div className="panel-tip"><PiggyBank size={18} /><span>{past ? 'Questo mese conserva la ripartizione in vigore alla sua chiusura; le modifiche valgono dal mese corrente. ' : ''}Scegliete uno schema predefinito oppure modificate Pers.: le percentuali devono sommare il 100%. Gli accantonamenti negli obiettivi si registrano separatamente dai movimenti.</span></div></section></>;
 }
 
 const monthLabel = (month: string, style: 'short' | 'long' = 'short') => new Intl.DateTimeFormat('it-IT', { month: style, ...(style === 'long' ? { year: 'numeric' } : {}) }).format(new Date(`${month}-15T12:00:00`));

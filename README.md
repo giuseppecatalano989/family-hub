@@ -24,6 +24,8 @@ Le Scadenze sono promemoria con eventuale pagamento manuale: evita di registrare
 
 La ripartizione usa come base solo le **entrate ricorrenti** del mese: gli stipendi e le altre entrate impostate come ricorrenti. Le entrate occasionali (vendite, rimborsi, regali), inserite a mano o importate dalla banca, compaiono in Entrate e nel saldo del mese ma non aumentano i massimali delle categorie. Per includerne una, registrala come ricorrente.
 
+Ogni mese conserva la ripartizione in vigore alla sua chiusura: una modifica vale dal mese corrente e, se la cambi più volte nello stesso mese, resta l’ultima. I mesi precedenti alla prima modifica usano la ripartizione in vigore fino ad allora; i mesi futuri usano quella attuale. Gli stipendi accreditati prima dell’inizio di un’entrata ricorrente, letti dallo storico della banca, vengono collegati a quella ricorrenza nel loro mese con le stesse regole degli stipendi previsti. I mesi precedenti alla prima entrata ricorrente rimasti senza usano la base di quel primo mese, indicata in Ripartizione budget.
+
 **Ripartizione budget → Modifica schema** offre quattro schemi fissi e **Pers.**, il solo modificabile:
 
 | Schema | Casa e bollette | Alimentari | Trasporti | Salute e famiglia | Svago | Risparmio |

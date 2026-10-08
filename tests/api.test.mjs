@@ -679,3 +679,40 @@ test('the state compares the last six months with totals by category, without it
   assert.deepEqual(history[5], { month: '2026-10', income: 5000, budgetIncome: 0, expense: 3000, categories: { [food.id]: 3000 } });
   assert.equal((await state(owner, '2027-01')).history[0].month, '2026-08');
 });
+
+test('months before the first recurring income borrow its budget base', async () => {
+  const owner = await register();
+  await create('/recurring', { kind: 'income', name: 'Stipendio', amount: 200000, startMonth: '2026-10', day: 27, enabled: true }, owner);
+  await create('/recurring', { kind: 'income', name: 'Affitto box', amount: 5000, startMonth: '2026-10', day: 1, enabled: true }, owner);
+  assert.equal((await state(owner, '2026-10')).budgetFallback, null);
+  assert.deepEqual((await state(owner, '2026-08')).budgetFallback, { month: '2026-10', amount: 205000 });
+  assert.equal((await state(owner, '2026-11')).budgetFallback, null);
+  assert.equal((await state(await register('altro@example.it'), '2026-08')).budgetFallback, null);
+});
+
+test('each month keeps the budget split in force when it closed', async () => {
+  await new Promise(resolve => server.close(resolve)); instance.close();
+  let time = Date.parse('2026-10-08T10:00:00Z');
+  instance = createApp({ dataDir, clock: () => time });
+  server = instance.app.listen(0, '127.0.0.1');
+  await new Promise(resolve => server.once('listening', resolve));
+  base = `http://127.0.0.1:${server.address().port}/api`;
+  const owner = await register();
+  const original = (await state(owner)).categories;
+  const split = data => data.categories.map(c => data.budgetSplit?.[c.id] ?? c.percentage);
+  assert.equal((await state(owner, '2026-08')).budgetSplit, null, 'without changes every month uses the current split');
+  const save = percentages => request('/budget', { method: 'PUT', session: owner, body: { categories: original.map((c, i) => ({ id: c.id, name: c.name, percentage: percentages[i] })) } });
+  assert.equal((await save([4000, 2000, 1000, 1000, 1000, 1000])).status, 200);
+  assert.equal((await save([3000, 2000, 1000, 1000, 2000, 1000])).status, 200);
+  const before = original.map(c => c.percentage);
+  assert.deepEqual(split(await state(owner, '2026-09')), before, 'earlier months keep the split used until the first change');
+  assert.deepEqual(split(await state(owner, '2026-10')), [3000, 2000, 1000, 1000, 2000, 1000], 'the last change of the month wins');
+  time = Date.parse('2026-11-03T10:00:00Z');
+  const presets = (await state(owner)).budgetTemplates;
+  assert.equal((await request(`/budget-templates/${presets.find(t => t.template_key === 'leisure').id}/apply`, { method: 'POST', session: owner })).status, 200);
+  assert.deepEqual(split(await state(owner, '2026-10')), [3000, 2000, 1000, 1000, 2000, 1000], 'October keeps its split');
+  assert.deepEqual(split(await state(owner, '2026-11')), [3000, 1500, 1000, 500, 3000, 1000]);
+  assert.deepEqual(split(await state(owner, '2027-02')), [3000, 1500, 1000, 500, 3000, 1000]);
+  assert.deepEqual(split(await state(owner, '2026-09')), before);
+  assert.deepEqual((await state(owner, '2026-09')).categories.map(c => c.percentage), [3000, 1500, 1000, 500, 3000, 1000], 'categories carry the current split for editing');
+});
