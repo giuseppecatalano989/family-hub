@@ -21,6 +21,7 @@ export interface FamilyState {
   categories: Category[]; transactions: Transaction[]; goals: Goal[]; contributions: Contribution[]; shopping: ShoppingItem[]; notes: Note[];
   deadlines: Deadline[]; waste: WasteSchedule[]; bills: Bill[]; meals: Meal[]; week: string; backups: BackupStatus | null;
   bank: BankState;
+  preferences: { showBankBalance: boolean };
 }
 export interface RecurringRule {
   id: string; kind: 'income' | 'expense'; start_month: string; effective_month: string;
@@ -46,6 +47,7 @@ export interface BankAccount {
   visibility: 'shared' | 'balance'; savings: boolean; import_from: string | null; balance: number | null; balance_kind: 'available' | 'booked' | null; balance_at: string | null;
   status: 'active' | 'expired' | 'error'; valid_until: string; last_sync_at: string | null; last_error: string | null;
 }
-export interface BankMovement { id: string; account_id: string; kind: 'income' | 'expense'; amount: number; date: string; description: string; status: 'stored' | 'imported' | 'matched' | 'transfer'; transaction_id: string | null }
-export interface BankConnection { id: string; bank: string; status: 'active' | 'expired' | 'error'; valid_until: string; last_error: string | null; excluded: { id: string; name: string; iban_last4: string | null }[] }
-export interface BankState { configured: boolean; total: number; accounts: BankAccount[]; movements: BankMovement[]; connections: BankConnection[]; savingsStrategy: 'primary' | 'proportional' }
+export interface BankMovement { id: string; account_id: string; kind: 'income' | 'expense'; amount: number; date: string; description: string; status: 'stored' | 'imported' | 'matched' | 'transfer'; transaction_id: string | null; category_id: string | null; account: string; iban_last4: string | null; bank: string; owner: string; mine: boolean; classifiable: boolean }
+export interface UncategorizedExpense { transaction_id: string; amount: number; date: string; description: string; account: string; iban_last4: string | null; bank: string; owner: string; mine: boolean }
+export interface BankConnection { id: string; bank: string; status: 'active' | 'expired' | 'error'; valid_until: string; last_error: string | null }
+export interface BankState { configured: boolean; total: number; accounts: BankAccount[]; movements: BankMovement[]; uncategorized: UncategorizedExpense[]; connections: BankConnection[]; savingsStrategy: 'primary' | 'proportional' }

@@ -126,12 +126,6 @@
 .bank-visibility select{margin-top:6px;width:100%}
 .bank-choice{border:0;padding:0;margin:0 0 14px;display:grid;gap:10px}
 .bank-choice legend{font-size:14.87px;margin-bottom:8px}
-.bank-summary{display:flex;align-items:center;gap:14px;width:100%;margin:0 0 24px;padding:18px 23px;border:1px solid var(--line);border-radius:11px;background:#fff;font:inherit;text-align:left;cursor:pointer;color:inherit}
-.bank-summary:hover{border-color:var(--green)}
-.bank-summary>span:nth-child(2){flex:1;font-size:14.87px;color:var(--muted)}
-.bank-summary strong{font-size:22px}
-.bank-summary small{color:var(--muted);font-size:13.73px}
-@media(max-width:650px){.bank-summary{flex-wrap:wrap}.bank-summary small{width:100%}}
 
 .bank-badges{display:flex;gap:6px;flex-wrap:wrap}
 .bank-strategy-body{padding:4px 23px 20px;display:grid;gap:14px}
@@ -147,6 +141,14 @@
 .bank-group .recurring-card{border:1px solid var(--line);border-radius:11px}
 .bank-group .recurring-card h4{margin:14px 0 4px;font-size:16px;overflow-wrap:anywhere}
 .bank-group .recurring-card p{margin:0}
-.bank-excluded{display:grid;gap:8px;font-size:13.73px;color:var(--muted)}
-.bank-excluded>div{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.bank-excluded strong{color:#4c5750;font-weight:550}
+.stat-caption.bank-today{display:block;margin-top:4px}
+.stat-caption.bank-today b{font-weight:600;color:#3f4a43}
+
+.movement-row{flex-wrap:wrap}
+.movement-category{width:auto;min-width:190px;max-width:240px;padding:8px 10px;font-size:13.73px}
+span.movement-category{min-width:0;color:var(--muted)}
+.movements-done{display:flex;align-items:center;gap:8px;color:var(--green)}
+.bank-tip{margin-top:6px;border:1px solid var(--line);border-radius:11px;background:#fff}
+.settings-page{display:grid;gap:24px}
+.settings-page .bank-strategy{margin:0}
+@media(max-width:650px){.movement-category{width:100%;max-width:none}}

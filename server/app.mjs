@@ -274,6 +274,11 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         });
         res.json({ ok: true });
     });
+    // Personal display choices; each account changes only its own.
+    app.put('/api/preferences', async (req, res) => {
+        await run('INSERT INTO user_preferences VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET show_bank_balance = excluded.show_bank_balance', req.user.id, boolean(req.body.showBankBalance));
+        res.json({ ok: true });
+    });
     app.put('/api/household', async (req, res) => {
         if (req.user.role !== 'admin') fail('Solo l’amministratore può modificare il nome della casa.', 403);
         const name = text(req.body.name, 'Nome della casa', 80);
@@ -317,7 +322,8 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             ...await planning.state(req.user, month),
             ...await workflows.state(req.user, month, req.query.week),
             backups: req.user.role === 'admin' ? await backups.status() : null,
-            bank: await bank.state(req.user),
+            bank: await bank.state(req.user, month),
+            preferences: { showBankBalance: !!(await one('SELECT show_bank_balance FROM user_preferences WHERE user_id = ?', req.user.id))?.show_bank_balance },
             household: await one('SELECT id, name FROM households WHERE id = ?', hid),
             members: await all('SELECT id, name, role FROM users WHERE household_id = ? ORDER BY role, name', hid),
             categories: await all('SELECT * FROM categories WHERE household_id = ? ORDER BY position', hid),
@@ -363,6 +369,23 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             const occurrence = await one('SELECT o.*, r.kind FROM recurring_occurrences o JOIN recurring_rules r ON r.id = o.rule_id WHERE o.transaction_id = ?', req.params.id);
             if (occurrence && (values[0] !== occurrence.kind || values[4].slice(0, 7) !== occurrence.month)) fail('Un movimento ricorrente deve conservare il tipo e il mese di origine.');
             await run('UPDATE transactions SET kind = ?, amount = ?, category_id = ?, description = ?, date = ? WHERE id = ? AND household_id = ?', ...values, req.params.id, req.user.household_id);
+            if (occurrence) await run('UPDATE recurring_occurrences SET overridden = 1 WHERE id = ?', occurrence.id);
+            await bank.syncSavings(req.params.id, req.user.household_id);
+        });
+        res.json({ ok: true });
+    });
+    // Classifies an expense (for example a bank import) without touching the rest;
+    // the choice also teaches future imports and the savings split.
+    app.patch('/api/transactions/:id/category', async (req, res) => {
+        await editableTransaction(req.params.id, req.user);
+        const categoryId = text(req.body.categoryId, 'Categoria', 100);
+        await owned('categories', categoryId, req.user);
+        await atomic(async () => {
+            const record = await one('SELECT kind FROM transactions WHERE id = ? AND household_id = ?', req.params.id, req.user.household_id);
+            if (!record) fail('Elemento non trovato.', 404);
+            if (record.kind !== 'expense') fail('Solo le uscite hanno una categoria.');
+            await run('UPDATE transactions SET category_id = ? WHERE id = ? AND household_id = ?', categoryId, req.params.id, req.user.household_id);
+            const occurrence = await one('SELECT id FROM recurring_occurrences WHERE transaction_id = ?', req.params.id);
             if (occurrence) await run('UPDATE recurring_occurrences SET overridden = 1 WHERE id = ?', occurrence.id);
             await bank.syncSavings(req.params.id, req.user.household_id);
         });

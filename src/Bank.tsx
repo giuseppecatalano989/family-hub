@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Landmark, Plus, ShieldCheck, AlertCircle, X, Unlink, RotateCcw } from 'lucide-react';
+import { Landmark, Plus, ShieldCheck, AlertCircle, X, Unlink } from 'lucide-react';
 import { Empty, Modal, SectionHeading } from './components';
 import { api } from './api';
 import { readableDate } from './finance';
@@ -14,7 +14,6 @@ export function Bank({ data, act, busy, navigate }: Props) {
   const [connect, setConnect] = useState<{ bank?: string; visibility?: BankAccount['visibility'] } | null>(null);
   const bank = data.bank;
   if (!bank.configured) return <section className="panel"><Empty icon={<Landmark size={26} />} title="Collegamento bancario non ancora attivo" description="Il gestore dell’app deve configurare Enable Banking sul server (ENABLE_BANKING_APP_ID e ENABLE_BANKING_PRIVATE_KEY). Dopo, ognuno potrà collegare il proprio conto in sola lettura." /></section>;
-  const planned = data.goals.filter(g => g.monthly > 0 && g.saved < g.target);
   const others = bank.accounts.filter(a => !a.mine);
   return <>
     <section className="planning-section"><div className="section-heading"><h2>I tuoi collegamenti</h2><button className="button primary" disabled={busy} onClick={() => setConnect({})}><Plus size={16} />Collega una banca</button></div>
@@ -33,12 +32,11 @@ export function Bank({ data, act, busy, navigate }: Props) {
           </div>
           {accounts.length > 0 && <div className="recurring-grid">{accounts.map(account => <div className="recurring-card bank-card" key={account.id}>
             <div className="recurring-top"><span className="bank-badges"><span className={`badge ${account.visibility === 'shared' ? 'green' : ''}`}>{account.visibility === 'shared' ? 'Condiviso' : 'Movimenti privati'}</span>{account.savings && <span className="badge green">Risparmio</span>}</span>
-              {accounts.length > 1 && <button className="icon-button danger" aria-label={`Rimuovi ${account.name}`} title="Rimuovi conto" disabled={busy} onClick={() => { if (confirm(`Rimuovere “${account.name}”? Non verrà più letto né contato nel saldo; ${connection.bank} resta collegata e potrai ripristinarlo.`)) void act(`/bank/accounts/${account.id}`, 'DELETE').catch(() => {}); }}><X size={16} /></button>}</div>
+              {accounts.length > 1 && <button className="icon-button danger" aria-label={`Rimuovi ${account.name}`} title="Rimuovi conto" disabled={busy} onClick={() => { if (confirm(`Rimuovere “${account.name}”? Sparirà dalla vista e non verrà più letto né contato nel saldo; ${connection.bank} resta collegata. Per riaverlo dovrai scollegare e ricollegare la banca.`)) void act(`/bank/accounts/${account.id}`, 'DELETE').catch(() => {}); }}><X size={16} /></button>}</div>
             <h4>{account.name}</h4>
             <p>{account.iban_last4 ? `•••• ${account.iban_last4}` : 'Conto senza IBAN'}</p>
             <label className="bank-visibility">Con la famiglia condividi<select value={account.visibility} disabled={busy} onChange={e => void act(`/bank/accounts/${account.id}`, 'PATCH', { visibility: e.target.value }).catch(() => {})}><option value="shared">Saldo e movimenti</option><option value="balance">Saldo e totali, movimenti privati</option></select></label>
           </div>)}</div>}
-          {connection.excluded.length > 0 && <div className="bank-excluded"><span>Conti rimossi</span>{connection.excluded.map(e => <div key={e.id}><strong>{e.name}</strong>{e.iban_last4 && <small>•••• {e.iban_last4}</small>}<button className="text-button" disabled={busy} onClick={() => void act(`/bank/exclusions/${e.id}/restore`, 'POST').catch(() => {})}><RotateCcw size={14} />Ripristina</button></div>)}</div>}
         </article>;
       }) : <section className="panel"><Empty icon={<Landmark size={26} />} title="Nessun conto collegato" description="Collega il tuo conto in sola lettura: il saldo entra nel totale di famiglia e i movimenti diventano entrate e uscite del budget." action="Collega una banca" onAction={() => setConnect({})} /></section>}
     </section>
@@ -46,14 +44,7 @@ export function Bank({ data, act, busy, navigate }: Props) {
       <div className="recurring-top"><span className="bank-badges"><span className={`badge ${account.visibility === 'shared' ? 'green' : ''}`}>{account.visibility === 'shared' ? 'Condiviso' : 'Movimenti privati'}</span>{account.savings && <span className="badge green">Risparmio</span>}</span></div>
       <h3>{account.name}</h3><p>{account.bank}{account.iban_last4 ? ` · •••• ${account.iban_last4}` : ''} · {account.owner}</p>
     </article>)}</div></section>}
-    <section className="panel planning-section bank-strategy"><SectionHeading title="Risparmi verso gli obiettivi" />
-      <div className="bank-strategy-body">
-        <p>I versamenti verso conti risparmio e investimento vengono divisi da soli tra gli obiettivi, secondo l’accantonamento mensile di ciascuno.{planned.length ? ` Obiettivi con quota: ${planned.map(g => `${g.title}${g.is_primary ? ' (primario)' : ''}`).join(', ')}.` : ''}</p>
-        <label>Se il risparmio del mese non copre tutte le quote<select value={bank.savingsStrategy} disabled={busy} onChange={e => void act('/savings/strategy', 'PUT', { strategy: e.target.value }).catch(() => {})}><option value="primary">Priorità all’obiettivo primario</option><option value="proportional">In proporzione alle quote mensili</option></select></label>
-        {!planned.length && <button className="text-button" onClick={() => navigate('goals')}>Imposta le quote mensili in Obiettivi</button>}
-      </div>
-      <div className="panel-tip"><ShieldCheck size={18} /><span>Solo lettura: Family Hub legge saldo e movimenti tramite Enable Banking e non può disporre pagamenti. Le credenziali restano sul sito della tua banca.</span></div>
-    </section>
+    <div className="panel-tip bank-tip"><ShieldCheck size={18} /><span>Solo lettura: Family Hub legge saldo e movimenti tramite Enable Banking e non può disporre pagamenti. Le credenziali restano sul sito della tua banca. I movimenti sono in Movimenti; la ripartizione dei risparmi in Impostazioni.</span></div>
     {connect && <ConnectDialog key={connect.bank || 'new'} initial={connect} onClose={() => setConnect(null)} />}
   </>;
 }

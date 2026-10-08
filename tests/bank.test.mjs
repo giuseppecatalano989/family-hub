@@ -135,7 +135,7 @@ test('without configuration the bank section is disabled', async () => {
   const { alice } = await family();
   assert.equal((await request('/bank/banks', { session: alice })).status, 503);
   const data = await state(alice);
-  assert.deepEqual(data.bank, { configured: false, total: 0, accounts: [], movements: [], connections: [], savingsStrategy: 'proportional' });
+  assert.deepEqual(data.bank, { configured: false, total: 0, accounts: [], movements: [], uncategorized: [], connections: [], savingsStrategy: 'proportional' });
 });
 
 test('linking shared and balance-only accounts builds a family total, imports and reconciles shared movements', async () => {
@@ -175,8 +175,11 @@ test('linking shared and balance-only accounts builds a family total, imports an
   assert.equal((await state(alice, '2026-09')).transactions.length, 0, 'movements before the linking month are not imported');
   assert.equal(data.bank.movements.find(m => m.description === 'CONAD SUPERSTORE').status, 'matched');
   assert.equal(data.bank.movements.some(m => m.description === 'In attesa'), false);
-  assert.equal(data.bank.movements.some(m => m.description === 'Farmacia Centrale'), true, 'bank movements are not limited to the selected month');
-  assert.deepEqual((await state(alice, '2026-03')).bank.movements.map(m => m.id), data.bank.movements.map(m => m.id));
+  assert.equal(data.bank.movements.some(m => m.description === 'Farmacia Centrale'), false, 'movements follow the selected month');
+  assert.deepEqual((await state(alice, '2026-09')).bank.movements.map(m => [m.description, m.status, m.classifiable]), [['Farmacia Centrale', 'stored', false]]);
+  const conad = data.bank.movements.find(m => m.description === 'CONAD SUPERSTORE');
+  assert.deepEqual([conad.account, conad.iban_last4, conad.bank, conad.owner, conad.mine, conad.classifiable, conad.category_id], ['Conto Alice', '3456', 'Intesa Sanpaolo', 'alice', true, true, data.categories[1].id]);
+  assert.deepEqual(data.bank.uncategorized.map(t => [t.description, t.amount, t.account]), [['Negozio Vario', 6000, 'Conto Alice'], ['Bonifico a Bob', 8000, 'Conto Alice']], 'expenses to classify, whatever the month');
 
   // Bob keeps his movements private: they count in the budget, Alice only sees totals.
   assert.equal((await link(bob, 'bob', 'balance')).headers.get('location'), '/?banca=collegato#bank');
@@ -430,42 +433,105 @@ test('a savings account is recognised when linked: deposits become savings, its 
   assert.equal(data.bank.total, 145055 + 500000);
 });
 
-test('one account can be removed from a bank consent without unlinking the bank, and restored', async () => {
+test('only current accounts with an IBAN are linked; one can be removed and stays hidden until the bank is unlinked', async () => {
   await start({ bankProvider: provider });
   const { alice, bob } = await family();
-  provider.data.sessions.alice = [{ uid: 'uid-a', iban: IBAN_A, name: 'Conto Alice', currency: 'EUR' }, { uid: 'uid-c', iban: 'IT77C0306909606100000000123', name: 'Carta prepagata', currency: 'EUR' }];
-  provider.data.balances['uid-c'] = [{ balance_type: 'ITAV', balance_amount: { amount: '75.00', currency: 'EUR' } }];
-  provider.data.transactions = { 'uid-a': [], 'uid-c': [tx('c1', '12.00', 'DBIT', '2026-10-05', { creditor: { name: 'Edicola' } })] };
+  provider.data.sessions.alice = [
+    { uid: 'uid-a', iban: IBAN_A, name: 'Conto Alice', currency: 'EUR', type: 'CACC' },
+    { uid: 'uid-s', iban: 'IT77C0306909606100000000123', name: 'Conto secondario', currency: 'EUR', type: 'CACC' },
+    { uid: 'uid-card', iban: null, name: 'Carta di credito', currency: 'EUR', type: 'CARD' },
+    { uid: 'uid-prepaid', iban: 'IT12P0306909606100000000999', name: 'Carta prepagata con IBAN', currency: 'EUR', type: 'CARD' },
+  ];
+  provider.data.balances['uid-s'] = [{ balance_type: 'ITAV', balance_amount: { amount: '75.00', currency: 'EUR' } }];
+  provider.data.balances['uid-card'] = [{ balance_type: 'ITAV', balance_amount: { amount: '-900.00', currency: 'EUR' } }];
+  provider.data.transactions = { 'uid-a': [], 'uid-s': [tx('s1', '12.00', 'DBIT', '2026-10-05', { creditor: { name: 'Edicola' } })], 'uid-card': [tx('k1', '40.00', 'DBIT', '2026-10-05', { creditor: { name: 'Ristorante' } })] };
   await link(alice, 'alice', 'shared');
   let data = await state(alice);
-  const card = data.bank.accounts.find(a => a.name === 'Carta prepagata');
-  const main = data.bank.accounts.find(a => a.name === 'Conto Alice');
+  assert.deepEqual(data.bank.accounts.map(a => a.name).sort(), ['Conto Alice', 'Conto secondario'], 'cards are never linked');
   assert.equal(data.bank.total, 145055 + 7500);
-  assert.equal(data.transactions.some(t => t.description === 'Edicola'), true);
-  assert.equal((await request(`/bank/accounts/${card.id}`, { method: 'DELETE', session: bob })).status, 404, 'only the owner removes an account');
+  assert.equal(data.transactions.some(t => t.description === 'Ristorante'), false);
+  const secondary = data.bank.accounts.find(a => a.name === 'Conto secondario');
+  const main = data.bank.accounts.find(a => a.name === 'Conto Alice');
+  assert.equal((await request(`/bank/accounts/${secondary.id}`, { method: 'DELETE', session: bob })).status, 404, 'only the owner removes an account');
 
-  assert.equal((await request(`/bank/accounts/${card.id}`, { method: 'DELETE', session: alice })).status, 200);
+  assert.equal((await request(`/bank/accounts/${secondary.id}`, { method: 'DELETE', session: alice })).status, 200);
   data = await state(alice);
   assert.deepEqual(data.bank.accounts.map(a => a.name), ['Conto Alice'], 'the bank stays linked');
   assert.equal(data.bank.total, 145055);
   assert.equal(data.transactions.some(t => t.description === 'Edicola'), true, 'records already imported stay');
-  assert.deepEqual(data.bank.connections.map(c => [c.bank, c.excluded.map(e => [e.name, e.iban_last4])]), [['Intesa Sanpaolo', [['Carta prepagata', '0123']]]]);
-  assert.deepEqual((await state(bob)).bank.connections, [], 'other members do not see the owner\'s links');
-  assert.equal(provider.calls.some(c => c[0] === 'end'), false);
+  assert.deepEqual(data.bank.connections.map(c => Object.keys(c).sort()), [['bank', 'id', 'last_error', 'status', 'valid_until']], 'removed accounts are not listed');
+  assert.deepEqual((await state(bob)).bank.connections, []);
   assert.equal((await request(`/bank/accounts/${main.id}`, { method: 'DELETE', session: alice })).status, 400, 'the last account is removed by unlinking the bank');
 
-  // A renewed consent keeps the removed account out; restoring brings it back.
-  provider.data.transactions['uid-c'].push(tx('c2', '8.00', 'DBIT', '2026-10-06', { creditor: { name: 'Bar Sport' } }));
+  // A renewed consent keeps it hidden; unlinking and linking again brings it back.
   await link(alice, 'alice', 'shared');
   data = await state(alice);
   assert.deepEqual(data.bank.accounts.map(a => a.name), ['Conto Alice']);
-  assert.equal(data.transactions.some(t => t.description === 'Bar Sport'), false);
-  const excluded = data.bank.connections[0].excluded[0];
-  assert.equal((await request(`/bank/exclusions/${excluded.id}/restore`, { method: 'POST', session: bob })).status, 404);
-  assert.equal((await request(`/bank/exclusions/${excluded.id}/restore`, { method: 'POST', session: alice })).status, 200);
+  assert.equal((await request(`/bank/connections/${data.bank.connections[0].id}`, { method: 'DELETE', session: alice })).status, 200);
+  await link(alice, 'alice', 'shared');
+  assert.deepEqual((await state(alice)).bank.accounts.map(a => a.name).sort(), ['Conto Alice', 'Conto secondario']);
+  provider.data.sessions.bob = [{ uid: 'uid-card-b', iban: null, name: 'Carta Bob', currency: 'EUR', type: 'CARD' }];
+  assert.equal((await link(bob, 'bob', 'shared')).headers.get('location'), '/?banca=nessun-conto#bank', 'a consent with cards only links nothing');
+});
+
+test('cards linked before the IBAN rule are removed with their imported records', async () => {
+  await start({ bankProvider: provider });
+  const { alice } = await family();
+  provider.data.transactions = { 'uid-a': [] };
+  await link(alice, 'alice', 'shared');
+  const connection = instance.db.prepare('SELECT id FROM bank_connections').get().id;
+  const hid = alice.user.householdId;
+  instance.db.prepare(`INSERT INTO bank_accounts (id, household_id, connection_id, provider_uid, name, iban_hash, iban_last4, currency, visibility, import_from, created_at, balance)
+    VALUES ('card', ?, ?, 'uid-old-card', 'Carta', NULL, NULL, 'EUR', 'shared', '2026-10-01', '2026-10-01', -90000)`).run(hid, connection);
+  instance.db.prepare(`INSERT INTO transactions VALUES ('t-card', ?, 'expense', 4000, NULL, 'Ristorante', '2026-10-05', ?, '2026-10-05')`).run(hid, alice.user.id);
+  instance.db.prepare(`INSERT INTO bank_movements (id, household_id, account_id, external_id, kind, amount, date, description, match_key, status, transaction_id, created_at)
+    VALUES ('m-card', ?, 'card', 'e:k1', 'expense', 4000, '2026-10-05', 'Ristorante', 'ristorante', 'imported', 't-card', '2026-10-05')`).run(hid);
+  assert.equal((await state(alice)).bank.total, 145055 - 90000);
+  assert.equal((await request('/bank/refresh', { method: 'POST', session: alice })).status, 200);
+  const data = await state(alice);
+  assert.deepEqual(data.bank.accounts.map(a => a.name), ['Conto Alice']);
+  assert.equal(data.bank.total, 145055);
+  assert.equal(data.transactions.some(t => t.description === 'Ristorante'), false);
+});
+
+test('the real balance line is a personal preference, off by default', async () => {
+  await start({ bankProvider: provider });
+  const { alice, bob } = await family();
+  assert.deepEqual((await state(alice)).preferences, { showBankBalance: false });
+  assert.equal((await request('/preferences', { method: 'PUT', session: alice, body: { showBankBalance: 'yes' } })).status, 400);
+  assert.equal((await request('/preferences', { method: 'PUT', session: alice, body: { showBankBalance: true } })).status, 200);
+  assert.deepEqual((await state(alice)).preferences, { showBankBalance: true });
+  assert.deepEqual((await state(bob)).preferences, { showBankBalance: false }, 'each account keeps its own choice');
+  assert.equal((await request('/preferences', { method: 'PUT', body: { showBankBalance: true } })).status, 401);
+});
+
+test('bank expenses are classified from the movements section, teaching later imports and respecting privacy', async () => {
+  await start({ bankProvider: provider });
+  const { alice, bob } = await family();
+  provider.data.transactions = { 'uid-a': [tx('n1', '60.00', 'DBIT', '2026-10-08', { creditor: { name: 'Negozio Vario' } }), tx('i1', '30.00', 'CRDT', '2026-10-09', { debtor: { name: 'Rimborso' } })],
+    'uid-b': [tx('b1', '25.00', 'DBIT', '2026-10-07', { creditor: { name: 'Libreria Centrale' } })] };
+  await link(alice, 'alice', 'shared');
+  await link(bob, 'bob', 'balance');
+  let data = await state(alice);
+  assert.deepEqual(data.bank.uncategorized.map(t => t.description), ['Negozio Vario'], 'others\' private expenses are not listed');
+  assert.deepEqual((await state(bob)).bank.uncategorized.map(t => t.description).sort(), ['Libreria Centrale', 'Negozio Vario']);
+  const item = data.bank.uncategorized[0];
+  const casa = data.categories[0].id;
+  const income = data.bank.movements.find(m => m.description === 'Rimborso');
+  assert.equal(income.classifiable, false);
+  assert.equal((await request(`/transactions/${income.transaction_id}/category`, { method: 'PATCH', session: alice, body: { categoryId: casa } })).status, 400, 'incomes have no category');
+  const bobsOwn = (await state(bob)).bank.uncategorized.find(t => t.description === 'Libreria Centrale');
+  assert.equal((await request(`/transactions/${bobsOwn.transaction_id}/category`, { method: 'PATCH', session: alice, body: { categoryId: casa } })).status, 404, 'others\' private records cannot be classified');
+  const eve = await register('eve@example.it');
+  assert.equal((await request(`/transactions/${item.transaction_id}/category`, { method: 'PATCH', session: eve, body: { categoryId: (await state(eve)).categories[0].id } })).status, 404);
+  assert.equal((await request(`/transactions/${item.transaction_id}/category`, { method: 'PATCH', session: alice, body: { categoryId: (await state(eve)).categories[0].id } })).status, 404, 'categories of another family are refused');
+  assert.equal((await request(`/transactions/${item.transaction_id}/category`, { method: 'PATCH', session: alice, body: { categoryId: casa } })).status, 200);
   data = await state(alice);
-  assert.deepEqual(data.bank.accounts.map(a => a.name).sort(), ['Carta prepagata', 'Conto Alice']);
-  assert.equal(data.bank.total, 145055 + 7500);
-  assert.equal(data.bank.connections[0].excluded.length, 0);
-  assert.equal(data.transactions.some(t => t.description === 'Bar Sport'), true);
+  assert.equal(data.bank.uncategorized.length, 0);
+  assert.equal(data.transactions.find(t => t.id === item.transaction_id).category_id, casa);
+  assert.equal(data.bank.movements.find(m => m.transaction_id === item.transaction_id).category_id, casa);
+  provider.data.transactions['uid-a'].push(tx('n2', '15.00', 'DBIT', '2026-10-12', { creditor: { name: 'NEGOZIO VARIO' } }));
+  instance.db.prepare('UPDATE bank_connections SET last_attempt_at = NULL').run();
+  await request('/bank/refresh', { method: 'POST', session: alice });
+  assert.equal((await state(alice)).transactions.find(t => t.amount === 1500).category_id, casa, 'the next import learns the choice');
 });

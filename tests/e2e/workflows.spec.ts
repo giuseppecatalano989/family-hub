@@ -108,7 +108,7 @@ test('deadlines have optional payments, weekly meals update shopping and family 
   await dialog.locator('input[type=file]').setInputFiles({ name: 'documento.txt', mimeType: 'text/plain', buffer: Buffer.from('Allegato da conservare') });
   await dialog.getByRole('button', { name: 'Pubblica sulla lavagna' }).click();
   await expect(page.getByRole('link', { name: 'documento.txt' })).toBeVisible();
-  await go(page, 'Backup');
+  await go(page, 'Impostazioni');
   await expect(page.locator('.backup-status')).toContainText('Attivi');
   await expect(page.locator('.backup-schedule')).not.toContainText('Non ancora disponibile');
   const downloadPromise = page.waitForEvent('download');
