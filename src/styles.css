@@ -139,3 +139,14 @@
 .bank-strategy-body label{max-width:420px}
 .bank-strategy-body .text-button{justify-self:start}
 .goal-quota{display:block;margin:-4px 0 10px;color:var(--muted);font-size:13.73px}
+
+.bank-group{padding:23px;margin-bottom:18px;display:grid;gap:18px}
+.bank-group-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.bank-group-heading h3{margin-bottom:6px}
+.bank-group-heading small{color:var(--muted);font-size:13.73px}
+.bank-group .recurring-card{border:1px solid var(--line);border-radius:11px}
+.bank-group .recurring-card h4{margin:14px 0 4px;font-size:16px;overflow-wrap:anywhere}
+.bank-group .recurring-card p{margin:0}
+.bank-excluded{display:grid;gap:8px;font-size:13.73px;color:var(--muted)}
+.bank-excluded>div{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.bank-excluded strong{color:#4c5750;font-weight:550}

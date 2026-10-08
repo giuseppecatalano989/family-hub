@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Landmark, Trash2, Plus, ShieldCheck, AlertCircle } from 'lucide-react';
+import { Landmark, Plus, ShieldCheck, AlertCircle, X, Unlink, RotateCcw } from 'lucide-react';
 import { Empty, Modal, SectionHeading } from './components';
 import { api } from './api';
 import { readableDate } from './finance';
@@ -7,7 +7,6 @@ import type { BankAccount, FamilyState } from './types';
 import type { Page } from './pages';
 
 type Props = { data: FamilyState; act: (path: string, method: string, body?: unknown) => Promise<void>; busy: boolean; navigate: (page: Page) => void };
-const daysLeft = (account: BankAccount) => Math.floor((Date.parse(account.valid_until) - Date.now()) / 86400000);
 
 // Linking only: connect, disconnect, renew and sharing. Balances live in the
 // overview; movements will have their own section; savings are split automatically.
@@ -16,25 +15,37 @@ export function Bank({ data, act, busy, navigate }: Props) {
   const bank = data.bank;
   if (!bank.configured) return <section className="panel"><Empty icon={<Landmark size={26} />} title="Collegamento bancario non ancora attivo" description="Il gestore dell’app deve configurare Enable Banking sul server (ENABLE_BANKING_APP_ID e ENABLE_BANKING_PRIVATE_KEY). Dopo, ognuno potrà collegare il proprio conto in sola lettura." /></section>;
   const planned = data.goals.filter(g => g.monthly > 0 && g.saved < g.target);
+  const others = bank.accounts.filter(a => !a.mine);
   return <>
-    <section className="planning-section"><div className="section-heading"><h2>I conti della famiglia</h2><button className="button primary" disabled={busy} onClick={() => setConnect({})}><Plus size={16} />Collega una banca</button></div>
-      {bank.accounts.length ? <div className="recurring-grid">{bank.accounts.map(account => {
-        const left = daysLeft(account);
-        const expired = account.status === 'expired' || left < 0;
-        return <article className="panel recurring-card bank-card" key={account.id}>
-          <div className="recurring-top"><span className="bank-badges"><span className={`badge ${account.visibility === 'shared' ? 'green' : ''}`}>{account.visibility === 'shared' ? 'Condiviso' : 'Movimenti privati'}</span>{account.savings && <span className="badge green">Risparmio</span>}</span>{account.mine && <div className="row-actions">
-            <button className="icon-button danger" aria-label={`Scollega ${account.bank}`} title="Scollega" disabled={busy} onClick={() => { if (confirm(`Scollegare ${account.bank}? Il conto non verrà più letto; le registrazioni già aggiunte a Entrate e Uscite restano.`)) void act(`/bank/connections/${account.connection_id}`, 'DELETE').catch(() => {}); }}><Trash2 size={16} /></button>
-          </div>}</div>
-          <h3>{account.name}</h3>
-          <p>{account.bank}{account.iban_last4 ? ` · •••• ${account.iban_last4}` : ''} · {account.mine ? 'il tuo conto' : account.owner}</p>
-          {expired ? <div className="bank-warning"><AlertCircle size={15} /><span>Consenso scaduto o revocato.</span>{account.mine && <button className="text-button" onClick={() => setConnect({ bank: account.bank, visibility: account.visibility })}>Rinnova</button>}</div>
-            : left <= 14 ? <div className="bank-warning"><AlertCircle size={15} /><span>Consenso in scadenza il {readableDate(account.valid_until.slice(0, 10))}.</span>{account.mine && <button className="text-button" onClick={() => setConnect({ bank: account.bank, visibility: account.visibility })}>Rinnova</button>}</div>
-            : <small>Consenso valido fino al {readableDate(account.valid_until.slice(0, 10))}</small>}
-          {account.mine && account.last_error && !expired && <div className="bank-warning"><AlertCircle size={15} /><span>{account.last_error}</span></div>}
-          {account.mine && <label className="bank-visibility">Con la famiglia condividi<select value={account.visibility} disabled={busy} onChange={e => void act(`/bank/accounts/${account.id}`, 'PATCH', { visibility: e.target.value }).catch(() => {})}><option value="shared">Saldo e movimenti</option><option value="balance">Saldo e totali, movimenti privati</option></select></label>}
+    <section className="planning-section"><div className="section-heading"><h2>I tuoi collegamenti</h2><button className="button primary" disabled={busy} onClick={() => setConnect({})}><Plus size={16} />Collega una banca</button></div>
+      {bank.connections.length ? bank.connections.map(connection => {
+        const accounts = bank.accounts.filter(a => a.connection_id === connection.id);
+        const left = Math.floor((Date.parse(connection.valid_until) - Date.now()) / 86400000);
+        const expired = connection.status === 'expired' || left < 0;
+        const renew = () => setConnect({ bank: connection.bank, visibility: accounts[0]?.visibility });
+        return <article className="panel bank-group" key={connection.id}>
+          <div className="bank-group-heading"><div><h3>{connection.bank}</h3>
+            {expired ? <div className="bank-warning"><AlertCircle size={15} /><span>Consenso scaduto o revocato.</span><button className="text-button" onClick={renew}>Rinnova</button></div>
+              : left <= 14 ? <div className="bank-warning"><AlertCircle size={15} /><span>Consenso in scadenza il {readableDate(connection.valid_until.slice(0, 10))}.</span><button className="text-button" onClick={renew}>Rinnova</button></div>
+              : <small>Consenso valido fino al {readableDate(connection.valid_until.slice(0, 10))}</small>}
+            {connection.last_error && !expired && <div className="bank-warning"><AlertCircle size={15} /><span>{connection.last_error}</span></div>}</div>
+            <button className="button secondary bank-unlink" disabled={busy} onClick={() => { if (confirm(`Scollegare ${connection.bank}? Tutti i suoi conti non verranno più letti; le registrazioni già aggiunte a Entrate e Uscite restano.`)) void act(`/bank/connections/${connection.id}`, 'DELETE').catch(() => {}); }}><Unlink size={16} />Scollega banca</button>
+          </div>
+          {accounts.length > 0 && <div className="recurring-grid">{accounts.map(account => <div className="recurring-card bank-card" key={account.id}>
+            <div className="recurring-top"><span className="bank-badges"><span className={`badge ${account.visibility === 'shared' ? 'green' : ''}`}>{account.visibility === 'shared' ? 'Condiviso' : 'Movimenti privati'}</span>{account.savings && <span className="badge green">Risparmio</span>}</span>
+              {accounts.length > 1 && <button className="icon-button danger" aria-label={`Rimuovi ${account.name}`} title="Rimuovi conto" disabled={busy} onClick={() => { if (confirm(`Rimuovere “${account.name}”? Non verrà più letto né contato nel saldo; ${connection.bank} resta collegata e potrai ripristinarlo.`)) void act(`/bank/accounts/${account.id}`, 'DELETE').catch(() => {}); }}><X size={16} /></button>}</div>
+            <h4>{account.name}</h4>
+            <p>{account.iban_last4 ? `•••• ${account.iban_last4}` : 'Conto senza IBAN'}</p>
+            <label className="bank-visibility">Con la famiglia condividi<select value={account.visibility} disabled={busy} onChange={e => void act(`/bank/accounts/${account.id}`, 'PATCH', { visibility: e.target.value }).catch(() => {})}><option value="shared">Saldo e movimenti</option><option value="balance">Saldo e totali, movimenti privati</option></select></label>
+          </div>)}</div>}
+          {connection.excluded.length > 0 && <div className="bank-excluded"><span>Conti rimossi</span>{connection.excluded.map(e => <div key={e.id}><strong>{e.name}</strong>{e.iban_last4 && <small>•••• {e.iban_last4}</small>}<button className="text-button" disabled={busy} onClick={() => void act(`/bank/exclusions/${e.id}/restore`, 'POST').catch(() => {})}><RotateCcw size={14} />Ripristina</button></div>)}</div>}
         </article>;
-      })}</div> : <section className="panel"><Empty icon={<Landmark size={26} />} title="Nessun conto collegato" description="Collega il tuo conto in sola lettura: il saldo entra nel totale di famiglia e i movimenti diventano entrate e uscite del budget." action="Collega una banca" onAction={() => setConnect({})} /></section>}
+      }) : <section className="panel"><Empty icon={<Landmark size={26} />} title="Nessun conto collegato" description="Collega il tuo conto in sola lettura: il saldo entra nel totale di famiglia e i movimenti diventano entrate e uscite del budget." action="Collega una banca" onAction={() => setConnect({})} /></section>}
     </section>
+    {others.length > 0 && <section className="planning-section"><SectionHeading title="Conti degli altri membri" /><div className="recurring-grid">{others.map(account => <article className="panel recurring-card bank-card" key={account.id}>
+      <div className="recurring-top"><span className="bank-badges"><span className={`badge ${account.visibility === 'shared' ? 'green' : ''}`}>{account.visibility === 'shared' ? 'Condiviso' : 'Movimenti privati'}</span>{account.savings && <span className="badge green">Risparmio</span>}</span></div>
+      <h3>{account.name}</h3><p>{account.bank}{account.iban_last4 ? ` · •••• ${account.iban_last4}` : ''} · {account.owner}</p>
+    </article>)}</div></section>}
     <section className="panel planning-section bank-strategy"><SectionHeading title="Risparmi verso gli obiettivi" />
       <div className="bank-strategy-body">
         <p>I versamenti verso conti risparmio e investimento vengono divisi da soli tra gli obiettivi, secondo l’accantonamento mensile di ciascuno.{planned.length ? ` Obiettivi con quota: ${planned.map(g => `${g.title}${g.is_primary ? ' (primario)' : ''}`).join(', ')}.` : ''}</p>

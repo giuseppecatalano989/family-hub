@@ -135,7 +135,7 @@ test('without configuration the bank section is disabled', async () => {
   const { alice } = await family();
   assert.equal((await request('/bank/banks', { session: alice })).status, 503);
   const data = await state(alice);
-  assert.deepEqual(data.bank, { configured: false, total: 0, accounts: [], movements: [], savingsStrategy: 'proportional' });
+  assert.deepEqual(data.bank, { configured: false, total: 0, accounts: [], movements: [], connections: [], savingsStrategy: 'proportional' });
 });
 
 test('linking shared and balance-only accounts builds a family total, imports and reconciles shared movements', async () => {
@@ -428,4 +428,44 @@ test('a savings account is recognised when linked: deposits become savings, its 
   assert.equal(data.transactions.some(t => t.description === 'Acquisto ETF'), false, 'purchases inside the savings account stay out of the budget');
   assert.equal(data.transactions.some(t => t.amount === 10000), false, 'withdrawals from savings are giroconti');
   assert.equal(data.bank.total, 145055 + 500000);
+});
+
+test('one account can be removed from a bank consent without unlinking the bank, and restored', async () => {
+  await start({ bankProvider: provider });
+  const { alice, bob } = await family();
+  provider.data.sessions.alice = [{ uid: 'uid-a', iban: IBAN_A, name: 'Conto Alice', currency: 'EUR' }, { uid: 'uid-c', iban: 'IT77C0306909606100000000123', name: 'Carta prepagata', currency: 'EUR' }];
+  provider.data.balances['uid-c'] = [{ balance_type: 'ITAV', balance_amount: { amount: '75.00', currency: 'EUR' } }];
+  provider.data.transactions = { 'uid-a': [], 'uid-c': [tx('c1', '12.00', 'DBIT', '2026-10-05', { creditor: { name: 'Edicola' } })] };
+  await link(alice, 'alice', 'shared');
+  let data = await state(alice);
+  const card = data.bank.accounts.find(a => a.name === 'Carta prepagata');
+  const main = data.bank.accounts.find(a => a.name === 'Conto Alice');
+  assert.equal(data.bank.total, 145055 + 7500);
+  assert.equal(data.transactions.some(t => t.description === 'Edicola'), true);
+  assert.equal((await request(`/bank/accounts/${card.id}`, { method: 'DELETE', session: bob })).status, 404, 'only the owner removes an account');
+
+  assert.equal((await request(`/bank/accounts/${card.id}`, { method: 'DELETE', session: alice })).status, 200);
+  data = await state(alice);
+  assert.deepEqual(data.bank.accounts.map(a => a.name), ['Conto Alice'], 'the bank stays linked');
+  assert.equal(data.bank.total, 145055);
+  assert.equal(data.transactions.some(t => t.description === 'Edicola'), true, 'records already imported stay');
+  assert.deepEqual(data.bank.connections.map(c => [c.bank, c.excluded.map(e => [e.name, e.iban_last4])]), [['Intesa Sanpaolo', [['Carta prepagata', '0123']]]]);
+  assert.deepEqual((await state(bob)).bank.connections, [], 'other members do not see the owner\'s links');
+  assert.equal(provider.calls.some(c => c[0] === 'end'), false);
+  assert.equal((await request(`/bank/accounts/${main.id}`, { method: 'DELETE', session: alice })).status, 400, 'the last account is removed by unlinking the bank');
+
+  // A renewed consent keeps the removed account out; restoring brings it back.
+  provider.data.transactions['uid-c'].push(tx('c2', '8.00', 'DBIT', '2026-10-06', { creditor: { name: 'Bar Sport' } }));
+  await link(alice, 'alice', 'shared');
+  data = await state(alice);
+  assert.deepEqual(data.bank.accounts.map(a => a.name), ['Conto Alice']);
+  assert.equal(data.transactions.some(t => t.description === 'Bar Sport'), false);
+  const excluded = data.bank.connections[0].excluded[0];
+  assert.equal((await request(`/bank/exclusions/${excluded.id}/restore`, { method: 'POST', session: bob })).status, 404);
+  assert.equal((await request(`/bank/exclusions/${excluded.id}/restore`, { method: 'POST', session: alice })).status, 200);
+  data = await state(alice);
+  assert.deepEqual(data.bank.accounts.map(a => a.name).sort(), ['Carta prepagata', 'Conto Alice']);
+  assert.equal(data.bank.total, 145055 + 7500);
+  assert.equal(data.bank.connections[0].excluded.length, 0);
+  assert.equal(data.transactions.some(t => t.description === 'Bar Sport'), true);
 });

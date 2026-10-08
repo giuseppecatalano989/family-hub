@@ -187,6 +187,12 @@ export const BANK_SCHEMA = `
     transaction_id TEXT PRIMARY KEY REFERENCES transactions(id) ON DELETE CASCADE,
     contribution_id TEXT NOT NULL UNIQUE REFERENCES contributions(id) ON DELETE CASCADE
   );
+  CREATE TABLE IF NOT EXISTS bank_account_exclusions (
+    id TEXT PRIMARY KEY, household_id TEXT NOT NULL REFERENCES households(id), user_id TEXT NOT NULL REFERENCES users(id),
+    account_key TEXT NOT NULL, connection_id TEXT REFERENCES bank_connections(id) ON DELETE SET NULL, provider_uid TEXT,
+    name TEXT NOT NULL, iban_hash TEXT, iban_last4 TEXT, currency TEXT NOT NULL, created_at TEXT NOT NULL,
+    UNIQUE(user_id, account_key)
+  );
   CREATE TABLE IF NOT EXISTS goal_plans (
     goal_id TEXT PRIMARY KEY REFERENCES goals(id) ON DELETE CASCADE,
     monthly INTEGER NOT NULL DEFAULT 0 CHECK(monthly >= 0), is_primary INTEGER NOT NULL DEFAULT 0 CHECK(is_primary IN (0,1))
@@ -209,4 +215,4 @@ export const BANK_SCHEMA = `
     transaction_id TEXT PRIMARY KEY REFERENCES transactions(id) ON DELETE CASCADE, owner_id TEXT NOT NULL REFERENCES users(id)
   );
 `;
-TABLES.push('bank_connections', 'bank_accounts', 'bank_movements', 'savings_destinations', 'savings_contributions', 'goal_plans', 'savings_settings', 'savings_allocations', 'salary_payers', 'private_transactions');
+TABLES.push('bank_connections', 'bank_accounts', 'bank_account_exclusions', 'bank_movements', 'savings_destinations', 'savings_contributions', 'goal_plans', 'savings_settings', 'savings_allocations', 'salary_payers', 'private_transactions');

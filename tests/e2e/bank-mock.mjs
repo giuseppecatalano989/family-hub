@@ -30,8 +30,9 @@ http.createServer((req, res) => {
       const request = JSON.parse(body);
       return json(res, 200, { url: `http://127.0.0.1:${port}/authorize?state=${request.state}&redirect=${encodeURIComponent(request.redirect_url)}` });
     }
-    if (url.pathname === '/sessions' && req.method === 'POST') return json(res, 200, { session_id: 'e2e-session', access: { valid_until: new Date(Date.now() + 150 * 86400000).toISOString() }, accounts: [{ uid: 'e2e-account', account_id: { iban: 'IT60X0542811101000000123456' }, name: 'Conto Famiglia', currency: 'EUR' }] });
-    if (url.pathname.endsWith('/balances')) return json(res, 200, { balances: [{ balance_type: 'ITAV', balance_amount: { amount: '2345.67', currency: 'EUR' } }] });
+    if (url.pathname === '/sessions' && req.method === 'POST') return json(res, 200, { session_id: 'e2e-session', access: { valid_until: new Date(Date.now() + 150 * 86400000).toISOString() }, accounts: [{ uid: 'e2e-account', account_id: { iban: 'IT60X0542811101000000123456' }, name: 'Conto Famiglia', currency: 'EUR' }, { uid: 'e2e-card', account_id: { iban: 'IT77C0306909606100000000123' }, name: 'Carta prepagata', currency: 'EUR' }] });
+    if (url.pathname.endsWith('/balances')) return json(res, 200, { balances: [{ balance_type: 'ITAV', balance_amount: { amount: url.pathname.includes('e2e-card') ? '50.00' : '2345.67', currency: 'EUR' } }] });
+    if (url.pathname.includes('e2e-card')) return json(res, 200, { transactions: [] });
     if (url.pathname.endsWith('/transactions')) return json(res, 200, { transactions: [
       { entry_reference: 'e2e-1', transaction_amount: { amount: '54.20', currency: 'EUR' }, credit_debit_indicator: 'DBIT', status: 'BOOK', booking_date: `${month}-01`, creditor: { name: 'Esselunga' } },
       { entry_reference: 'e2e-3', transaction_amount: { amount: '150.00', currency: 'EUR' }, credit_debit_indicator: 'DBIT', status: 'BOOK', booking_date: `${month}-01`, creditor: { name: 'Trade Republic Bank GmbH' }, creditor_account: { iban: 'IT55T0300203280000000000777' }, remittance_information: ['PAC mensile'] },

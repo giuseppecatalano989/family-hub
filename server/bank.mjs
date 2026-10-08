@@ -425,6 +425,9 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
         await run("INSERT INTO bank_connections VALUES (?, ?, ?, ?, ?, ?, ?, 'active', NULL, NULL, NULL, ?)", connectionId, request.household_id, request.user_id, request.aspsp_name, request.aspsp_country, encrypt(created.sessionId), validUntil, now());
         for (const account of created.accounts) {
           const hashValue = ibanHash(account.iban);
+          // Accounts the owner removed stay out of a renewed consent, but can be restored.
+          const excluded = await one('SELECT id FROM bank_account_exclusions WHERE user_id = ? AND account_key = ?', request.user_id, hashValue ? `iban:${hashValue}` : `uid:${account.uid}`);
+          if (excluded) { await run('UPDATE bank_account_exclusions SET connection_id = ?, provider_uid = ? WHERE id = ?', connectionId, account.uid, excluded.id); continue; }
           // Renewing a consent keeps the account, its visibility and its history.
           const existing = hashValue && await one(`SELECT a.id FROM bank_accounts a JOIN bank_connections c ON c.id = a.connection_id
             WHERE a.household_id = ? AND c.user_id = ? AND a.iban_hash = ? AND a.connection_id <> ?`, request.household_id, request.user_id, hashValue, connectionId);
@@ -514,6 +517,39 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
         }
         res.json({ synced });
       });
+      // One consent can cover several accounts: removing one keeps the bank linked.
+      app.delete('/api/bank/accounts/:id', async (req, res) => {
+        await atomic(async () => {
+          const account = await one('SELECT a.*, c.user_id FROM bank_accounts a JOIN bank_connections c ON c.id = a.connection_id WHERE a.id = ? AND a.household_id = ? AND c.user_id = ?', req.params.id, req.user.household_id, req.user.id);
+          if (!account) fail('Conto non trovato.', 404);
+          if ((await one('SELECT COUNT(*) AS count FROM bank_accounts WHERE connection_id = ?', account.connection_id)).count < 2) fail('È l’unico conto di questa banca: per toglierlo usa “Scollega banca”.');
+          await run(`INSERT INTO bank_account_exclusions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, account_key) DO UPDATE SET connection_id = excluded.connection_id, provider_uid = excluded.provider_uid, name = excluded.name`,
+            randomUUID(), req.user.household_id, req.user.id, account.iban_hash ? `iban:${account.iban_hash}` : `uid:${account.provider_uid}`, account.connection_id, account.provider_uid,
+            account.name, account.iban_hash, account.iban_last4, account.currency, now());
+          await run('DELETE FROM savings_destinations WHERE household_id = ? AND destination_key = ?', req.user.household_id, `account:${account.id}`);
+          // Its bank copies and balance go; records already in Entrate and Uscite stay.
+          await run('DELETE FROM bank_accounts WHERE id = ?', account.id);
+        });
+        res.json({ ok: true });
+      });
+      app.post('/api/bank/exclusions/:id/restore', async (req, res) => {
+        const connection = await atomic(async () => {
+          const excluded = await one('SELECT * FROM bank_account_exclusions WHERE id = ? AND household_id = ? AND user_id = ?', req.params.id, req.user.household_id, req.user.id);
+          if (!excluded) fail('Conto non trovato.', 404);
+          const target = excluded.connection_id && await one('SELECT * FROM bank_connections WHERE id = ? AND user_id = ?', excluded.connection_id, req.user.id);
+          if (!target || !excluded.provider_uid) fail('Collega di nuovo la banca per ripristinare questo conto.');
+          const sibling = await one('SELECT visibility FROM bank_accounts WHERE connection_id = ? ORDER BY created_at LIMIT 1', target.id);
+          await run(`INSERT INTO bank_accounts (id, household_id, connection_id, provider_uid, name, iban_hash, iban_last4, currency, visibility, import_from, created_at, savings)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(connection_id, provider_uid) DO NOTHING`,
+            randomUUID(), req.user.household_id, target.id, excluded.provider_uid, excluded.name, excluded.iban_hash, excluded.iban_last4, excluded.currency,
+            sibling?.visibility || 'shared', monthStart(), now(), SAVINGS.test(`${target.aspsp_name} ${excluded.name}`.toLocaleLowerCase('it')) ? 1 : 0);
+          await run('DELETE FROM bank_account_exclusions WHERE id = ?', excluded.id);
+          return target;
+        });
+        if (provider && connection.status !== 'expired') await syncConnection({ ...connection, last_attempt_at: null }, psuOf(req));
+        res.json({ ok: true });
+      });
       app.delete('/api/bank/connections/:id', async (req, res) => {
         const connection = await ownConnection(req.params.id, req.user);
         // Imported records stay in Entrate/Uscite; bank copies and balances are removed.
@@ -585,6 +621,12 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
         total: accounts.filter(a => a.currency === 'EUR' && a.balance !== null).reduce((sum, a) => sum + Number(a.balance), 0),
         accounts: accounts.map(({ user_id, last_error, ...a }) => ({ ...a, savings: !!a.savings, balance: a.balance === null ? null : Number(a.balance), mine: user_id === user.id, last_error: user_id === user.id ? last_error : null })),
         movements: movements.map(m => ({ ...m, amount: Number(m.amount) })),
+        // The owner's links, including accounts removed from a consent (restorable).
+        connections: await (async () => {
+          const rows = await all('SELECT id, aspsp_name AS bank, status, valid_until, last_error FROM bank_connections WHERE household_id = ? AND user_id = ? ORDER BY created_at', user.household_id, user.id);
+          const excluded = await all('SELECT id, connection_id, name, iban_last4 FROM bank_account_exclusions WHERE household_id = ? AND user_id = ? ORDER BY name', user.household_id, user.id);
+          return rows.map(c => ({ ...c, excluded: excluded.filter(e => e.connection_id === c.id).map(({ connection_id, ...e }) => e) }));
+        })(),
         savingsStrategy: (await one('SELECT strategy FROM savings_settings WHERE household_id = ?', user.household_id))?.strategy || 'proportional',
       };
     },
