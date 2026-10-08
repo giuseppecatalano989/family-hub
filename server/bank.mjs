@@ -628,16 +628,25 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
         FROM bank_movements m JOIN bank_accounts a ON a.id = m.account_id JOIN bank_connections c ON c.id = a.connection_id JOIN users u ON u.id = c.user_id
         LEFT JOIN transactions t ON t.id = m.transaction_id
         WHERE m.household_id = ? AND substr(m.date, 1, 7) = ? AND (a.visibility = 'shared' OR c.user_id = ?) ORDER BY m.date DESC, m.external_id LIMIT 500`, user.household_id, month, user.id);
-      const uncategorized = await all(`SELECT t.id AS transaction_id, t.amount, t.date, t.description, a.name AS account, a.iban_last4, c.aspsp_name AS bank, u.name AS owner, c.user_id
-        FROM transactions t JOIN bank_movements m ON m.transaction_id = t.id JOIN bank_accounts a ON a.id = m.account_id JOIN bank_connections c ON c.id = a.connection_id
-        JOIN users u ON u.id = c.user_id LEFT JOIN private_transactions p ON p.transaction_id = t.id
+      // Every expense still without a category, also when its account was removed
+      // or the bank unlinked; others' private ones only as totals per owner.
+      const uncategorized = await all(`SELECT t.id AS transaction_id, t.amount, t.date, t.description, a.name AS account, a.iban_last4, c.aspsp_name AS bank,
+        COALESCE(u.name, w.name) AS owner, COALESCE(c.user_id, t.author_id) AS user_id
+        FROM transactions t LEFT JOIN users w ON w.id = t.author_id
+        LEFT JOIN bank_movements m ON m.id = (SELECT MIN(id) FROM bank_movements WHERE transaction_id = t.id)
+        LEFT JOIN bank_accounts a ON a.id = m.account_id LEFT JOIN bank_connections c ON c.id = a.connection_id LEFT JOIN users u ON u.id = c.user_id
+        LEFT JOIN private_transactions p ON p.transaction_id = t.id
         WHERE t.household_id = ? AND t.kind = 'expense' AND t.category_id IS NULL AND (p.owner_id IS NULL OR p.owner_id = ?) ORDER BY t.date DESC, t.id LIMIT 200`, user.household_id, user.id);
+      const othersUncategorized = await all(`SELECT u.name AS owner, COUNT(*) AS count, SUM(t.amount) AS amount
+        FROM transactions t JOIN private_transactions p ON p.transaction_id = t.id JOIN users u ON u.id = p.owner_id
+        WHERE t.household_id = ? AND t.kind = 'expense' AND t.category_id IS NULL AND p.owner_id <> ? GROUP BY u.id, u.name ORDER BY u.name`, user.household_id, user.id);
       return {
         configured: !!provider,
         total: accounts.filter(a => a.currency === 'EUR' && a.balance !== null).reduce((sum, a) => sum + Number(a.balance), 0),
         accounts: accounts.map(({ user_id, last_error, ...a }) => ({ ...a, savings: !!a.savings, balance: a.balance === null ? null : Number(a.balance), mine: user_id === user.id, last_error: user_id === user.id ? last_error : null })),
         movements: movements.map(({ user_id, transaction_kind, ...m }) => ({ ...m, amount: Number(m.amount), mine: user_id === user.id, classifiable: !!m.transaction_id && transaction_kind === 'expense' })),
         uncategorized: uncategorized.map(({ user_id, ...t }) => ({ ...t, amount: Number(t.amount), mine: user_id === user.id })),
+        othersUncategorized: othersUncategorized.map(o => ({ owner: o.owner, count: Number(o.count), amount: Number(o.amount) })),
         // The owner's links; removed accounts are not shown.
         connections: await all('SELECT id, aspsp_name AS bank, status, valid_until, last_error FROM bank_connections WHERE household_id = ? AND user_id = ? ORDER BY created_at', user.household_id, user.id),
         savingsStrategy: (await one('SELECT strategy FROM savings_settings WHERE household_id = ?', user.household_id))?.strategy || 'proportional',

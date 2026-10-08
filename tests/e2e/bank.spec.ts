@@ -32,7 +32,7 @@ test('a member links a bank in read-only mode, sees the family balance and impor
   await go(page, 'Movimenti'); await expect(page.getByRole('heading', { name: 'I movimenti dei conti.' })).toBeVisible();
   const todo = page.locator('.movements-todo'); await expect(todo.locator('.movement-row')).toHaveCount(1); await expect(todo).toContainText('Negozio Vario');
   await todo.getByLabel('Categoria per Negozio Vario').selectOption({ label: 'Casa e utenze' });
-  await expect(todo).toContainText('Tutte le uscite importate hanno una categoria.');
+  await expect(todo).toContainText('Tutte le uscite hanno una categoria.');
   const monthList = page.locator('.transactions-panel').last(); await expect(monthList).toContainText('Esselunga'); await expect(monthList).toContainText('Aggiunto alle registrazioni');
   await expect(monthList.getByLabel('Categoria per Negozio Vario')).toHaveValue(/.+/);
   await page.screenshot({ path: info.outputPath('movimenti.png'), fullPage: true }); expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

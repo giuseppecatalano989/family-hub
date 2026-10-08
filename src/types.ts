@@ -48,6 +48,6 @@ export interface BankAccount {
   status: 'active' | 'expired' | 'error'; valid_until: string; last_sync_at: string | null; last_error: string | null;
 }
 export interface BankMovement { id: string; account_id: string; kind: 'income' | 'expense'; amount: number; date: string; description: string; status: 'stored' | 'imported' | 'matched' | 'transfer'; transaction_id: string | null; category_id: string | null; account: string; iban_last4: string | null; bank: string; owner: string; mine: boolean; classifiable: boolean }
-export interface UncategorizedExpense { transaction_id: string; amount: number; date: string; description: string; account: string; iban_last4: string | null; bank: string; owner: string; mine: boolean }
+export interface UncategorizedExpense { transaction_id: string; amount: number; date: string; description: string; account: string | null; iban_last4: string | null; bank: string | null; owner: string; mine: boolean }
 export interface BankConnection { id: string; bank: string; status: 'active' | 'expired' | 'error'; valid_until: string; last_error: string | null }
-export interface BankState { configured: boolean; total: number; accounts: BankAccount[]; movements: BankMovement[]; uncategorized: UncategorizedExpense[]; connections: BankConnection[]; savingsStrategy: 'primary' | 'proportional' }
+export interface BankState { configured: boolean; total: number; accounts: BankAccount[]; movements: BankMovement[]; uncategorized: UncategorizedExpense[]; othersUncategorized: { owner: string; count: number; amount: number }[]; connections: BankConnection[]; savingsStrategy: 'primary' | 'proportional' }

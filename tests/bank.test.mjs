@@ -135,7 +135,7 @@ test('without configuration the bank section is disabled', async () => {
   const { alice } = await family();
   assert.equal((await request('/bank/banks', { session: alice })).status, 503);
   const data = await state(alice);
-  assert.deepEqual(data.bank, { configured: false, total: 0, accounts: [], movements: [], uncategorized: [], connections: [], savingsStrategy: 'proportional' });
+  assert.deepEqual(data.bank, { configured: false, total: 0, accounts: [], movements: [], uncategorized: [], othersUncategorized: [], connections: [], savingsStrategy: 'proportional' });
 });
 
 test('linking shared and balance-only accounts builds a family total, imports and reconciles shared movements', async () => {
@@ -459,6 +459,8 @@ test('only current accounts with an IBAN are linked; one can be removed and stay
   assert.deepEqual(data.bank.accounts.map(a => a.name), ['Conto Alice'], 'the bank stays linked');
   assert.equal(data.bank.total, 145055);
   assert.equal(data.transactions.some(t => t.description === 'Edicola'), true, 'records already imported stay');
+  const edicola = data.bank.uncategorized.find(t => t.description === 'Edicola');
+  assert.deepEqual([edicola.account, edicola.amount, edicola.mine], [null, 1200, true], 'a removed account\'s expense can still be classified');
   assert.deepEqual(data.bank.connections.map(c => Object.keys(c).sort()), [['bank', 'id', 'last_error', 'status', 'valid_until']], 'removed accounts are not listed');
   assert.deepEqual((await state(bob)).bank.connections, []);
   assert.equal((await request(`/bank/accounts/${main.id}`, { method: 'DELETE', session: alice })).status, 400, 'the last account is removed by unlinking the bank');
@@ -514,6 +516,8 @@ test('bank expenses are classified from the movements section, teaching later im
   await link(bob, 'bob', 'balance');
   let data = await state(alice);
   assert.deepEqual(data.bank.uncategorized.map(t => t.description), ['Negozio Vario'], 'others\' private expenses are not listed');
+  assert.deepEqual(data.bank.othersUncategorized.map(o => [o.count, o.amount]), [[1, 2500]], 'only their total, to be classified by the owner');
+  assert.deepEqual((await state(bob)).bank.othersUncategorized, []);
   assert.deepEqual((await state(bob)).bank.uncategorized.map(t => t.description).sort(), ['Libreria Centrale', 'Negozio Vario']);
   const item = data.bank.uncategorized[0];
   const casa = data.categories[0].id;
