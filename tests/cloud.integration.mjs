@@ -433,27 +433,29 @@ test('bank links share balances across instances, sync from the protected cron a
   assert.equal((await fetch(`${second.base}/internal/backup`, { headers: { authorization: 'Bearer test-cron-local-only' } })).status, 200);
   assert.equal(calls.length, before + 2);
   assert.equal((await json(await request('/state?month=2026-10&week=2026-10-05', { session: owner, target: first.base }))).transactions.filter(t => t.description === 'Esselunga').length, 1, 'cron re-sync does not duplicate imports');
-  // Savings: a Trade Republic deposit is filed under Risparmio and feeds the linked goal.
+  // Savings: Trade Republic deposits are filed under Risparmio and split among the goal quotas.
+  const goal = await create('/goals', { title: 'Fondo emergenze', horizon: 'short', target: 100000, monthly: 30000 }, owner);
+  await create('/goals', { title: 'Vacanze', horizon: 'short', target: 100000, monthly: 10000, primary: true }, member);
   extra.push({ entry_reference: 'tr-1', transaction_amount: { amount: '200.00', currency: 'EUR' }, credit_debit_indicator: 'DBIT', status: 'BOOK', booking_date: '2026-10-05', creditor: { name: 'Trade Republic Bank GmbH' }, creditor_account: { iban: 'IT55T0300203280000000000777' } });
-  const goal = await create('/goals', { title: 'Fondo emergenze', horizon: 'short', target: 100000 }, owner);
   const reset = new Pool({ connectionString });
   try { await reset.query("UPDATE casa.bank_connections SET last_attempt_at = '2026-10-15T03:00:00.000Z'"); } finally { await reset.end(); }
   assert.equal((await fetch(`${first.base}/internal/backup`, { headers: { authorization: 'Bearer test-cron-local-only' } })).status, 200);
   let saving = await json(await request('/state?month=2026-10&week=2026-10-05', { session: member, target: second.base }));
   assert.equal(saving.transactions.find(t => t.amount === 20000).category_id, saving.categories[5].id);
-  assert.deepEqual(saving.bank.savings.map(d => [d.name, d.linked, d.enabled]), [['Trade Republic Bank GmbH', false, true]]);
-  await json(await request(`/bank/savings/${saving.bank.savings[0].id}`, { method: 'PATCH', session: member, body: { goalId: goal.id }, target: second.base }));
+  assert.deepEqual(saving.goals.map(g => [g.title, g.saved, g.monthly, g.is_primary]).sort(), [['Fondo emergenze', 15000, 30000, 0], ['Vacanze', 5000, 10000, 1]]);
+  await json(await request('/savings/strategy', { method: 'PUT', session: member, body: { strategy: 'primary' }, target: second.base }));
   extra.push({ entry_reference: 'tr-2', transaction_amount: { amount: '150.00', currency: 'EUR' }, credit_debit_indicator: 'DBIT', status: 'BOOK', booking_date: '2026-10-12', creditor: { name: 'TRB' }, creditor_account: { iban: 'IT55T0300203280000000000777' } });
   const again = new Pool({ connectionString });
   try { await again.query('UPDATE casa.bank_connections SET last_attempt_at = NULL'); } finally { await again.end(); }
   assert.equal((await json(await request('/bank/refresh', { method: 'POST', session: owner, target: first.base }))).synced, 2, 'own account with the owner present, the other one past the unattended limit');
   saving = await json(await request('/state?month=2026-10&week=2026-10-05', { session: owner, target: second.base }));
-  assert.equal(saving.goals.find(g => g.id === goal.id).saved, 15000);
+  assert.equal(saving.bank.savingsStrategy, 'primary');
+  assert.deepEqual(Object.fromEntries(saving.goals.map(g => [g.title, g.saved])), { 'Fondo emergenze': 25000, Vacanze: 10000 });
   const deposit = saving.transactions.find(t => t.amount === 15000);
   await json(await request(`/transactions/${deposit.id}`, { method: 'DELETE', session: owner, target: first.base }));
-  assert.equal((await json(await request('/state?month=2026-10&week=2026-10-05', { session: owner, target: second.base }))).goals.find(g => g.id === goal.id).saved, 0);
+  assert.equal((await json(await request('/state?month=2026-10&week=2026-10-05', { session: owner, target: second.base }))).goals.find(g => g.id === goal.id).saved, 15000);
   const exported = await request('/backups/export', { session: owner, target: first.base });
   const payload = JSON.parse(Buffer.from(unzipSync(new Uint8Array(await exported.arrayBuffer()))['casa.json']).toString('utf8'));
   assert.equal(JSON.stringify(payload).includes('session_secret'), false);
-  assert.equal(payload.data.bank_accounts.length, 2); assert.equal(payload.data.bank_movements.length, 3, 'shared movements only'); assert.equal(payload.data.savings_destinations.length, 1);
+  assert.equal(payload.data.bank_accounts.length, 2); assert.equal(payload.data.bank_movements.length, 3, 'shared movements only'); assert.equal(payload.data.savings_destinations.length, 1); assert.equal(payload.data.goal_plans.length, 2); assert.equal(payload.data.savings_allocations.length, 2);
 });

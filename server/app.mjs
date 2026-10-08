@@ -317,7 +317,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             ...await planning.state(req.user, month),
             ...await workflows.state(req.user, month, req.query.week),
             backups: req.user.role === 'admin' ? await backups.status() : null,
-            bank: await bank.state(req.user, month),
+            bank: await bank.state(req.user),
             household: await one('SELECT id, name FROM households WHERE id = ?', hid),
             members: await all('SELECT id, name, role FROM users WHERE household_id = ? ORDER BY role, name', hid),
             categories: await all('SELECT * FROM categories WHERE household_id = ? ORDER BY position', hid),
@@ -397,12 +397,27 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         });
         res.json({ ok: true });
     });
+    // Monthly quota and primary flag drive the automatic split of bank savings;
+    // only one goal per family is primary.
+    function goalPlan(body) {
+        if (body.primary !== undefined && typeof body.primary !== 'boolean') fail('Valore non valido.');
+        return body.monthly === undefined && body.primary === undefined ? null : { monthly: body.monthly ? cents(body.monthly) : 0, primary: body.primary ? 1 : 0 };
+    }
+    async function savePlan(goalId, plan, hid) {
+        if (!plan) return;
+        if (plan.primary) await run('UPDATE goal_plans SET is_primary = 0 WHERE goal_id IN (SELECT id FROM goals WHERE household_id = ?)', hid);
+        await run('INSERT INTO goal_plans VALUES (?, ?, ?) ON CONFLICT(goal_id) DO UPDATE SET monthly = excluded.monthly, is_primary = excluded.is_primary', goalId, plan.monthly, plan.primary);
+    }
     app.post('/api/goals', async (req, res) => {
         const { title, horizon, target, saved = 0, dueDate } = req.body;
         if (!['short', 'medium', 'long'].includes(horizon))
             fail('Orizzonte dell’obiettivo non valido.');
         const id = randomUUID();
-        await run('INSERT INTO goals VALUES (?, ?, ?, ?, ?, ?, ?, ?)', id, req.user.household_id, text(title, 'Obiettivo', 120), horizon, cents(target), cents(saved, true), dueDate ? date(dueDate) : null, now());
+        const plan = goalPlan(req.body);
+        await atomic(async () => {
+            await run('INSERT INTO goals VALUES (?, ?, ?, ?, ?, ?, ?, ?)', id, req.user.household_id, text(title, 'Obiettivo', 120), horizon, cents(target), cents(saved, true), dueDate ? date(dueDate) : null, now());
+            await savePlan(id, plan, req.user.household_id);
+        });
         res.status(201).json({ id });
     });
     app.put('/api/goals/:id', async (req, res) => {
@@ -410,7 +425,11 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         const { title, horizon, target, dueDate } = req.body;
         if (!['short', 'medium', 'long'].includes(horizon))
             fail('Orizzonte dell’obiettivo non valido.');
-        await run('UPDATE goals SET title = ?, horizon = ?, target = ?, due_date = ? WHERE id = ? AND household_id = ?', text(title, 'Obiettivo', 120), horizon, cents(target), dueDate ? date(dueDate) : null, req.params.id, req.user.household_id);
+        const plan = goalPlan(req.body);
+        await atomic(async () => {
+            await run('UPDATE goals SET title = ?, horizon = ?, target = ?, due_date = ? WHERE id = ? AND household_id = ?', text(title, 'Obiettivo', 120), horizon, cents(target), dueDate ? date(dueDate) : null, req.params.id, req.user.household_id);
+            await savePlan(req.params.id, plan, req.user.household_id);
+        });
         res.json({ ok: true });
     });
     app.delete('/api/goals/:id', async (req, res) => {

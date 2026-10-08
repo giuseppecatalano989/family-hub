@@ -43,8 +43,9 @@ export function installGoalSavings(app, { one, all, run, atomic, owned, fail, ce
     state(householdId) {
       // Keep totals and their breakdown consistent across serverless writers.
       return atomic(async () => ({
-        goals: await all(`SELECT g.*, g.saved - COALESCE((SELECT SUM(c.amount) FROM contributions c WHERE c.goal_id = g.id), 0) AS initial_saved
-          FROM goals g WHERE g.household_id = ? ORDER BY g.created_at DESC`, householdId),
+        goals: await all(`SELECT g.*, g.saved - COALESCE((SELECT SUM(c.amount) FROM contributions c WHERE c.goal_id = g.id), 0) AS initial_saved,
+          COALESCE(p.monthly, 0) AS monthly, COALESCE(p.is_primary, 0) AS is_primary
+          FROM goals g LEFT JOIN goal_plans p ON p.goal_id = g.id WHERE g.household_id = ? ORDER BY g.created_at DESC`, householdId),
         contributions: await all(`SELECT c.*, u.name AS author FROM contributions c JOIN goals g ON g.id = c.goal_id
           JOIN users u ON u.id = c.author_id WHERE g.household_id = ? ORDER BY c.created_at DESC, c.id`, householdId),
       }));

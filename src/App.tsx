@@ -34,7 +34,7 @@ const pageCopy = {
   waste: ['Ogni rifiuto, nel giorno giusto.', 'Il calendario di conferimento condiviso con la famiglia.'],
   incomes: ['Le entrate della famiglia.', 'Redditi occasionali e ricorrenti, in un unico posto.'],
   expenses: ['Le uscite della famiglia.', 'Spese occasionali e ricorrenti, in un unico posto.'],
-  bank: ['I conti di famiglia.', 'Saldi e movimenti bancari, in sola lettura.'],
+  bank: ['I conti di famiglia.', 'Collega, rinnova e condividi i conti, in sola lettura.'],
   account: ['Il tuo account.', 'Profilo, accesso e impostazioni della famiglia.'],
   bills: ['Le scadenze, senza pensieri.', 'Impegni e promemoria condivisi, con eventuali pagamenti.'],
   meals: ['Cosa c’è di buono?', 'Un menu condiviso per organizzare pasti e spesa.'],
@@ -154,7 +154,7 @@ export default function App() {
   if (sessionLoading) return <div className="loading-page"><Logo /><RefreshCw className="spin" size={24} /><p>Apriamo le porte di casa…</p></div>;
   if (bootError) return <div className="loading-page"><Logo /><AlertCircle size={30} /><h2>Non riusciamo a raggiungere casa</h2><p>{bootError}</p><button className="button primary" onClick={() => void loadSession()}>Riprova</button></div>;
   if (!user || recovering) return <Auth key={authGeneration} onReset={() => { setUser(null); setData(null); setCsrf(''); setDialog(null); }} onLogin={next => { setUser(next); setData(null); setRecovering(false); }} />;
-  const financial = ['overview', 'budget', 'bills', 'incomes', 'expenses', 'bank'].includes(page);
+  const financial = ['overview', 'budget', 'bills', 'incomes', 'expenses'].includes(page);
   const badge = page === 'shopping' ? data?.shopping.filter(s => !s.checked).length : page === 'notes' ? data?.notes.length : undefined;
   const components = { bank: Bank, waste: Waste, account: Account, incomes: Incomes, expenses: Expenses, overview: Overview, budget: Budget, goals: Goals, shopping: Shopping, notes: Notes, bills: Deadlines, meals: Meals, backups: Backups };
   const Content = components[page];

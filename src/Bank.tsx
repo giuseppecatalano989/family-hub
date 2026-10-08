@@ -1,57 +1,47 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Landmark, RefreshCw, Trash2, Plus, ShieldCheck, ArrowDownLeft, ArrowUpRight, AlertCircle, PiggyBank } from 'lucide-react';
+import { Landmark, Trash2, Plus, ShieldCheck, AlertCircle } from 'lucide-react';
 import { Empty, Modal, SectionHeading } from './components';
 import { api } from './api';
-import { money, readableDate } from './finance';
+import { readableDate } from './finance';
 import type { BankAccount, FamilyState } from './types';
+import type { Page } from './pages';
 
-type Props = { data: FamilyState; act: (path: string, method: string, body?: unknown) => Promise<void>; busy: boolean };
-const statusLabels = { stored: 'Precedente al collegamento', imported: 'Aggiunto alle registrazioni', matched: 'Già registrato a mano', transfer: 'Giroconto tra conti di famiglia' };
-const dateTime = (value: string) => new Intl.DateTimeFormat('it-IT', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
+type Props = { data: FamilyState; act: (path: string, method: string, body?: unknown) => Promise<void>; busy: boolean; navigate: (page: Page) => void };
 const daysLeft = (account: BankAccount) => Math.floor((Date.parse(account.valid_until) - Date.now()) / 86400000);
 
-export function Bank({ data, act, busy }: Props) {
+// Linking only: connect, disconnect, renew and sharing. Balances live in the
+// overview; movements will have their own section; savings are split automatically.
+export function Bank({ data, act, busy, navigate }: Props) {
   const [connect, setConnect] = useState<{ bank?: string; visibility?: BankAccount['visibility'] } | null>(null);
   const bank = data.bank;
   if (!bank.configured) return <section className="panel"><Empty icon={<Landmark size={26} />} title="Collegamento bancario non ancora attivo" description="Il gestore dell’app deve configurare Enable Banking sul server (ENABLE_BANKING_APP_ID e ENABLE_BANKING_PRIVATE_KEY). Dopo, ognuno potrà collegare il proprio conto in sola lettura." /></section>;
-  const accounts = new Map(bank.accounts.map(a => [a.id, a]));
-  const shared = bank.accounts.filter(a => a.visibility === 'shared').length;
+  const planned = data.goals.filter(g => g.monthly > 0 && g.saved < g.target);
   return <>
-    <div className="mini-stats"><div><span>Saldo familiare</span><strong className={bank.total < 0 ? 'negative' : 'positive'}>{money(bank.total)}</strong></div><div><span>Conti collegati</span><strong>{bank.accounts.length}</strong></div><div><span>Con movimenti condivisi</span><strong>{shared}</strong></div></div>
     <section className="planning-section"><div className="section-heading"><h2>I conti della famiglia</h2><button className="button primary" disabled={busy} onClick={() => setConnect({})}><Plus size={16} />Collega una banca</button></div>
       {bank.accounts.length ? <div className="recurring-grid">{bank.accounts.map(account => {
         const left = daysLeft(account);
         const expired = account.status === 'expired' || left < 0;
         return <article className="panel recurring-card bank-card" key={account.id}>
           <div className="recurring-top"><span className="bank-badges"><span className={`badge ${account.visibility === 'shared' ? 'green' : ''}`}>{account.visibility === 'shared' ? 'Condiviso' : 'Movimenti privati'}</span>{account.savings && <span className="badge green">Risparmio</span>}</span>{account.mine && <div className="row-actions">
-            <button className="icon-button" aria-label={`Aggiorna ${account.name}`} title="Aggiorna" disabled={busy || expired} onClick={() => void act(`/bank/connections/${account.connection_id}/sync`, 'POST').catch(() => {})}><RefreshCw size={16} /></button>
-            <button className="icon-button danger" aria-label={`Scollega ${account.bank}`} title="Scollega" disabled={busy} onClick={() => { if (confirm(`Scollegare ${account.bank}? Saldo e copie dei movimenti bancari verranno rimossi; le registrazioni già aggiunte a Entrate e Uscite restano.`)) void act(`/bank/connections/${account.connection_id}`, 'DELETE').catch(() => {}); }}><Trash2 size={16} /></button>
+            <button className="icon-button danger" aria-label={`Scollega ${account.bank}`} title="Scollega" disabled={busy} onClick={() => { if (confirm(`Scollegare ${account.bank}? Il conto non verrà più letto; le registrazioni già aggiunte a Entrate e Uscite restano.`)) void act(`/bank/connections/${account.connection_id}`, 'DELETE').catch(() => {}); }}><Trash2 size={16} /></button>
           </div>}</div>
           <h3>{account.name}</h3>
-          <strong className={`recurring-amount ${account.balance !== null && account.balance < 0 ? 'negative' : ''}`}>{account.balance === null ? '—' : money(account.balance)}</strong>
           <p>{account.bank}{account.iban_last4 ? ` · •••• ${account.iban_last4}` : ''} · {account.mine ? 'il tuo conto' : account.owner}</p>
-          <small>{account.balance_kind === 'available' ? 'Saldo disponibile' : account.balance_kind === 'booked' ? 'Saldo contabile' : 'Saldo non ancora disponibile'}{account.balance_at ? ` · aggiornato ${dateTime(account.balance_at)}` : ''}</small>
-          {account.currency !== 'EUR' && <small>Conto in {account.currency}: escluso dal totale.</small>}
-          {expired ? <div className="bank-warning"><AlertCircle size={15} /><span>Consenso scaduto o revocato.</span>{account.mine && <button className="text-button" onClick={() => setConnect({ bank: account.bank, visibility: account.visibility })}>Ricollega</button>}</div>
+          {expired ? <div className="bank-warning"><AlertCircle size={15} /><span>Consenso scaduto o revocato.</span>{account.mine && <button className="text-button" onClick={() => setConnect({ bank: account.bank, visibility: account.visibility })}>Rinnova</button>}</div>
             : left <= 14 ? <div className="bank-warning"><AlertCircle size={15} /><span>Consenso in scadenza il {readableDate(account.valid_until.slice(0, 10))}.</span>{account.mine && <button className="text-button" onClick={() => setConnect({ bank: account.bank, visibility: account.visibility })}>Rinnova</button>}</div>
             : <small>Consenso valido fino al {readableDate(account.valid_until.slice(0, 10))}</small>}
           {account.mine && account.last_error && !expired && <div className="bank-warning"><AlertCircle size={15} /><span>{account.last_error}</span></div>}
           {account.mine && <label className="bank-visibility">Con la famiglia condividi<select value={account.visibility} disabled={busy} onChange={e => void act(`/bank/accounts/${account.id}`, 'PATCH', { visibility: e.target.value }).catch(() => {})}><option value="shared">Saldo e movimenti</option><option value="balance">Saldo e totali, movimenti privati</option></select></label>}
-          {account.mine && <label className="checkbox-label bank-savings-toggle"><input type="checkbox" checked={account.savings} disabled={busy} onChange={e => void act(`/bank/accounts/${account.id}`, 'PATCH', { savings: e.target.checked }).catch(() => {})} />Conto risparmio (es. Trade Republic, conto deposito): i versamenti dagli altri conti diventano risparmio, i movimenti interni restano fuori dal budget</label>}
         </article>;
       })}</div> : <section className="panel"><Empty icon={<Landmark size={26} />} title="Nessun conto collegato" description="Collega il tuo conto in sola lettura: il saldo entra nel totale di famiglia e i movimenti diventano entrate e uscite del budget." action="Collega una banca" onAction={() => setConnect({})} /></section>}
     </section>
-    <section className="panel planning-section bank-savings"><SectionHeading title="Dove risparmiate" />
-      {bank.savings.length ? bank.savings.map(d => <div className="bank-savings-row" key={d.id}><span className="stat-icon lavender"><PiggyBank size={18} /></span><div className="bank-savings-name"><strong>{d.name}</strong><span>{d.linked ? 'Conto risparmio collegato' : d.enabled ? 'Riconosciuto automaticamente' : 'Non considerato risparmio'}</span></div>
-        <label className="bank-savings-goal"><span className="sr-only">Obiettivo per {d.name}</span><select value={d.goal_id || ''} disabled={busy || !d.enabled} onChange={e => void act(`/bank/savings/${d.id}`, 'PATCH', { goalId: e.target.value || null }).catch(() => {})}><option value="">Solo categoria Risparmio</option>{data.goals.map(g => <option key={g.id} value={g.id}>Obiettivo: {g.title}</option>)}</select></label>
-        {!d.linked && <button className="text-button" disabled={busy} onClick={() => void act(`/bank/savings/${d.id}`, 'PATCH', { enabled: !d.enabled }).catch(() => {})}>{d.enabled ? 'Non è un risparmio' : 'È un risparmio'}</button>}</div>)
-        : <p className="ledger-empty">I bonifici verso conti risparmio e investimento (Trade Republic, Scalable Capital, Moneyfarm, conti deposito, fondi pensione…) compariranno qui. Puoi anche spostare un’uscita nella categoria Risparmio: i bonifici successivi allo stesso destinatario seguiranno la scelta.</p>}
-      <div className="panel-tip"><PiggyBank size={18} /><span>Le uscite verso queste destinazioni vanno nella categoria Risparmio. Se scegli un obiettivo, ogni nuovo versamento diventa anche un suo accantonamento; eliminando l’uscita si rimuove anche l’accantonamento.</span></div>
-    </section>
-    <section className="panel planning-section transactions-panel"><SectionHeading title="Movimenti bancari del mese" />
-      {bank.movements.length ? bank.movements.map(m => { const account = accounts.get(m.account_id); return <div className="transaction-row" key={m.id}><span className={`transaction-icon ${m.kind === 'income' ? 'income' : ''}`}>{m.kind === 'income' ? <ArrowDownLeft size={20} /> : <ArrowUpRight size={20} />}</span><div className="transaction-description"><strong>{m.description}</strong><span>{statusLabels[m.status]}{m.status === 'imported' && !m.transaction_id ? ' (poi rimosso)' : ''}<span className="dot-separator">·</span>{readableDate(m.date)}</span></div><span className="transaction-author">{account ? `${account.bank}${account.mine ? '' : ` · ${account.owner}`}` : ''}</span><strong className={`transaction-amount ${m.kind === 'income' ? 'positive' : ''}`}>{m.kind === 'income' ? '+' : '−'}{money(m.amount)}</strong></div>; })
-        : <Empty icon={<Landmark size={26} />} title="Nessun movimento bancario in questo mese" description={`Compariranno qui i movimenti contabilizzati dei conti condivisi${bank.accounts.some(a => a.mine) ? ' e dei tuoi conti' : ''}.`} />}
-      <div className="panel-tip"><ShieldCheck size={18} /><span>Solo lettura: Family Hub legge saldo e movimenti tramite Enable Banking e non può disporre pagamenti. Le credenziali restano sul sito della tua banca. I movimenti dei conti con movimenti privati entrano nel budget, ma gli altri membri vedono solo i totali per categoria. Mentre l’app è aperta i tuoi conti si aggiornano ogni 5 minuti; quelli degli altri membri fino a quattro volte al giorno.</span></div>
+    <section className="panel planning-section bank-strategy"><SectionHeading title="Risparmi verso gli obiettivi" />
+      <div className="bank-strategy-body">
+        <p>I versamenti verso conti risparmio e investimento vengono divisi da soli tra gli obiettivi, secondo l’accantonamento mensile di ciascuno.{planned.length ? ` Obiettivi con quota: ${planned.map(g => `${g.title}${g.is_primary ? ' (primario)' : ''}`).join(', ')}.` : ''}</p>
+        <label>Se il risparmio del mese non copre tutte le quote<select value={bank.savingsStrategy} disabled={busy} onChange={e => void act('/savings/strategy', 'PUT', { strategy: e.target.value }).catch(() => {})}><option value="primary">Priorità all’obiettivo primario</option><option value="proportional">In proporzione alle quote mensili</option></select></label>
+        {!planned.length && <button className="text-button" onClick={() => navigate('goals')}>Imposta le quote mensili in Obiettivi</button>}
+      </div>
+      <div className="panel-tip"><ShieldCheck size={18} /><span>Solo lettura: Family Hub legge saldo e movimenti tramite Enable Banking e non può disporre pagamenti. Le credenziali restano sul sito della tua banca.</span></div>
     </section>
     {connect && <ConnectDialog key={connect.bank || 'new'} initial={connect} onClose={() => setConnect(null)} />}
   </>;

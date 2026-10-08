@@ -1,7 +1,7 @@
 export interface User { id: string; name: string; email: string; role: 'admin' | 'member'; householdId: string }
 export interface Category { id: string; name: string; color: string; percentage: number }
 export interface Transaction { id: string; kind: 'income' | 'expense'; amount: number; category_id: string | null; description: string; date: string; author: string; recurring_id?: string | null; bank_account?: string | null; privacy?: 'mine' | 'others' }
-export interface Goal { id: string; title: string; horizon: 'short' | 'medium' | 'long'; target: number; saved: number; initial_saved: number; due_date: string | null }
+export interface Goal { id: string; title: string; horizon: 'short' | 'medium' | 'long'; target: number; saved: number; initial_saved: number; due_date: string | null; monthly: number; is_primary: number }
 export interface Contribution { id: string; goal_id: string; amount: number; author: string; created_at: string }
 export interface ShoppingItem { id: string; name: string; quantity: string; section: string; checked: number; author: string }
 export interface Attachment { id: string; original_name: string; size: number }
@@ -47,5 +47,4 @@ export interface BankAccount {
   status: 'active' | 'expired' | 'error'; valid_until: string; last_sync_at: string | null; last_error: string | null;
 }
 export interface BankMovement { id: string; account_id: string; kind: 'income' | 'expense'; amount: number; date: string; description: string; status: 'stored' | 'imported' | 'matched' | 'transfer'; transaction_id: string | null }
-export interface SavingsDestination { id: string; name: string; goal_id: string | null; enabled: boolean; linked: boolean }
-export interface BankState { configured: boolean; total: number; accounts: BankAccount[]; movements: BankMovement[]; savings: SavingsDestination[] }
+export interface BankState { configured: boolean; total: number; accounts: BankAccount[]; movements: BankMovement[]; savingsStrategy: 'primary' | 'proportional' }
