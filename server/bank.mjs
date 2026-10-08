@@ -63,6 +63,8 @@ const UNATTENDED_SYNC_MS = 6 * 3600000;
 const PLANNED_DAYS = 10;
 // Position of Risparmio among the six family categories.
 const SAVINGS_POSITION = 5;
+// History requested from the bank on the first read of an account.
+const FETCHED_DAYS = 90;
 const PLANNED_TOLERANCE = 30;
 // Savings and investment destinations; generic words such as "risparmio" are
 // excluded because they also appear in bank names (Cassa di Risparmio).
@@ -230,6 +232,14 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
     return Buffer.concat([decipher.update(Buffer.from(data, 'base64url')), decipher.final()]).toString('utf8');
   };
   const monthStart = () => `${romeToday(clock()).slice(0, 7)}-01`;
+  // A new link also imports the movements fetched before it (90 days), from the
+  // first whole month they cover, so past months can be compared.
+  const importStart = createdAt => {
+    const first = addDays(romeToday(Date.parse(createdAt)), -FETCHED_DAYS);
+    if (first.endsWith('-01')) return first;
+    const [year, month] = first.split('-').map(Number);
+    return month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, '0')}-01`;
+  };
   const psuOf = req => ({ ip: req.ip, userAgent: req.get('user-agent') || '' });
   const requireProvider = () => { if (!provider) fail('Il collegamento bancario non è configurato. Chiedi al gestore di impostare Enable Banking.', 503); };
   // Banks are listed per country: some, like Trade Republic, are offered only
@@ -387,8 +397,13 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
       await run("UPDATE bank_movements SET status = 'transfer', transaction_id = NULL WHERE id = ?", movement.id);
       if (movement.transaction_id) { await releaseSavings(movement.transaction_id); await run('DELETE FROM transactions WHERE id = ? AND household_id = ?', movement.transaction_id, hid); }
     }
+    // Accounts linked when imports began with the linking month also take their earlier history.
+    for (const account of await all('SELECT id, import_from, created_at FROM bank_accounts WHERE household_id = ? AND import_from IS NOT NULL', hid)) {
+      const start = importStart(account.created_at);
+      if (account.import_from > start) await run('UPDATE bank_accounts SET import_from = ? WHERE id = ?', start, account.id);
+    }
     // Movements inside a savings account (purchases, interest) never enter the budget.
-    const rows = await all(`SELECT m.*, c.user_id, a.visibility FROM bank_movements m JOIN bank_accounts a ON a.id = m.account_id JOIN bank_connections c ON c.id = a.connection_id
+    const rows = await all(`SELECT m.*, c.user_id, a.visibility, a.created_at AS linked_at FROM bank_movements m JOIN bank_accounts a ON a.id = m.account_id JOIN bank_connections c ON c.id = a.connection_id
       WHERE m.household_id = ? AND m.status = 'stored' AND a.savings = 0 AND a.import_from IS NOT NULL AND m.date >= a.import_from ORDER BY m.date, m.external_id`, hid);
     if (!rows.length) return;
     const categories = await all('SELECT id FROM categories WHERE household_id = ? ORDER BY position', hid);
@@ -439,7 +454,10 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
         if (movement.visibility === 'balance') await run('INSERT INTO private_transactions VALUES (?, ?)', transactionId, movement.user_id);
         await run("UPDATE bank_movements SET status = 'imported', transaction_id = ? WHERE id = ?", transactionId, movement.id);
       }
-      if (savings && (!match || (await one('SELECT category_id FROM transactions WHERE id = ?', transactionId))?.category_id === savingsCategory(categories))) await allocateSavings(transactionId, hid);
+      // Deposits made before the link are filed under Risparmio but not split again
+      // among the goals, whose totals already include what was saved until then.
+      const earlier = movement.date < `${romeToday(Date.parse(movement.linked_at)).slice(0, 7)}-01`;
+      if (savings && !earlier && (!match || (await one('SELECT category_id FROM transactions WHERE id = ?', transactionId))?.category_id === savingsCategory(categories))) await allocateSavings(transactionId, hid);
     }
   }
 
@@ -455,7 +473,7 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
     try {
       for (const account of accounts) {
         const last = await one('SELECT MAX(date) AS date FROM bank_movements WHERE account_id = ?', account.id);
-        const from = last?.date ? addDays(last.date, -10) : addDays(romeToday(clock()), -90);
+        const from = last?.date ? addDays(last.date, -10) : addDays(romeToday(clock()), -FETCHED_DAYS);
         fetched.push({ account, balance: pickBalance(await provider.balances(account.provider_uid, psu)), movements: normalizeTransactions(await provider.transactions(account.provider_uid, from, psu)) });
       }
     } catch (error) {
@@ -544,7 +562,7 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
           else await run(`INSERT INTO bank_accounts (id, household_id, connection_id, provider_uid, name, iban_hash, iban_last4, currency, visibility, import_from, created_at, savings)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(connection_id, provider_uid) DO NOTHING`,
             randomUUID(), request.household_id, connectionId, account.uid, account.name, hashValue, normalizeIban(account.iban)?.slice(-4) || null, account.currency,
-            request.visibility, monthStart(), now(), 0);
+            request.visibility, importStart(now()), now(), 0);
         }
         await purgeCards(request.household_id);
         const empty = await all(`SELECT id, session_secret FROM bank_connections c WHERE c.user_id = ? AND c.id <> ? AND NOT EXISTS (SELECT 1 FROM bank_accounts a WHERE a.connection_id = c.id)`, request.user_id, connectionId);

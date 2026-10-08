@@ -137,7 +137,7 @@ test('a family can manage money, goals, shopping and pinned files on desktop and
   await expect(page.locator('.daily-panel .daily-row strong')).toHaveText(['Lista della spesa', 'Menu settimanale', 'Conferimento rifiuti', 'Scadenze', 'Lavagna di famiglia']);
   await expect(page.locator('.daily-panel .daily-row').last()).toHaveText('Lavagna di famiglia');
   await expect(page.locator('.daily-divider, .note-peek')).toHaveCount(0);
-  await expect(page.locator('.overview-bottom .section-heading h2')).toHaveText(['I nostri prossimi traguardi', 'Gli ultimi movimenti']);
+  await expect(page.locator('.overview-bottom .section-heading h2')).toHaveText(['I nostri prossimi traguardi', 'Gli ultimi movimenti', 'I mesi a confronto']);
   await expect(page.locator('.legend-row').first().locator('.legend-amounts')).toHaveText('800,00 €/960,00 €');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('panoramica.png'), fullPage: true });

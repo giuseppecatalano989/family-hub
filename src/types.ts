@@ -50,7 +50,7 @@ export interface BankAccount {
 }
 export interface BankConnection { id: string; bank: string; country: string; status: 'active' | 'expired' | 'error'; valid_until: string; last_error: string | null }
 export interface BankState { configured: boolean; total: number; savingsTotal: number; accounts: BankAccount[]; connections: BankConnection[]; savingsStrategy: 'primary' | 'proportional'; savingsUnassigned: number }
-export type DashboardCard = 'income' | 'expense' | 'balance' | 'savings' | 'spending' | 'home' | 'goals' | 'recent';
+export type DashboardCard = 'income' | 'expense' | 'balance' | 'savings' | 'spending' | 'home' | 'goals' | 'recent' | 'comparison';
 export type NotificationType = 'notes' | 'shopping' | 'meals' | 'deadlines' | 'budget' | 'waste' | 'bank';
 
 // Totals of a past month for the comparison; categories maps category id ('' for unclassified) to cents.

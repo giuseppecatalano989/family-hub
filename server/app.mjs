@@ -48,8 +48,8 @@ function boolean(value) {
         fail('Valore non valido.');
     return value ? 1 : 0;
 }
-// Overview cards in their default order: four figures, then four panels.
-const DASHBOARD_CARDS = ['income', 'expense', 'balance', 'savings', 'spending', 'home', 'goals', 'recent'];
+// Overview cards in their default order: four figures, then five panels.
+const DASHBOARD_CARDS = ['income', 'expense', 'balance', 'savings', 'spending', 'home', 'goals', 'recent', 'comparison'];
 function dashboardPreferences(row) {
     let saved = {};
     try { saved = row ? JSON.parse(row.cards) : {}; } catch { saved = {}; }
@@ -366,7 +366,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             streamFamilyBackup(db, dataDir, req.user.household_id, res, next);
     });
     // Monthly totals of the six months up to the selected one, for the comparison
-    // in Ripartizione budget. Aggregates only: private records are never itemised.
+    // in Entrate, Uscite and the overview. Aggregates only: private records are never itemised.
     async function monthlyHistory(hid, month) {
         const months = Array.from({ length: 6 }, (_, index) => {
             const date = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5)) - 6 + index, 1));
