@@ -642,3 +642,25 @@ test('quarterly and semiannual deadlines repeat from the starting month and old 
   assert.deepEqual(migrated.prepare('PRAGMA foreign_key_check').all(), []);
   migrated.close();
 });
+
+test('the administrator removes a member with their password, keeping shared records in the family', async () => {
+  const owner = await register(); const categoryId = (await state(owner)).categories[0].id;
+  const invitation = await (await request('/invitation', { method: 'POST', session: owner })).json();
+  const bob = await register('bob@example.it', { name: 'Bob', inviteCode: invitation.code });
+  const stranger = await register('eve@example.it', { name: 'Eve' });
+  const expense = await create('/transactions', { kind: 'expense', amount: 1250, categoryId, description: 'Pane', date: '2026-10-05' }, bob);
+  const remove = (id, session, currentPassword = 'password-test-123') => request(`/members/${id}`, { method: 'DELETE', body: { currentPassword }, session });
+  assert.equal((await remove(owner.user.id, bob)).status, 403);
+  assert.equal((await remove(bob.user.id, owner, 'password-errata-1')).status, 400);
+  assert.equal((await remove(owner.user.id, owner)).status, 404);
+  assert.equal((await remove(stranger.user.id, owner)).status, 404);
+  assert.equal((await request('/state?month=2026-10', { session: bob })).status, 200);
+  assert.equal((await remove(bob.user.id, owner)).status, 200);
+  assert.equal((await request('/state?month=2026-10', { session: bob })).status, 401);
+  const after = await state(owner);
+  assert.deepEqual(after.members.map(m => m.name), ['Alice']);
+  const kept = after.transactions.find(t => t.id === expense.id);
+  assert.equal(kept.amount, 1250);
+  assert.equal((await request('/auth/login', { method: 'POST', body: { email: 'bob@example.it', password: 'password-test-123' } })).status, 401);
+  assert.equal((await remove(bob.user.id, owner)).status, 404);
+});

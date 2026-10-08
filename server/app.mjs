@@ -15,6 +15,7 @@ import { RECOVERY_SCHEMA, createRecovery } from './recovery.mjs';
 import { installGoalSavings } from './goal-savings.mjs';
 import { resetEmailSender, DEFAULT_APP_URL } from './reset-email.mjs';
 import { installChunkUploads } from './uploads.mjs';
+import { detachMember } from './member-removal.mjs';
 import { installBank, enableBankingProvider, presentTransactions } from './bank.mjs';
 const MAX_CENTS = 1000000000;
 const COLORS = ['mint', 'amber', 'blue', 'rose', 'neutral'];
@@ -327,6 +328,27 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         const expires = Date.now() + 7 * 86400000;
         await run('UPDATE households SET invite_hash = ?, invite_expires = ? WHERE id = ?', hash(code), expires, req.user.household_id);
         res.json({ code, expiresAt: new Date(expires).toISOString() });
+    });
+    // The administrator removes a member after confirming with their own password:
+    // shared records move to the administrator, the member's accesses are revoked.
+    app.delete('/api/members/:id', async (req, res) => {
+        if (req.user.role !== 'admin')
+            fail('Solo chi ha creato lo spazio può rimuovere i membri.', 403);
+        const current = text(req.body?.currentPassword, 'Password attuale', 128);
+        const secrets = await atomic(async () => {
+            const admin = await one('SELECT password_hash FROM users WHERE id = ?', req.user.id);
+            if (!passwordMatches(current, admin.password_hash))
+                fail('Password attuale non corretta.', 400);
+            const member = await one("SELECT id FROM users WHERE id = ? AND household_id = ? AND role = 'member'", req.params.id, req.user.household_id);
+            if (!member)
+                fail('Membro non trovato.', 404);
+            const connections = await all('SELECT session_secret FROM bank_connections WHERE user_id = ? AND session_secret IS NOT NULL', member.id);
+            await detachMember(run, member.id, req.user.id);
+            await run("DELETE FROM users WHERE id = ? AND role = 'member'", member.id);
+            return connections.map(c => c.session_secret);
+        });
+        await bank.endSessions(secrets);
+        res.json({ ok: true });
     });
     const workflows = installWorkflows(app, { db, one, all, run, atomic, owned, fail, text, cents, date, now });
     const deadlines = installDeadlines(app, { db, one, all, run, atomic, owned, fail, text, cents, date, now });

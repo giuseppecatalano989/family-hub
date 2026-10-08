@@ -75,7 +75,11 @@ La sezione **Impostazioni** è divisa in quattro categorie, ognuna con le sue im
 
 Ogni categoria ha un indirizzo proprio (`#settings/conti`, `#settings/panoramica`, `#settings/famiglia`, `#settings/backup`); i vecchi indirizzi `#bank`, `#backups` e `#settings/preferenze` restano validi. Le impostazioni e gli inviti rimangono riservati alla propria famiglia.
 
-La sezione **Famiglia e inviti** genera un link valido sette giorni, oltre al codice. Il link usa un frammento URL, che non viene inviato al server, apre la registrazione con il codice già compilato e viene ripulito dalla barra degli indirizzi. Generare un nuovo invito sostituisce il precedente. Il logout è il pulsante con freccia accanto al nome nella barra laterale.
+La sezione **Famiglia e inviti** genera un link valido sette giorni, oltre al codice. Il link usa un frammento URL, che non viene inviato al server, apre la registrazione con il codice già compilato e viene ripulito dalla barra degli indirizzi. Generare un nuovo invito sostituisce il precedente.
+
+Nella stessa sezione l'amministratore può rimuovere un membro con l'icona accanto al nome, confermando con la propria password. L'account viene eliminato e i suoi accessi chiusi; movimenti, accantonamenti, appunti, spesa, pasti, ricorrenze e scadenze gestite restano alla famiglia, attribuiti all'amministratore. I suoi collegamenti bancari vengono chiusi anche presso il fornitore, e le sue uscite private restano nel budget come “Movimento bancario privato”. L'amministratore non può essere rimosso.
+
+Il logout è il pulsante con freccia accanto al nome nella barra laterale.
 
 Le nuove tabelle sono create in modo additivo, senza modificare o cancellare i dati esistenti. Ricorrenze, versioni, mesi saltati e template fanno parte dei backup dell'istanza, del ripristino cloud e dell'esportazione familiare. I backup precedenti alle nuove tabelle possono ancora essere ripristinati in un nuovo database.
 
@@ -321,6 +325,6 @@ public/                  Logo, icone, manifest e service worker delle notifiche
 
 L’app non esegue pagamenti e non invia notifiche push; i conti bancari sono collegati in sola lettura. Il recupero password richiede la configurazione del servizio email descritta sopra. Il deployment gratuito richiede il collegamento dei propri account Vercel e Neon; la pubblicazione dell’ambiente Codex non pubblica la webapp. Il comando di build Vercel è `npm run build`, impostato nel progetto (o ricavato dal framework Vite).
 
-La rimozione di un membro richiesta al gestore usa esclusivamente il comando privato `server/member-removal-cli.mjs`, con `DATABASE_URL` backend e argomenti `--request-id`, `--member` e `--admin`. Richiede una corrispondenza univoca dei nomi nella stessa famiglia, conserva una copia privata prima della rimozione, revoca gli accessi e trasferisce i record condivisi all’amministratore. Non rimuove amministratori né dati familiari. Riutilizzare lo stesso identificativo di richiesta non elimina un account ricreato. Il comando non è esposto via HTTP e non fa parte della build ordinaria; può essere eseguito con un comando di build specifico di un singolo deployment.
+La rimozione di un membro richiesta al gestore, per nome e con una copia privata preventiva, usa il comando privato `server/member-removal-cli.mjs`, con `DATABASE_URL` backend e argomenti `--request-id`, `--member` e `--admin`. Richiede una corrispondenza univoca dei nomi nella stessa famiglia, conserva una copia privata prima della rimozione, revoca gli accessi e trasferisce i record condivisi all’amministratore. Non rimuove amministratori né dati familiari. Riutilizzare lo stesso identificativo di richiesta non elimina un account ricreato. Il comando non è esposto via HTTP e non fa parte della build ordinaria; può essere eseguito con un comando di build specifico di un singolo deployment.
 
 Scelte e limiti dell’integrazione bancaria, in sola lettura di saldo e movimenti e senza pagamenti, sono annotati in [docs/banking-integration.md](docs/banking-integration.md).

@@ -506,6 +506,8 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
 
   return {
     configured: !!provider,
+    // Ends provider sessions (encrypted secrets) after their links were deleted.
+    endSessions: endRemote,
     // Called inside the transaction that deletes or edits a record.
     releaseSavings,
     // After an edit: allocations follow amount, date and category; filing a bank

@@ -183,3 +183,4 @@
 @media(max-width:1250px){.settings-tabs{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:650px){.settings-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:650px){.settings-tabs{gap:8px}.settings-tab{padding:12px;gap:10px}.settings-tab small{display:none}.settings-tab strong{font-size:14.5px}}
+.share-members>div>span:nth-of-type(2){margin-left:auto;font-size:10.30px;color:#74816b}.share-members>div>.icon-button{margin-right:-7px}.button.danger{background:var(--red);color:#fff;border:1px solid var(--red)}.button.danger:hover{filter:brightness(.93)}.member-removal{padding:0!important;margin-bottom:22px}.member-removal .form-hint strong{display:block;color:#4c5750;font-size:13.73px;margin-bottom:6px}.member-removal .modal-footer{margin-top:0;padding-top:16px}.family-settings .member-removal .button{margin-bottom:0}
