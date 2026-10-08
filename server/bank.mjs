@@ -95,6 +95,8 @@ export function parseAmount(value) {
 }
 const normalizeIban = value => typeof value === 'string' && /^[A-Z]{2}\d{2}[A-Z0-9]{8,30}$/.test(value.replace(/\s/g, '').toUpperCase()) ? value.replace(/\s/g, '').toUpperCase() : null;
 const ibanHash = value => { const iban = normalizeIban(value); return iban ? sha256(`iban:${iban}`) : null; };
+// Only accounts with an IBAN are linked: cards (no IBAN or type CARD) and loans are skipped.
+export const eligibleAccount = account => !!normalizeIban(account?.iban) && !['CARD', 'LOAN'].includes(account?.type);
 const matchKey = value => String(value || '').toLocaleLowerCase('it').replace(/[0-9]+/g, ' ').replace(/[^\p{L} ]+/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
 
 const AVAILABLE = ['ITAV', 'CLAV', 'XPCD'];
@@ -263,6 +265,20 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
       await run('UPDATE goals SET saved = CASE WHEN saved > ? THEN saved - ? ELSE 0 END WHERE id = ?', link.amount, link.amount, link.goal_id);
     }
   }
+  // Removes a linked account with its bank copies. Records imported from it stay,
+  // unless it should never have been linked (a card), in which case they go too.
+  async function dropAccount(accountId, hid, dropImported) {
+    if (dropImported) for (const { transaction_id: id } of await all("SELECT transaction_id FROM bank_movements WHERE account_id = ? AND status = 'imported' AND transaction_id IS NOT NULL", accountId)) {
+      await releaseSavings(id);
+      await run('DELETE FROM transactions WHERE id = ? AND household_id = ?', id, hid);
+    }
+    await run('DELETE FROM savings_destinations WHERE household_id = ? AND destination_key = ?', hid, `account:${accountId}`);
+    await run('DELETE FROM bank_accounts WHERE id = ? AND household_id = ?', accountId, hid);
+  }
+  // Cards linked before the IBAN rule are removed with what they imported.
+  async function purgeCards(hid) {
+    for (const { id } of await all('SELECT id FROM bank_accounts WHERE household_id = ? AND iban_hash IS NULL', hid)) await dropAccount(id, hid, true);
+  }
   // A savings deposit is shared among the goals with a monthly plan, considering
   // what earlier deposits of the same month already gave them.
   async function allocateSavings(transactionId, hid) {
@@ -418,14 +434,19 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
       if (!request || request.expires <= clock() || !session || session.id !== request.user_id || session.household_id !== request.household_id) return back('errore');
       if (req.query.error || typeof req.query.code !== 'string' || !req.query.code || req.query.code.length > 500) return back('annullato');
       const created = await provider.createSession(req.query.code, psuOf(req));
-      if (!created.sessionId || !created.accounts.length) { await endRemote(created.sessionId ? [encrypt(created.sessionId)] : []); return back('nessun-conto'); }
+      const eligible = created.accounts.filter(eligibleAccount);
+      if (!created.sessionId || !eligible.length) { await endRemote(created.sessionId ? [encrypt(created.sessionId)] : []); return back('nessun-conto'); }
       const connectionId = randomUUID();
       const validUntil = Number.isFinite(Date.parse(created.validUntil)) ? new Date(Date.parse(created.validUntil)).toISOString() : new Date(clock() + 90 * DAY).toISOString();
       const replaced = await atomic(async () => {
         await run("INSERT INTO bank_connections VALUES (?, ?, ?, ?, ?, ?, ?, 'active', NULL, NULL, NULL, ?)", connectionId, request.household_id, request.user_id, request.aspsp_name, request.aspsp_country, encrypt(created.sessionId), validUntil, now());
-        for (const account of created.accounts) {
+        // Cards with an IBAN that were linked earlier leave with their imports.
+        for (const card of created.accounts.filter(a => !eligibleAccount(a) && ibanHash(a.iban))) {
+          for (const { id } of await all('SELECT a.id FROM bank_accounts a JOIN bank_connections c ON c.id = a.connection_id WHERE c.user_id = ? AND a.iban_hash = ?', request.user_id, ibanHash(card.iban))) await dropAccount(id, request.household_id, true);
+        }
+        for (const account of eligible) {
           const hashValue = ibanHash(account.iban);
-          // Accounts the owner removed stay out of a renewed consent, but can be restored.
+          // Accounts the owner removed stay hidden in a renewed consent.
           const excluded = await one('SELECT id FROM bank_account_exclusions WHERE user_id = ? AND account_key = ?', request.user_id, hashValue ? `iban:${hashValue}` : `uid:${account.uid}`);
           if (excluded) { await run('UPDATE bank_account_exclusions SET connection_id = ?, provider_uid = ? WHERE id = ?', connectionId, account.uid, excluded.id); continue; }
           // Renewing a consent keeps the account, its visibility and its history.
@@ -438,6 +459,7 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
             randomUUID(), request.household_id, connectionId, account.uid, account.name, hashValue, normalizeIban(account.iban)?.slice(-4) || null, account.currency,
             request.visibility, monthStart(), now(), account.type === 'SVGS' || SAVINGS.test(`${request.aspsp_name} ${account.name}`.toLocaleLowerCase('it')) ? 1 : 0);
         }
+        await purgeCards(request.household_id);
         const empty = await all(`SELECT id, session_secret FROM bank_connections c WHERE c.user_id = ? AND c.id <> ? AND NOT EXISTS (SELECT 1 FROM bank_accounts a WHERE a.connection_id = c.id)`, request.user_id, connectionId);
         for (const old of empty) await run('DELETE FROM bank_connections WHERE id = ?', old.id);
         return empty.map(old => old.session_secret).filter(Boolean);
@@ -509,6 +531,7 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
       // owner present; other members' accounts only within the unattended limit.
       app.post('/api/bank/refresh', async (req, res) => {
         if (!provider) return res.json({ synced: 0 });
+        await atomic(() => purgeCards(req.user.household_id));
         let synced = 0;
         for (const connection of await all("SELECT * FROM bank_connections WHERE household_id = ? AND status IN ('active', 'error')", req.user.household_id)) {
           const mine = connection.user_id === req.user.id;
@@ -527,33 +550,19 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
             ON CONFLICT(user_id, account_key) DO UPDATE SET connection_id = excluded.connection_id, provider_uid = excluded.provider_uid, name = excluded.name`,
             randomUUID(), req.user.household_id, req.user.id, account.iban_hash ? `iban:${account.iban_hash}` : `uid:${account.provider_uid}`, account.connection_id, account.provider_uid,
             account.name, account.iban_hash, account.iban_last4, account.currency, now());
-          await run('DELETE FROM savings_destinations WHERE household_id = ? AND destination_key = ?', req.user.household_id, `account:${account.id}`);
-          // Its bank copies and balance go; records already in Entrate and Uscite stay.
-          await run('DELETE FROM bank_accounts WHERE id = ?', account.id);
+          // It disappears with its bank copies and balance; records already in Entrate and Uscite stay.
+          await dropAccount(account.id, req.user.household_id, false);
         });
-        res.json({ ok: true });
-      });
-      app.post('/api/bank/exclusions/:id/restore', async (req, res) => {
-        const connection = await atomic(async () => {
-          const excluded = await one('SELECT * FROM bank_account_exclusions WHERE id = ? AND household_id = ? AND user_id = ?', req.params.id, req.user.household_id, req.user.id);
-          if (!excluded) fail('Conto non trovato.', 404);
-          const target = excluded.connection_id && await one('SELECT * FROM bank_connections WHERE id = ? AND user_id = ?', excluded.connection_id, req.user.id);
-          if (!target || !excluded.provider_uid) fail('Collega di nuovo la banca per ripristinare questo conto.');
-          const sibling = await one('SELECT visibility FROM bank_accounts WHERE connection_id = ? ORDER BY created_at LIMIT 1', target.id);
-          await run(`INSERT INTO bank_accounts (id, household_id, connection_id, provider_uid, name, iban_hash, iban_last4, currency, visibility, import_from, created_at, savings)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(connection_id, provider_uid) DO NOTHING`,
-            randomUUID(), req.user.household_id, target.id, excluded.provider_uid, excluded.name, excluded.iban_hash, excluded.iban_last4, excluded.currency,
-            sibling?.visibility || 'shared', monthStart(), now(), SAVINGS.test(`${target.aspsp_name} ${excluded.name}`.toLocaleLowerCase('it')) ? 1 : 0);
-          await run('DELETE FROM bank_account_exclusions WHERE id = ?', excluded.id);
-          return target;
-        });
-        if (provider && connection.status !== 'expired') await syncConnection({ ...connection, last_attempt_at: null }, psuOf(req));
         res.json({ ok: true });
       });
       app.delete('/api/bank/connections/:id', async (req, res) => {
         const connection = await ownConnection(req.params.id, req.user);
         // Imported records stay in Entrate/Uscite; bank copies and balances are removed.
-        await atomic(async () => { await run('DELETE FROM bank_connections WHERE id = ? AND user_id = ?', connection.id, req.user.id); });
+        // Unlinking also forgets removed accounts: linking the bank again shows them all.
+        await atomic(async () => {
+          await run('DELETE FROM bank_account_exclusions WHERE connection_id = ? AND user_id = ?', connection.id, req.user.id);
+          await run('DELETE FROM bank_connections WHERE id = ? AND user_id = ?', connection.id, req.user.id);
+        });
         await endRemote(connection.session_secret ? [connection.session_secret] : []);
         res.json({ ok: true });
       });
@@ -621,12 +630,8 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
         total: accounts.filter(a => a.currency === 'EUR' && a.balance !== null).reduce((sum, a) => sum + Number(a.balance), 0),
         accounts: accounts.map(({ user_id, last_error, ...a }) => ({ ...a, savings: !!a.savings, balance: a.balance === null ? null : Number(a.balance), mine: user_id === user.id, last_error: user_id === user.id ? last_error : null })),
         movements: movements.map(m => ({ ...m, amount: Number(m.amount) })),
-        // The owner's links, including accounts removed from a consent (restorable).
-        connections: await (async () => {
-          const rows = await all('SELECT id, aspsp_name AS bank, status, valid_until, last_error FROM bank_connections WHERE household_id = ? AND user_id = ? ORDER BY created_at', user.household_id, user.id);
-          const excluded = await all('SELECT id, connection_id, name, iban_last4 FROM bank_account_exclusions WHERE household_id = ? AND user_id = ? ORDER BY name', user.household_id, user.id);
-          return rows.map(c => ({ ...c, excluded: excluded.filter(e => e.connection_id === c.id).map(({ connection_id, ...e }) => e) }));
-        })(),
+        // The owner's links; removed accounts are not shown.
+        connections: await all('SELECT id, aspsp_name AS bank, status, valid_until, last_error FROM bank_connections WHERE household_id = ? AND user_id = ? ORDER BY created_at', user.household_id, user.id),
         savingsStrategy: (await one('SELECT strategy FROM savings_settings WHERE household_id = ?', user.household_id))?.strategy || 'proportional',
       };
     },
@@ -634,6 +639,7 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
     async synchronizeAll({ minAgeMs = UNATTENDED_SYNC_MS } = {}) {
       if (!provider) return;
       await run('DELETE FROM bank_auth_requests WHERE expires <= ?', clock());
+      for (const { household_id: hid } of await all('SELECT DISTINCT household_id FROM bank_accounts WHERE iban_hash IS NULL')) await atomic(() => purgeCards(hid));
       for (const connection of await all("SELECT * FROM bank_connections WHERE status IN ('active', 'error')")) {
         if (connection.last_attempt_at && clock() - Date.parse(connection.last_attempt_at) < minAgeMs) continue;
         try { await syncConnection(connection, null); }

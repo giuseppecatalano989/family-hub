@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Landmark, Plus, ShieldCheck, AlertCircle, X, Unlink, RotateCcw } from 'lucide-react';
+import { Landmark, Plus, ShieldCheck, AlertCircle, X, Unlink } from 'lucide-react';
 import { Empty, Modal, SectionHeading } from './components';
 import { api } from './api';
 import { readableDate } from './finance';
@@ -33,12 +33,11 @@ export function Bank({ data, act, busy, navigate }: Props) {
           </div>
           {accounts.length > 0 && <div className="recurring-grid">{accounts.map(account => <div className="recurring-card bank-card" key={account.id}>
             <div className="recurring-top"><span className="bank-badges"><span className={`badge ${account.visibility === 'shared' ? 'green' : ''}`}>{account.visibility === 'shared' ? 'Condiviso' : 'Movimenti privati'}</span>{account.savings && <span className="badge green">Risparmio</span>}</span>
-              {accounts.length > 1 && <button className="icon-button danger" aria-label={`Rimuovi ${account.name}`} title="Rimuovi conto" disabled={busy} onClick={() => { if (confirm(`Rimuovere “${account.name}”? Non verrà più letto né contato nel saldo; ${connection.bank} resta collegata e potrai ripristinarlo.`)) void act(`/bank/accounts/${account.id}`, 'DELETE').catch(() => {}); }}><X size={16} /></button>}</div>
+              {accounts.length > 1 && <button className="icon-button danger" aria-label={`Rimuovi ${account.name}`} title="Rimuovi conto" disabled={busy} onClick={() => { if (confirm(`Rimuovere “${account.name}”? Sparirà dalla vista e non verrà più letto né contato nel saldo; ${connection.bank} resta collegata. Per riaverlo dovrai scollegare e ricollegare la banca.`)) void act(`/bank/accounts/${account.id}`, 'DELETE').catch(() => {}); }}><X size={16} /></button>}</div>
             <h4>{account.name}</h4>
             <p>{account.iban_last4 ? `•••• ${account.iban_last4}` : 'Conto senza IBAN'}</p>
             <label className="bank-visibility">Con la famiglia condividi<select value={account.visibility} disabled={busy} onChange={e => void act(`/bank/accounts/${account.id}`, 'PATCH', { visibility: e.target.value }).catch(() => {})}><option value="shared">Saldo e movimenti</option><option value="balance">Saldo e totali, movimenti privati</option></select></label>
           </div>)}</div>}
-          {connection.excluded.length > 0 && <div className="bank-excluded"><span>Conti rimossi</span>{connection.excluded.map(e => <div key={e.id}><strong>{e.name}</strong>{e.iban_last4 && <small>•••• {e.iban_last4}</small>}<button className="text-button" disabled={busy} onClick={() => void act(`/bank/exclusions/${e.id}/restore`, 'POST').catch(() => {})}><RotateCcw size={14} />Ripristina</button></div>)}</div>}
         </article>;
       }) : <section className="panel"><Empty icon={<Landmark size={26} />} title="Nessun conto collegato" description="Collega il tuo conto in sola lettura: il saldo entra nel totale di famiglia e i movimenti diventano entrate e uscite del budget." action="Collega una banca" onAction={() => setConnect({})} /></section>}
     </section>

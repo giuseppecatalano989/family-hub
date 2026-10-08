@@ -47,5 +47,5 @@ export interface BankAccount {
   status: 'active' | 'expired' | 'error'; valid_until: string; last_sync_at: string | null; last_error: string | null;
 }
 export interface BankMovement { id: string; account_id: string; kind: 'income' | 'expense'; amount: number; date: string; description: string; status: 'stored' | 'imported' | 'matched' | 'transfer'; transaction_id: string | null }
-export interface BankConnection { id: string; bank: string; status: 'active' | 'expired' | 'error'; valid_until: string; last_error: string | null; excluded: { id: string; name: string; iban_last4: string | null }[] }
+export interface BankConnection { id: string; bank: string; status: 'active' | 'expired' | 'error'; valid_until: string; last_error: string | null }
 export interface BankState { configured: boolean; total: number; accounts: BankAccount[]; movements: BankMovement[]; connections: BankConnection[]; savingsStrategy: 'primary' | 'proportional' }

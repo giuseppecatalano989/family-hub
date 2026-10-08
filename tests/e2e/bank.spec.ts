@@ -19,12 +19,10 @@ test('a member links a bank in read-only mode, sees the family balance and impor
   await expect(page).toHaveURL(/\/#bank$/);
   const group = page.locator('.bank-group'); await expect(group).toContainText('Intesa Sanpaolo'); await expect(group).toContainText('Consenso valido fino al');
   const card = page.locator('.bank-card', { hasText: 'Conto Famiglia' }); await expect(card).toContainText('•••• 3456');
-  // One consent, two accounts: removing the card keeps the bank linked and can be undone.
-  page.once('dialog', d => d.accept()); await page.getByRole('button', { name: 'Rimuovi Carta prepagata' }).click();
-  await expect(page.locator('.bank-card')).toHaveCount(1); await expect(page.locator('.bank-excluded')).toContainText('Carta prepagata');
-  await page.locator('.bank-excluded').getByRole('button', { name: 'Ripristina' }).click();
-  await expect(page.locator('.bank-card')).toHaveCount(2);
-  page.once('dialog', d => d.accept()); await page.getByRole('button', { name: 'Rimuovi Carta prepagata' }).click(); await expect(page.locator('.bank-card')).toHaveCount(1);
+  // Cards are never linked; removing one of two current accounts keeps the bank and hides it.
+  await expect(page.locator('.bank-card')).toHaveCount(2); await expect(group).not.toContainText('Carta di credito');
+  page.once('dialog', d => d.accept()); await page.getByRole('button', { name: 'Rimuovi Conto secondario' }).click();
+  await expect(page.locator('.bank-card')).toHaveCount(1); await expect(group).not.toContainText('Conto secondario'); await expect(page.getByRole('button', { name: 'Ripristina' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Rimuovi Conto Famiglia' })).toHaveCount(0);
   // Linking only: no balances, refresh or movements in this section.
   await expect(group).not.toContainText('2.345,67'); await expect(page.locator('.transactions-panel')).toHaveCount(0); await expect(page.getByRole('button', { name: /^Aggiorna/ })).toHaveCount(0);

@@ -86,7 +86,7 @@ export default function App() {
       collegato: ['Conto collegato: saldo e movimenti sono aggiornati.', false],
       'collegato-errore': ['Conto collegato, ma il primo aggiornamento non è riuscito. Riprova da Conti bancari.', true],
       annullato: ['Collegamento annullato sul sito della banca.', true],
-      'nessun-conto': ['La banca non ha condiviso alcun conto. Riprova selezionando almeno un conto.', true],
+      'nessun-conto': ['La banca non ha condiviso conti correnti con IBAN: le carte non vengono collegate. Riprova selezionando il conto corrente.', true],
     };
     const [message, error] = messages[outcome] || ['Collegamento non riuscito o scaduto. Riprova da Conti bancari.', true];
     setToast({ message, error });
