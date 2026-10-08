@@ -679,3 +679,13 @@ test('the state compares the last six months with totals by category, without it
   assert.deepEqual(history[5], { month: '2026-10', income: 5000, budgetIncome: 0, expense: 3000, categories: { [food.id]: 3000 } });
   assert.equal((await state(owner, '2027-01')).history[0].month, '2026-08');
 });
+
+test('months before the first recurring income borrow its budget base', async () => {
+  const owner = await register();
+  await create('/recurring', { kind: 'income', name: 'Stipendio', amount: 200000, startMonth: '2026-10', day: 27, enabled: true }, owner);
+  await create('/recurring', { kind: 'income', name: 'Affitto box', amount: 5000, startMonth: '2026-10', day: 1, enabled: true }, owner);
+  assert.equal((await state(owner, '2026-10')).budgetFallback, null);
+  assert.deepEqual((await state(owner, '2026-08')).budgetFallback, { month: '2026-10', amount: 205000 });
+  assert.equal((await state(owner, '2026-11')).budgetFallback, null);
+  assert.equal((await state(await register('altro@example.it'), '2026-08')).budgetFallback, null);
+});

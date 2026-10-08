@@ -387,6 +387,13 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             return entry;
         });
     }
+    // Months before the first recurring income borrow that month's base, so
+    // the split shows real amounts for history imported from the bank.
+    async function budgetFallback(hid, month) {
+        const first = await one(`SELECT substr(t.date, 1, 7) AS month, SUM(t.amount) AS amount FROM transactions t JOIN recurring_occurrences o ON o.transaction_id = t.id
+            WHERE t.household_id = ? AND t.kind = 'income' GROUP BY 1 ORDER BY 1 LIMIT 1`, hid);
+        return first && month < first.month ? { month: first.month, amount: Number(first.amount) } : null;
+    }
     app.get('/api/state', async (req, res) => {
         const month = req.query.month;
         if (typeof month !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || month < '1900-01' || month > '2199-12')
@@ -409,6 +416,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             categories: await all('SELECT * FROM categories WHERE household_id = ? ORDER BY position', hid),
             transactions: presentTransactions(await all(`SELECT t.*, u.name AS author, o.rule_id AS recurring_id, p.owner_id AS private_owner, (SELECT a.name FROM bank_movements m JOIN bank_accounts a ON a.id = m.account_id WHERE m.transaction_id = t.id) AS bank_account FROM transactions t JOIN users u ON u.id = t.author_id LEFT JOIN recurring_occurrences o ON o.transaction_id = t.id LEFT JOIN private_transactions p ON p.transaction_id = t.id WHERE t.household_id = ? AND substr(t.date, 1, 7) = ? ORDER BY t.date DESC, t.created_at DESC`, hid, month), req.user.id),
             history: await monthlyHistory(hid, month),
+            budgetFallback: await budgetFallback(hid, month),
             ...await savings.state(hid),
             shopping: await all('SELECT s.*, u.name AS author FROM shopping s JOIN users u ON u.id = s.author_id WHERE s.household_id = ? ORDER BY s.checked, s.created_at DESC', hid),
             notes: notes.map(note => ({ ...note, attachments: attachments.filter(a => a.note_id === note.id).map(({ storage_name, ...a }) => a) })),

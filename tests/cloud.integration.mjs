@@ -503,6 +503,10 @@ test('cloud databases accept quarterly deadlines after the old check, compare mo
   await create('/transactions', { kind: 'expense', amount: 1000, categoryId, description: 'Spesa', date: '2026-09-03' }, owner);
   const history = (await state(owner)).history;
   assert.deepEqual(history.slice(-2).map(m => [m.month, m.expense, m.categories[categoryId]]), [['2026-09', 1000, 1000], ['2026-10', 4250, 4250]]);
+  await create('/recurring', { kind: 'income', name: 'Stipendio', amount: 150000, day: 27, startMonth: '2026-10', enabled: true }, owner);
+  await state(owner);
+  const august = await json(await request('/state?month=2026-08', { session: owner }));
+  assert.deepEqual(august.budgetFallback, { month: '2026-10', amount: 150000 });
   assert.equal((await request(`/members/${member.user.id}`, { method: 'DELETE', body: { currentPassword: 'password-errata' }, session: owner })).status, 400);
   await json(await request(`/members/${member.user.id}`, { method: 'DELETE', body: { currentPassword: 'test-password-123' }, session: owner, target: restarted.base }));
   assert.equal((await request('/state?month=2026-10', { session: member })).status, 401);

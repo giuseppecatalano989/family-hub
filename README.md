@@ -24,6 +24,8 @@ Le Scadenze sono promemoria con eventuale pagamento manuale: evita di registrare
 
 La ripartizione usa come base solo le **entrate ricorrenti** del mese: gli stipendi e le altre entrate impostate come ricorrenti. Le entrate occasionali (vendite, rimborsi, regali), inserite a mano o importate dalla banca, compaiono in Entrate e nel saldo del mese ma non aumentano i massimali delle categorie. Per includerne una, registrala come ricorrente.
 
+Lo schema di percentuali è uno solo e vale per tutti i mesi: cambiarlo aggiorna subito anche i mesi passati, a metà mese come tra un mese e l’altro. Varia invece la base, cioè le entrate ricorrenti di ciascun mese. I mesi precedenti alla prima entrata ricorrente, ad esempio quelli importati dalla banca, usano la base di quel primo mese, indicata in Ripartizione budget.
+
 **Ripartizione budget → Modifica schema** offre quattro schemi fissi e **Pers.**, il solo modificabile:
 
 | Schema | Casa e bollette | Alimentari | Trasporti | Salute e famiglia | Svago | Risparmio |
