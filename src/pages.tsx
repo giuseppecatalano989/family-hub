@@ -76,7 +76,35 @@ export function Budget({ data, open }: Props) {
   return <><div className="budget-intro"><div><span className="eyebrow">UN PIANO PER IL VOSTRO MESE</span><h2>Ogni euro, al posto giusto.</h2><p>Dividete le entrate per ciò che conta per voi.<br />Le percentuali sono uno schema condiviso, modificabile nel tempo.</p></div><div className="budget-income"><span>Entrate da ripartire</span><strong>{money(income)}</strong><small>entrate ricorrenti del mese</small></div></div><section className="panel"><div className="section-heading"><h2>La nostra ripartizione</h2><button className="button secondary" onClick={() => open({ type: 'budget' })}><Pencil size={16} />Modifica schema</button></div><div className="allocation-bar" role="img" aria-label={data.categories.map(c => `${c.name} ${c.percentage / 100}%`).join(', ')}>{data.categories.map(c => <span key={c.id} style={{ width: `${c.percentage / 100}%`, background: c.color }} />)}</div><div className="budget-grid">{data.categories.map(c => {
     const spent = spentByCategory(data, c.id); const limit = budgets[c.id]; const over = spent > limit;
     return <article className="budget-category" key={c.id}><div className="budget-category-heading"><span className="category-dot" style={{ background: c.color }} /><h3>{c.name}</h3><span className="percentage-badge" style={{ color: c.color, background: `${c.color}12` }}>{c.percentage / 100}%</span></div><div className="budget-amounts"><strong>{money(spent)}</strong><span>di {money(limit)}</span></div><Progress value={limit ? spent / limit * 100 : spent ? 100 : 0} color={over ? 'var(--red)' : c.color} /><p className={over ? 'negative' : ''}>{over ? `${money(spent - limit)} oltre il budget` : `${money(limit - spent)} ancora disponibili`}</p></article>;
-  })}</div><div className="panel-tip"><PiggyBank size={18} /><span>Scegliete uno schema predefinito oppure modificate Pers.: le percentuali devono sommare il 100%. Gli accantonamenti negli obiettivi si registrano separatamente dai movimenti.</span></div></section></>;
+  })}</div><div className="panel-tip"><PiggyBank size={18} /><span>Scegliete uno schema predefinito oppure modificate Pers.: le percentuali devono sommare il 100%. Gli accantonamenti negli obiettivi si registrano separatamente dai movimenti.</span></div></section><MonthComparison data={data} /></>;
+}
+
+const monthLabel = (month: string, style: 'short' | 'long' = 'short') => new Intl.DateTimeFormat('it-IT', { month: style, ...(style === 'long' ? { year: 'numeric' } : {}) }).format(new Date(`${month}-15T12:00:00`));
+const UNCLASSIFIED_COLOR = '#a7b0a2';
+// Spending of the last six months by category, and the selected month against the previous one.
+function MonthComparison({ data }: { data: FamilyState }) {
+  const history = data.history; const current = history[history.length - 1]; const previous = history[history.length - 2];
+  if (!current || !previous) return null;
+  const rows = [...data.categories.map(c => ({ id: c.id, name: c.name, color: c.color })), { id: '', name: 'Da classificare', color: UNCLASSIFIED_COLOR }]
+    .filter(row => row.id || history.some(m => m.categories['']));
+  const highest = Math.max(1, ...history.map(m => Math.max(m.expense, m.income)));
+  // Spending more reads as a warning; for incomes and balance, more is good news.
+  const change = (now: number, before: number, moreIsBetter = false) => now === before ? <span className="comparison-change">=</span> : <span className={`comparison-change ${(now > before) === moreIsBetter ? 'better' : 'worse'}`}>{now > before ? '+' : '−'}{money(Math.abs(now - before))}</span>;
+  const empty = history.every(m => !m.expense && !m.income);
+  return <section className="panel month-comparison"><div className="section-heading"><div><h2>Confronto tra mesi</h2><p>Gli ultimi sei mesi fino a {monthLabel(current.month, 'long')}.</p></div></div>
+    {empty ? <Empty icon={<TrendingUp size={28} />} title="Ancora nessun movimento da confrontare" description="Entrate e uscite dei mesi precedenti compariranno qui." /> : <>
+    <div className="comparison-chart" role="img" aria-label={history.map(m => `${monthLabel(m.month, 'long')}: uscite ${money(m.expense)}, entrate ${money(m.income)}`).join('; ')}>{history.map(m => <div className={`comparison-month ${m.month === current.month ? 'current' : ''}`} key={m.month}>
+      <div className="comparison-bars"><span className="comparison-income" style={{ height: `${m.income / highest * 100}%` }} /><span className="comparison-expense" style={{ height: `${m.expense / highest * 100}%` }}>{rows.map(row => m.categories[row.id] ? <i key={row.id} style={{ flexGrow: m.categories[row.id], background: row.color }} /> : null)}</span></div>
+      <strong>{monthLabel(m.month)}</strong><small>{money(m.expense)}</small></div>)}</div>
+    <div className="comparison-legend"><span><i className="comparison-income" />Entrate</span><span><i className="comparison-expense-key" />Uscite per categoria</span></div>
+    <div className="comparison-table" role="table" aria-label={`Uscite di ${monthLabel(current.month, 'long')} rispetto a ${monthLabel(previous.month, 'long')}`}>
+      <div className="comparison-row comparison-head" role="row"><span role="columnheader">Categoria</span><span role="columnheader">{monthLabel(previous.month)}</span><span role="columnheader">{monthLabel(current.month)}</span><span role="columnheader">Differenza</span></div>
+      {rows.map(row => { const now = current.categories[row.id] || 0; const before = previous.categories[row.id] || 0; return <div className="comparison-row" role="row" key={row.id}><span role="cell"><span className="category-dot" style={{ background: row.color }} />{row.name}</span><span role="cell">{money(before)}</span><span role="cell">{money(now)}</span><span role="cell">{change(now, before)}</span></div>; })}
+      <div className="comparison-row comparison-total" role="row"><span role="cell">Totale uscite</span><span role="cell">{money(previous.expense)}</span><span role="cell">{money(current.expense)}</span><span role="cell">{change(current.expense, previous.expense)}</span></div>
+      <div className="comparison-row" role="row"><span role="cell">Entrate</span><span role="cell">{money(previous.income)}</span><span role="cell">{money(current.income)}</span><span role="cell">{change(current.income, previous.income, true)}</span></div>
+      <div className="comparison-row" role="row"><span role="cell">Saldo del mese</span><span role="cell">{money(previous.income - previous.expense)}</span><span role="cell">{money(current.income - current.expense)}</span><span role="cell">{change(current.income - current.expense, previous.income - previous.expense, true)}</span></div>
+    </div></>}
+  </section>;
 }
 
 export function Goals({ data, open, act, busy }: Props) {

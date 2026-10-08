@@ -25,7 +25,8 @@ test('separate income and expenses support optional recurrence, deletion and fix
   await expect(page.locator('.recurring-card')).toContainText('800,00');await expect(page.locator('.transactions-panel .transaction-row')).toHaveCount(1);
   await expect(page.getByRole('button',{name:'Sospendi Affitto'})).toBeEnabled();await expect(page.getByRole('button',{name:'Elimina ricorrenza Affitto'})).toBeVisible();
   await go(page,'Panoramica');await expect(page.locator('.balance-card')).toContainText('1.800,01');
-  await go(page,'Ripartizione budget');await expect(page.getByRole('heading',{name:'Template di budget',exact:true})).toHaveCount(0);await expect(page.locator('.template-card')).toHaveCount(0);
+  await go(page,'Ripartizione budget');const comparison=page.locator('.month-comparison');await expect(comparison.getByRole('heading',{name:'Confronto tra mesi'})).toBeVisible();await expect(comparison.locator('.comparison-month')).toHaveCount(6);await expect(comparison.locator('.comparison-total')).toContainText('800,00');await expect(comparison.locator('.comparison-total .comparison-change')).toHaveClass(/worse/);await comparison.screenshot({path:info.outputPath('confronto.png')});
+  await expect(page.getByRole('heading',{name:'Template di budget',exact:true})).toHaveCount(0);await expect(page.locator('.template-card')).toHaveCount(0);
   await page.getByRole('button',{name:'Modifica schema'}).click();dialog=page.getByRole('dialog');
   expect(await dialog.locator('.budget-presets button').allTextContents()).toEqual(['Conservativa','Prudente','Equilibrata','Svago','Pers.']);
   await expect(dialog.getByRole('button',{name:'50 / 30 / 20'})).toHaveCount(0);await dialog.getByRole('button',{name:'Conservativa',exact:true}).click();await expect(dialog.getByLabel('Percentuale Risparmio')).toHaveJSProperty('readOnly',true);

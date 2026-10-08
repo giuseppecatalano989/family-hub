@@ -43,6 +43,19 @@ test('deadlines have optional payments, weekly meals update shopping and family 
   await expect(page.getByRole('dialog')).toContainText('senza creare movimenti');
   await page.getByRole('button', { name: 'Conferma gestione' }).click();
   await expect(freeRow).toContainText('Gestita il');
+  for (const [name, frequency, label] of [['Condominio', 'quarterly', 'Ogni tre mesi'], ['Assicurazione casa', 'semiannual', 'Ogni sei mesi']]) {
+    await page.getByRole('button', { name: 'Nuova scadenza' }).click();
+    dialog = page.getByRole('dialog');
+    await dialog.getByLabel('Nome della scadenza').fill(name);
+    await dialog.getByLabel('Data di scadenza').fill(today);
+    await dialog.getByLabel('Ripetizione').selectOption(frequency);
+    await expect(dialog.getByLabel('Giorno del mese')).toHaveCount(0);
+    await dialog.getByRole('button', { name: 'Aggiungi scadenza' }).click();
+    const row = page.locator('.bill-row').filter({ hasText: name });
+    await expect(row).toContainText(label);
+    page.once('dialog', d => d.accept()); await row.getByRole('button', { name: `Archivia scadenza ${name}` }).click();
+    await expect(row).toHaveCount(0);
+  }
   await page.getByRole('button', { name: 'Nuova scadenza' }).click();
   dialog = page.getByRole('dialog');
   await dialog.getByLabel('Nome della scadenza').fill('Revisione auto');
@@ -118,7 +131,7 @@ test('deadlines have optional payments, weekly meals update shopping and family 
   const zip = unzipSync(readFileSync((await download.path())!));
   const contents = new TextDecoder().decode(zip['casa.json']); const payload = JSON.parse(contents);
   expect(payload.household.name).toBe('Casa delle piccole cose');
-  expect(payload.data.deadlines).toHaveLength(2); expect(payload.data.deadline_receipts).toHaveLength(2); expect(payload.data.meals).toHaveLength(1); expect(payload.data.transactions).toHaveLength(1);
+  expect(payload.data.deadlines).toHaveLength(4); expect(payload.data.deadlines.map((d: { frequency: string }) => d.frequency).sort()).toEqual(['once', 'once', 'quarterly', 'semiannual']); expect(payload.data.deadline_receipts).toHaveLength(2); expect(payload.data.meals).toHaveLength(1); expect(payload.data.transactions).toHaveLength(1);
   expect(payload.data.shopping).toHaveLength(2); expect(payload.data.attachments).toHaveLength(1);
   expect(new TextDecoder().decode(zip[payload.data.attachments[0].file])).toBe('Allegato da conservare');
   expect(contents).not.toContain('password_hash'); expect(contents).not.toContain('token_hash');

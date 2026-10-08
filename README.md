@@ -36,6 +36,10 @@ La ripartizione usa come base solo le **entrate ricorrenti** del mese: gli stipe
 
 **Salva schema** applica la scelta. Nei predefiniti, nomi e percentuali sono fissi anche lato server. In Pers. sono modificabili e devono sommare esattamente il 100%. Applicare un predefinito conserva Pers. e gli identificativi delle categorie, quindi non cambia i movimenti. Le precedenti modifiche ai predefiniti tornano ai valori di fabbrica senza cambiare automaticamente la ripartizione attuale. Lo schema 50/30/20 non è più proposto; i suoi eventuali dati storici restano nei backup.
 
+### Confronto tra mesi
+
+Sotto la ripartizione, **Confronto tra mesi** mostra gli ultimi sei mesi fino a quello selezionato: per ogni mese una colonna delle entrate e una delle uscite, divisa per categoria con i colori della ripartizione. La tabella confronta il mese selezionato con il precedente per categoria, totale uscite, entrate e saldo; le differenze in rosso indicano più spese o meno entrate. Le uscite senza categoria compaiono come “Da classificare”. Il server invia soltanto totali per mese e categoria, quindi le registrazioni private degli altri membri restano non elencate.
+
 ## Risparmi degli obiettivi
 
 **Obiettivi → Gestisci risparmi** permette di aggiungere accantonamenti, correggere gli importi con la matita e rimuoverli con il cestino dopo conferma. L’importo iniziale è separato dagli accantonamenti successivi: modificarlo o azzerarlo conserva gli altri importi. La gestione resta disponibile anche sugli obiettivi raggiunti e aggiorna automaticamente totale, progresso e dashboard.
@@ -319,11 +323,11 @@ public/                  Logo, icone, manifest e service worker delle notifiche
 
 ## Prossimi sviluppi utili
 
-2. Confronto tra mesi, budget storici e categorie aggiuntive.
-3. Copie automatiche verso uno spazio esterno al server e importazione del ZIP familiare.
-4. Verifica email e gestione dei membri dall’interfaccia.
+1. Budget storici e categorie aggiuntive.
+2. Copie automatiche verso uno spazio esterno al server e importazione del ZIP familiare.
+3. Verifica email.
 
-L’app non esegue pagamenti e non invia notifiche push; i conti bancari sono collegati in sola lettura. Il recupero password richiede la configurazione del servizio email descritta sopra. Il deployment gratuito richiede il collegamento dei propri account Vercel e Neon; la pubblicazione dell’ambiente Codex non pubblica la webapp. Il comando di build Vercel è `npm run build`, impostato nel progetto (o ricavato dal framework Vite).
+L’app non esegue pagamenti; i conti bancari sono collegati in sola lettura. Il recupero password richiede la configurazione del servizio email descritta sopra. Il deployment gratuito richiede il collegamento dei propri account Vercel e Neon; la pubblicazione dell’ambiente Codex non pubblica la webapp. Il comando di build Vercel è `npm run build`, impostato nel progetto (o ricavato dal framework Vite).
 
 La rimozione di un membro richiesta al gestore, per nome e con una copia privata preventiva, usa il comando privato `server/member-removal-cli.mjs`, con `DATABASE_URL` backend e argomenti `--request-id`, `--member` e `--admin`. Richiede una corrispondenza univoca dei nomi nella stessa famiglia, conserva una copia privata prima della rimozione, revoca gli accessi e trasferisce i record condivisi all’amministratore. Non rimuove amministratori né dati familiari. Riutilizzare lo stesso identificativo di richiesta non elimina un account ricreato. Il comando non è esposto via HTTP e non fa parte della build ordinaria; può essere eseguito con un comando di build specifico di un singolo deployment.
 

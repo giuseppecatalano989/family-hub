@@ -664,3 +664,18 @@ test('the administrator removes a member with their password, keeping shared rec
   assert.equal((await request('/auth/login', { method: 'POST', body: { email: 'bob@example.it', password: 'password-test-123' } })).status, 401);
   assert.equal((await remove(bob.user.id, owner)).status, 404);
 });
+
+test('the state compares the last six months with totals by category, without itemising private records', async () => {
+  const owner = await register(); const [home, food] = (await state(owner)).categories;
+  await create('/transactions', { kind: 'expense', amount: 10000, categoryId: home.id, description: 'Affitto', date: '2026-09-02' }, owner);
+  await create('/transactions', { kind: 'expense', amount: 2550, categoryId: food.id, description: 'Spesa', date: '2026-10-30' }, owner);
+  await create('/transactions', { kind: 'expense', amount: 450, categoryId: food.id, description: 'Mercato', date: '2026-10-01' }, owner);
+  await create('/transactions', { kind: 'income', amount: 5000, description: 'Vendita', date: '2026-10-12' }, owner);
+  await create('/transactions', { kind: 'expense', amount: 999, categoryId: food.id, description: 'Troppo vecchia', date: '2026-04-30' }, owner);
+  await create('/transactions', { kind: 'expense', amount: 777, categoryId: food.id, description: 'Futura', date: '2026-11-01' }, owner);
+  const { history } = await state(owner, '2026-10');
+  assert.deepEqual(history.map(m => m.month), ['2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10']);
+  assert.deepEqual(history[4], { month: '2026-09', income: 0, budgetIncome: 0, expense: 10000, categories: { [home.id]: 10000 } });
+  assert.deepEqual(history[5], { month: '2026-10', income: 5000, budgetIncome: 0, expense: 3000, categories: { [food.id]: 3000 } });
+  assert.equal((await state(owner, '2027-01')).history[0].month, '2026-08');
+});
