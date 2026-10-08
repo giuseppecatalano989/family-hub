@@ -9,7 +9,7 @@ import type { Page } from './pages';
 type Props = { data: FamilyState; act: (path: string, method: string, body?: unknown) => Promise<void>; busy: boolean; navigate: (page: Page) => void };
 
 // Linking only: connect, disconnect, renew and sharing. Balances live in the
-// overview; movements will have their own section; savings are split automatically.
+// overview, imported records in Entrate and Uscite; savings are split automatically.
 export function Bank({ data, act, busy, navigate }: Props) {
   const [connect, setConnect] = useState<{ bank?: string; visibility?: BankAccount['visibility'] } | null>(null);
   const bank = data.bank;
@@ -44,7 +44,7 @@ export function Bank({ data, act, busy, navigate }: Props) {
       <div className="recurring-top"><span className="bank-badges"><span className={`badge ${account.visibility === 'shared' ? 'green' : ''}`}>{account.visibility === 'shared' ? 'Condiviso' : 'Movimenti privati'}</span>{account.savings && <span className="badge green">Risparmio</span>}</span></div>
       <h3>{account.name}</h3><p>{account.bank}{account.iban_last4 ? ` · •••• ${account.iban_last4}` : ''} · {account.owner}</p>
     </article>)}</div></section>}
-    <div className="panel-tip bank-tip"><ShieldCheck size={18} /><span>Solo lettura: Family Hub legge saldo e movimenti tramite Enable Banking e non può disporre pagamenti. Le credenziali restano sul sito della tua banca. I movimenti sono in Movimenti; la ripartizione dei risparmi in Impostazioni.</span></div>
+    <div className="panel-tip bank-tip"><ShieldCheck size={18} /><span>Solo lettura: Family Hub legge saldo e movimenti tramite Enable Banking e non può disporre pagamenti. Le credenziali restano sul sito della tua banca. I movimenti diventano entrate e uscite; la ripartizione dei risparmi è in Impostazioni.</span></div>
     {connect && <ConnectDialog key={connect.bank || 'new'} initial={connect} onClose={() => setConnect(null)} />}
   </>;
 }

@@ -28,14 +28,13 @@ test('a member links a bank in read-only mode, sees the family balance and impor
   await expect(group).not.toContainText('2.345,67'); await expect(page.locator('.transactions-panel')).toHaveCount(0); await expect(page.getByRole('button', { name: /^Aggiorna/ })).toHaveCount(0);
   await page.screenshot({ path: info.outputPath('conti-bancari.png'), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  // Movements: details of the month and expenses to classify, with a counter in the menu.
-  await go(page, 'Movimenti'); await expect(page.getByRole('heading', { name: 'I movimenti dei conti.' })).toBeVisible();
-  const todo = page.locator('.movements-todo'); await expect(todo.locator('.movement-row')).toHaveCount(1); await expect(todo).toContainText('Negozio Vario');
-  await todo.getByLabel('Categoria per Negozio Vario').selectOption({ label: 'Casa e utenze' });
-  await expect(todo).toContainText('Tutte le uscite hanno una categoria.');
-  const monthList = page.locator('.transactions-panel').last(); await expect(monthList).toContainText('Esselunga'); await expect(monthList).toContainText('Aggiunto alle registrazioni');
-  await expect(monthList.getByLabel('Categoria per Negozio Vario')).toHaveValue(/.+/);
-  await page.screenshot({ path: info.outputPath('movimenti.png'), fullPage: true }); expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  // No separate movements section: imported expenses without a category are classified in Uscite.
+  await expect(page.getByRole('navigation').getByRole('button', { name: 'Movimenti', exact: true })).toHaveCount(0);
+  await go(page, 'Uscite'); await page.getByLabel('Filtra per categoria').selectOption({ label: 'Da classificare' });
+  const ledger = page.locator('.transactions-panel').last(); await expect(ledger.locator('.transaction-row')).toHaveCount(1); await expect(ledger).toContainText('Negozio Vario');
+  await page.getByRole('button', { name: 'Modifica Negozio Vario' }).click(); await page.getByRole('dialog').getByLabel('Categoria').selectOption({ label: 'Casa e utenze' });
+  await page.getByRole('dialog').getByRole('button', { name: 'Salva modifiche' }).click(); await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(ledger.locator('.transaction-row')).toHaveCount(0); await page.getByLabel('Filtra per categoria').selectOption('all');
   await go(page, 'Uscite'); const row = page.locator('.transaction-row', { hasText: 'Esselunga' }); await expect(row).toContainText('Alimentari'); await expect(row).toContainText('Banca: Conto Famiglia');
   await expect(page.locator('.transaction-row', { hasText: 'Trade Republic' })).toContainText('Risparmio');
   await go(page, 'Entrate'); await expect(page.locator('.transaction-row', { hasText: 'Stipendio Rossi' })).toContainText('1.800,00');
