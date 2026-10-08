@@ -507,6 +507,12 @@ test('cloud databases accept quarterly deadlines after the old check, compare mo
   await state(owner);
   const august = await json(await request('/state?month=2026-08', { session: owner }));
   assert.deepEqual(august.budgetFallback, { month: '2026-10', amount: 150000 });
+  const current = (await state(owner)).categories;
+  const shifted = current.map((c, i) => ({ id: c.id, name: c.name, percentage: i === 0 ? c.percentage + 500 : i === 1 ? c.percentage - 500 : c.percentage }));
+  await json(await request('/budget', { method: 'PUT', body: { categories: shifted }, session: owner }));
+  const earlier = await json(await request('/state?month=2026-08', { session: owner }));
+  assert.deepEqual(current.map(c => earlier.budgetSplit[c.id]), current.map(c => c.percentage));
+  assert.equal(earlier.categories[0].percentage, current[0].percentage + 500);
   assert.equal((await request(`/members/${member.user.id}`, { method: 'DELETE', body: { currentPassword: 'password-errata' }, session: owner })).status, 400);
   await json(await request(`/members/${member.user.id}`, { method: 'DELETE', body: { currentPassword: 'test-password-123' }, session: owner, target: restarted.base }));
   assert.equal((await request('/state?month=2026-10', { session: member })).status, 401);

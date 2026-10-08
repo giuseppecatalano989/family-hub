@@ -352,7 +352,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
     });
     const workflows = installWorkflows(app, { db, one, all, run, atomic, owned, fail, text, cents, date, now });
     const deadlines = installDeadlines(app, { db, one, all, run, atomic, owned, fail, text, cents, date, now });
-    const planning = installPlanning(app, { db, one, all, run, atomic, owned, fail, text, cents, now });
+    const planning = installPlanning(app, { db, one, all, run, atomic, owned, fail, text, cents, now, ...(clock ? { clock } : {}) });
     const waste = installWaste(app, { db, all, run, owned, fail, text });
     const savings = installGoalSavings(app, { one, all, run, atomic, owned, fail, cents, now, reconcile: bank.reconcileSavings });
     bank.routes();
@@ -417,6 +417,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             transactions: presentTransactions(await all(`SELECT t.*, u.name AS author, o.rule_id AS recurring_id, p.owner_id AS private_owner, (SELECT a.name FROM bank_movements m JOIN bank_accounts a ON a.id = m.account_id WHERE m.transaction_id = t.id) AS bank_account FROM transactions t JOIN users u ON u.id = t.author_id LEFT JOIN recurring_occurrences o ON o.transaction_id = t.id LEFT JOIN private_transactions p ON p.transaction_id = t.id WHERE t.household_id = ? AND substr(t.date, 1, 7) = ? ORDER BY t.date DESC, t.created_at DESC`, hid, month), req.user.id),
             history: await monthlyHistory(hid, month),
             budgetFallback: await budgetFallback(hid, month),
+            budgetSplit: await planning.splitFor(hid, month),
             ...await savings.state(hid),
             shopping: await all('SELECT s.*, u.name AS author FROM shopping s JOIN users u ON u.id = s.author_id WHERE s.household_id = ? ORDER BY s.checked, s.created_at DESC', hid),
             notes: notes.map(note => ({ ...note, attachments: attachments.filter(a => a.note_id === note.id).map(({ storage_name, ...a }) => a) })),
@@ -488,7 +489,9 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         if (rows.reduce((sum, c) => sum + c.percentage, 0) !== 10000)
             fail('Le percentuali devono sommare esattamente il 100%.');
         await atomic(async () => {
-            for (const c of rows) await run('UPDATE categories SET name = ?, percentage = ? WHERE id = ? AND household_id = ?', c.name, c.percentage, c.id, req.user.household_id);
+            await planning.changeSplit(req.user.household_id, async () => {
+                for (const c of rows) await run('UPDATE categories SET name = ?, percentage = ? WHERE id = ? AND household_id = ?', c.name, c.percentage, c.id, req.user.household_id);
+            });
             await planning.saveCustom(req.user.household_id, rows);
         });
         res.json({ ok: true });

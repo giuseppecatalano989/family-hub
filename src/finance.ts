@@ -22,6 +22,8 @@ export function totals(transactions: Transaction[]) {
 export const budgetIncome = (transactions: Pick<Transaction, 'kind' | 'amount' | 'recurring_id'>[]) => transactions.filter(t => t.kind === 'income' && t.recurring_id).reduce((sum, t) => sum + t.amount, 0);
 // Months before the first recurring income use that month's base (from the server).
 export const budgetBase = (data: { transactions: Pick<Transaction, 'kind' | 'amount' | 'recurring_id'>[]; budgetFallback?: { amount: number } | null }) => budgetIncome(data.transactions) || data.budgetFallback?.amount || 0;
+// Each month keeps the split in force when it closed; the categories hold the current one.
+export const monthCategories = <T extends { id: string; percentage: number }>(data: { categories: T[]; budgetSplit?: Record<string, number> | null }) => data.categories.map(c => ({ ...c, percentage: data.budgetSplit?.[c.id] ?? c.percentage }));
 // Allocate rounding cents deterministically so the category budgets equal the income.
 export function allocateBudget(income: number, categories: Category[]) {
   const rows = categories.map((c, index) => ({ id: c.id, amount: Math.floor(income * c.percentage / 10000), remainder: income * c.percentage % 10000, index }));
