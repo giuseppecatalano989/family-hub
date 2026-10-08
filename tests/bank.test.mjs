@@ -458,9 +458,8 @@ test('only current accounts with an IBAN are linked; one can be removed and stay
   data = await state(alice);
   assert.deepEqual(data.bank.accounts.map(a => a.name), ['Conto Alice'], 'the bank stays linked');
   assert.equal(data.bank.total, 145055);
-  assert.equal(data.transactions.some(t => t.description === 'Edicola'), true, 'records already imported stay');
-  const edicola = data.bank.uncategorized.find(t => t.description === 'Edicola');
-  assert.deepEqual([edicola.account, edicola.amount, edicola.mine], [null, 1200, true], 'a removed account\'s expense can still be classified');
+  assert.equal(data.transactions.some(t => t.description === 'Edicola'), false, 'records it imported leave with it');
+  assert.equal(data.bank.uncategorized.length, 0);
   assert.deepEqual(data.bank.connections.map(c => Object.keys(c).sort()), [['bank', 'id', 'last_error', 'status', 'valid_until']], 'removed accounts are not listed');
   assert.deepEqual((await state(bob)).bank.connections, []);
   assert.equal((await request(`/bank/accounts/${main.id}`, { method: 'DELETE', session: alice })).status, 400, 'the last account is removed by unlinking the bank');
@@ -474,6 +473,39 @@ test('only current accounts with an IBAN are linked; one can be removed and stay
   assert.deepEqual((await state(alice)).bank.accounts.map(a => a.name).sort(), ['Conto Alice', 'Conto secondario']);
   provider.data.sessions.bob = [{ uid: 'uid-card-b', iban: null, name: 'Carta Bob', currency: 'EUR', type: 'CARD' }];
   assert.equal((await link(bob, 'bob', 'shared')).headers.get('location'), '/?banca=nessun-conto#bank', 'a consent with cards only links nothing');
+});
+
+test('accounts removed by earlier versions are read once more and leave with what they imported', async () => {
+  await start({ bankProvider: provider });
+  const { alice } = await family();
+  provider.data.sessions.alice = [
+    { uid: 'uid-a', iban: IBAN_A, name: 'Conto Alice', currency: 'EUR', type: 'CACC' },
+    { uid: 'uid-s', iban: 'IT77C0306909606100000000123', name: 'Conto secondario', currency: 'EUR', type: 'CACC' },
+  ];
+  provider.data.transactions = { 'uid-a': [], 'uid-s': [tx('s1', '12.29', 'DBIT', '2026-10-05', { creditor: { name: 'Edicola' } }), tx('s2', '50.00', 'CRDT', '2026-10-06', { debtor: { name: 'Mario Rossi' } })] };
+  await link(alice, 'alice', 'shared');
+  let data = await state(alice);
+  const groceries = data.categories[0];
+  await request('/transactions', { method: 'POST', session: alice, body: { kind: 'expense', amount: 1229, categoryId: groceries.id, description: 'Giornali', date: '2026-10-05' } });
+  // The old removal kept the imports and dropped the account with its bank copies.
+  const secondary = instance.db.prepare("SELECT * FROM bank_accounts WHERE name = 'Conto secondario'").get();
+  const user = instance.db.prepare("SELECT c.user_id FROM bank_connections c WHERE c.id = ?").get(secondary.connection_id);
+  instance.db.prepare('INSERT INTO bank_account_exclusions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run('ex-1', secondary.household_id, user.user_id, `iban:${secondary.iban_hash}`, secondary.connection_id, secondary.provider_uid, secondary.name, secondary.iban_hash, secondary.iban_last4, 'EUR', new Date().toISOString());
+  instance.db.prepare('DELETE FROM bank_accounts WHERE id = ?').run(secondary.id);
+  data = await state(alice);
+  assert.deepEqual(data.transactions.map(t => t.description).sort(), ['Edicola', 'Giornali', 'Mario Rossi']);
+  const edicola = data.bank.uncategorized.find(t => t.description === 'Edicola');
+  assert.deepEqual([edicola.account, edicola.amount, edicola.mine], [null, 1229, true], 'an expense without its account can still be classified');
+
+  instance.db.prepare('UPDATE bank_connections SET last_attempt_at = NULL').run();
+  assert.equal((await request('/bank/refresh', { method: 'POST', session: alice })).status, 200);
+  data = await state(alice);
+  assert.deepEqual(data.transactions.map(t => t.description), ['Giornali'], 'only what the removed account imported is deleted');
+  assert.equal(data.bank.uncategorized.length, 0);
+  const reads = provider.calls.filter(c => c[0] === 'transactions' && c[1] === 'uid-s').length;
+  instance.db.prepare('UPDATE bank_connections SET last_attempt_at = NULL').run();
+  await request('/bank/refresh', { method: 'POST', session: alice });
+  assert.equal(provider.calls.filter(c => c[0] === 'transactions' && c[1] === 'uid-s').length, reads, 'the removed account is read only once');
 });
 
 test('cards linked before the IBAN rule are removed with their imported records', async () => {
