@@ -62,7 +62,7 @@ test('a member links a bank in read-only mode, sees the family balance and impor
   // Savings accounts are marked by their owner; their balance moves to the savings card.
   await go(page, 'Impostazioni'); const savingsBox = card.getByLabel('Conto risparmio o investimento'); await expect(savingsBox).not.toBeChecked();
   page.once('dialog', d => d.accept()); await savingsBox.click(); await expect(savingsBox).toBeChecked(); await expect(card.locator('.badge', { hasText: 'Risparmio' })).toBeVisible();
-  await go(page, 'Panoramica'); await expect(page.locator('.stat-card', { hasText: 'Risparmi per gli obiettivi' })).toContainText('Sui conti risparmio: 2.345,67'); await expect(balance).not.toContainText('Oggi sui conti');
+  await go(page, 'Panoramica'); const savingsCard = page.locator('.stat-card', { hasText: 'Risparmi per gli obiettivi' }); await expect(savingsCard.locator('strong')).toHaveText(/2\.345,67/); await expect(savingsCard).toContainText('Saldo dei conti risparmio'); await expect(balance).not.toContainText('Oggi sui conti');
   await page.screenshot({ path: info.outputPath('panoramica-risparmi.png') });
   await go(page, 'Impostazioni'); page.once('dialog', d => d.accept()); await card.getByLabel('Conto risparmio o investimento').click(); await expect(card.locator('.badge', { hasText: 'Risparmio' })).toHaveCount(0);
   await card.getByLabel('Con la famiglia condividi').selectOption('balance'); await expect(card.locator('.badge')).toHaveText('Movimenti privati'); await go(page, 'Uscite'); await expect(page.locator('.transaction-row', { hasText: 'Esselunga' })).toContainText('Privato'); await go(page, 'Impostazioni');
