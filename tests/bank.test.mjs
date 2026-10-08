@@ -177,11 +177,15 @@ test('linking shared and balance-only accounts builds a family total, imports an
   const unknown = data.transactions.find(t => t.description === 'Negozio Vario');
   assert.equal(unknown.category_id, null, 'unknown merchants are left to classify');
   assert.equal(data.transactions.find(t => t.description === 'Bonifico a Bob').amount, 8000, 'Bob is not linked yet: the transfer is an expense');
-  assert.equal((await state(alice, '2026-09')).transactions.length, 0, 'movements before the linking month are not imported');
+  // Linked on 15 October: the 90 days fetched start on 17 July, so imports begin with August.
+  assert.equal(data.bank.accounts[0].import_from, '2026-08-01');
+  const september = (await state(alice, '2026-09')).transactions;
+  assert.deepEqual(september.map(t => [t.description, t.amount]), [['Farmacia Centrale', 1500]], 'the history fetched before the link is imported too');
+  assert.equal(september[0].category_id, data.categories[3].id);
   const conad = movements().find(m => m.description === 'CONAD SUPERSTORE');
   assert.deepEqual([conad.status, conad.transaction_id], ['matched', data.transactions.find(t => t.description === 'Spesa settimanale').id]);
   assert.equal(movements().some(m => m.description === 'In attesa'), false);
-  assert.deepEqual(movements().filter(m => m.description === 'Farmacia Centrale').map(m => [m.status, m.transaction_id]), [['stored', null]]);
+  assert.deepEqual(movements().filter(m => m.description === 'Farmacia Centrale').map(m => [m.status, m.transaction_id]), [['imported', september[0].id]]);
   assert.deepEqual(unclassified(data).map(t => [t.description, t.amount]).sort(), [['Bonifico a Bob', 8000], ['Negozio Vario', 6000]], 'expenses to classify in Uscite');
 
   // Bob keeps his movements private: they count in the budget, Alice only sees totals.
@@ -651,4 +655,43 @@ test('imported expenses are classified from Uscite, teaching later imports and r
   instance.db.prepare('UPDATE bank_connections SET last_attempt_at = NULL').run();
   await request('/bank/refresh', { method: 'POST', session: alice });
   assert.equal((await state(alice)).transactions.find(t => t.amount === 1500).category_id, casa, 'the next import learns the choice');
+});
+
+test('the history fetched before the link is imported from its first whole month, also for accounts linked earlier', async () => {
+  await start({ bankProvider: provider });
+  const { alice } = await family();
+  const TR = 'IT55T0300203280000000000777';
+  await request('/goals', { method: 'POST', session: alice, body: { title: 'Vacanze', horizon: 'short', target: 100000, monthly: 10000, primary: true } });
+  provider.data.transactions = { 'uid-a': [
+    tx('old', '25.00', 'DBIT', '2026-07-20', { creditor: { name: 'Libreria' } }),
+    tx('aug', '200.00', 'DBIT', '2026-08-02', { creditor: { name: 'Trade Republic Bank GmbH' }, creditor_account: { iban: TR }, remittance_information: ['PAC agosto'] }),
+    tx('sep', '15.00', 'DBIT', '2026-09-20', { creditor: { name: 'Farmacia Centrale' } }),
+    tx('oct', '42.30', 'DBIT', '2026-10-03', { creditor: { name: 'CONAD SUPERSTORE' } }),
+  ], 'uid-b': [] };
+  await link(alice, 'alice', 'shared');
+  let data = await state(alice);
+  const savingsCategory = data.categories[5].id;
+  assert.equal(data.bank.accounts[0].import_from, '2026-08-01');
+  assert.deepEqual((await state(alice, '2026-07')).transactions, [], 'July is only partly fetched and stays out');
+  assert.deepEqual(movements("m.description = 'Libreria'").map(m => m.status), ['stored']);
+  const august = (await state(alice, '2026-08')).transactions;
+  assert.deepEqual(august.map(t => [t.description, t.amount, t.category_id]), [['Trade Republic Bank GmbH', 20000, savingsCategory]]);
+  assert.equal(data.goals[0].saved, 0, 'deposits made before the link do not fill the goals again');
+  assert.deepEqual(data.history.slice(-3).map(m => m.expense), [20000, 1500, 4230]);
+
+  // An account linked when only the linking month was imported takes its history at the next sync.
+  for (const m of movements("m.date < '2026-10-01'")) {
+    if (m.transaction_id) instance.db.prepare('DELETE FROM transactions WHERE id = ?').run(m.transaction_id);
+    instance.db.prepare("UPDATE bank_movements SET status = 'stored', transaction_id = NULL WHERE id = ?").run(m.id);
+  }
+  instance.db.prepare("UPDATE bank_accounts SET import_from = '2026-10-01'").run();
+  assert.deepEqual((await state(alice, '2026-09')).transactions, []);
+  instance.db.prepare('UPDATE bank_connections SET last_attempt_at = NULL').run();
+  assert.equal((await request('/bank/refresh', { method: 'POST', session: alice })).status, 200);
+  data = await state(alice);
+  assert.equal(data.bank.accounts[0].import_from, '2026-08-01');
+  assert.deepEqual((await state(alice, '2026-09')).transactions.map(t => t.description), ['Farmacia Centrale']);
+  assert.deepEqual((await state(alice, '2026-08')).transactions.map(t => t.description), ['Trade Republic Bank GmbH']);
+  assert.equal(data.goals[0].saved, 0);
+  assert.equal(data.transactions.filter(t => t.description === 'CONAD SUPERSTORE').length, 1);
 });
