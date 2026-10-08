@@ -46,6 +46,15 @@ function boolean(value) {
         fail('Valore non valido.');
     return value ? 1 : 0;
 }
+// Overview cards in their default order: four figures, then four panels.
+const DASHBOARD_CARDS = ['income', 'expense', 'balance', 'savings', 'spending', 'home', 'goals', 'recent'];
+function dashboardPreferences(row) {
+    let saved = {};
+    try { saved = row ? JSON.parse(row.cards) : {}; } catch { saved = {}; }
+    const known = list => (Array.isArray(list) ? list : []).filter(id => DASHBOARD_CARDS.includes(id));
+    const order = known(saved.order);
+    return { quickActions: !!row?.quick_actions, dashboard: { order: [...order, ...DASHBOARD_CARDS.filter(id => !order.includes(id))], hidden: known(saved.hidden) } };
+}
 function passwordHash(password) {
     const salt = randomBytes(16).toString('hex');
     return `${salt}:${scryptSync(password, salt, 64).toString('hex')}`;
@@ -279,6 +288,17 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         await run('INSERT INTO user_preferences VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET show_bank_balance = excluded.show_bank_balance', req.user.id, boolean(req.body.showBankBalance));
         res.json({ ok: true });
     });
+    // The overview's cards, their order and the quick buttons, for this account only.
+    app.put('/api/preferences/dashboard', async (req, res) => {
+        const cards = list => {
+            if (!Array.isArray(list) || list.some(id => !DASHBOARD_CARDS.includes(id)) || new Set(list).size !== list.length) fail('Scelta della Panoramica non valida.');
+            return list;
+        };
+        const order = cards(req.body.order); const hidden = cards(req.body.hidden);
+        await run(`INSERT INTO dashboard_preferences VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET quick_actions = excluded.quick_actions, cards = excluded.cards`,
+            req.user.id, boolean(req.body.quickActions), JSON.stringify({ order, hidden }));
+        res.json({ ok: true });
+    });
     app.put('/api/household', async (req, res) => {
         if (req.user.role !== 'admin') fail('Solo l’amministratore può modificare il nome della casa.', 403);
         const name = text(req.body.name, 'Nome della casa', 80);
@@ -323,7 +343,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             ...await workflows.state(req.user, month, req.query.week),
             backups: req.user.role === 'admin' ? await backups.status() : null,
             bank: await bank.state(req.user),
-            preferences: { showBankBalance: !!(await one('SELECT show_bank_balance FROM user_preferences WHERE user_id = ?', req.user.id))?.show_bank_balance },
+            preferences: { showBankBalance: !!(await one('SELECT show_bank_balance FROM user_preferences WHERE user_id = ?', req.user.id))?.show_bank_balance, ...dashboardPreferences(await one('SELECT quick_actions, cards FROM dashboard_preferences WHERE user_id = ?', req.user.id)) },
             household: await one('SELECT id, name FROM households WHERE id = ?', hid),
             members: await all('SELECT id, name, role FROM users WHERE household_id = ? ORDER BY role, name', hid),
             categories: await all('SELECT * FROM categories WHERE household_id = ? ORDER BY position', hid),

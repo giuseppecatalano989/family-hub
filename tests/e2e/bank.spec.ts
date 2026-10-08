@@ -45,8 +45,17 @@ test('a member links a bank in read-only mode, sees the family balance and impor
   const goalCard = page.locator('.goal-card', { hasText: 'Fondo emergenze' }); await expect(goalCard).toContainText('300,00 € al mese'); await expect(goalCard).toContainText('Primario');
   // Only the monthly balance; the real balance is an optional line set in the account.
   await go(page, 'Panoramica'); const balance = page.locator('.balance-card'); await expect(balance).not.toContainText('Oggi sui conti'); await expect(page.getByText('Saldo dei conti collegati')).toHaveCount(0);
-  await go(page, 'Impostazioni'); await page.getByRole('tab', { name: /^Preferenze/ }).click(); await expect(page).toHaveURL(/#settings\/preferenze$/);
+  await go(page, 'Impostazioni'); await page.getByRole('tab', { name: /^Panoramica/ }).click(); await expect(page).toHaveURL(/#settings\/panoramica$/);
   await page.getByLabel(/Mostra in Panoramica, sotto il saldo del mese/).check(); await expect(page.getByText('Modifiche salvate.')).toBeVisible();
+  // Cards can be hidden and reordered; the choice is kept by the server.
+  await page.getByLabel('Risparmi per gli obiettivi', { exact: true }).uncheck(); await page.getByRole('button', { name: 'Sposta su Gli ultimi movimenti' }).click();
+  await expect(page.locator('.dashboard-card-list').last().locator('li').nth(2)).toContainText('Gli ultimi movimenti');
+  await page.screenshot({ path: info.outputPath('impostazioni-panoramica.png'), fullPage: true }); expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.reload(); await expect(page.getByLabel('Risparmi per gli obiettivi', { exact: true })).not.toBeChecked();
+  await go(page, 'Panoramica'); await expect(page.locator('.stat-card')).toHaveCount(3); await expect(page.locator('.overview-bottom .panel').first()).toContainText('Gli ultimi movimenti');
+  await page.screenshot({ path: info.outputPath('panoramica-personalizzata.png'), fullPage: true });
+  await go(page, 'Impostazioni'); await page.getByRole('tab', { name: /^Panoramica/ }).click(); await page.getByRole('button', { name: 'Ripristina predefinita' }).click();
+  await expect(page.getByLabel('Risparmi per gli obiettivi', { exact: true })).toBeChecked(); await expect(page.getByLabel(/Mostra in Panoramica, sotto il saldo del mese/)).toBeChecked();
   await page.getByRole('tab', { name: /^Conti bancari/ }).click(); await page.getByLabel('Se il risparmio del mese non copre tutte le quote').selectOption('primary'); await expect(page.getByLabel('Se il risparmio del mese non copre tutte le quote')).toHaveValue('primary');
   await page.screenshot({ path: info.outputPath('impostazioni.png'), fullPage: true });
   await go(page, 'Panoramica'); await expect(balance).toContainText('Oggi sui conti: 2.345,67');

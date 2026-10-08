@@ -1,18 +1,19 @@
 import { useEffect, useState } from 'react';
-import { Landmark, PiggyBank, ShieldCheck, SlidersHorizontal, Users } from 'lucide-react';
+import { LayoutDashboard, Landmark, PiggyBank, ShieldCheck, Users } from 'lucide-react';
 import Account from './Account';
 import { Bank } from './Bank';
+import { DashboardSettings } from './DashboardSettings';
 import { SectionHeading } from './components';
 import { Backups, type WorkflowProps } from './WorkflowPages';
 import type { User } from './types';
 import type { Page } from './pages';
 
 type Props = WorkflowProps & { user: User; onUser: (user: User) => void; mutate: <T>(path: string, method: string, body?: unknown) => Promise<T>; navigate: (page: Page) => void };
-type Category = 'conti' | 'preferenze' | 'famiglia' | 'backup';
+type Category = 'conti' | 'panoramica' | 'famiglia' | 'backup';
 
 const categories: { id: Category; label: string; description: string; icon: typeof Landmark }[] = [
   { id: 'conti', label: 'Conti bancari', description: 'Collegamenti, condivisione e risparmi', icon: Landmark },
-  { id: 'preferenze', label: 'Preferenze', description: 'Le tue scelte personali', icon: SlidersHorizontal },
+  { id: 'panoramica', label: 'Panoramica', description: 'Card, ordine e pulsanti', icon: LayoutDashboard },
   { id: 'famiglia', label: 'Casa e famiglia', description: 'Nome, membri e inviti', icon: Users },
   { id: 'backup', label: 'Backup e dati', description: 'Copie e esportazione', icon: ShieldCheck },
 ];
@@ -21,6 +22,7 @@ const categories: { id: Category; label: string; description: string; icon: type
 export function categoryFromHash(): Category {
   const value = window.location.hash.slice(1);
   if (value === 'bank') return 'conti';
+  if (value === 'settings/preferenze') return 'panoramica';
   const id = value.startsWith('settings/') ? value.slice(9) : '';
   return categories.some(c => c.id === id) ? id as Category : 'conti';
 }
@@ -46,7 +48,7 @@ export function Settings(props: Props) {
           </div>
         </section>
       </>}
-      {category === 'preferenze' && <Account {...props} scope="preferences" />}
+      {category === 'panoramica' && <DashboardSettings data={data} mutate={props.mutate} />}
       {category === 'famiglia' && <Account {...props} scope="household" />}
       {category === 'backup' && <Backups {...props} />}
     </div>

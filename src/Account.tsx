@@ -1,16 +1,15 @@
 import { useState, type FormEvent } from 'react';
-import { UserRound, House, LockKeyhole, Users, Copy, Check, Link, SlidersHorizontal } from 'lucide-react';
+import { UserRound, House, LockKeyhole, Users, Copy, Check, Link } from 'lucide-react';
 import { SectionHeading } from './components';
 import type { FamilyState, User } from './types';
 
-type Props = { data: FamilyState; user: User; onUser: (user: User) => void; mutate: <T>(path: string, method: string, body?: unknown) => Promise<T>; scope?: 'account' | 'preferences' | 'household' };
-// Personal profile and password; the settings show the preferences or the house and family parts.
+type Props = { data: FamilyState; user: User; onUser: (user: User) => void; mutate: <T>(path: string, method: string, body?: unknown) => Promise<T>; scope?: 'account' | 'household' };
+// Personal profile and password; in the settings, the house and family parts.
 export default function Account({ data, user, onUser, mutate, scope = 'account' }: Props) {
   const [email, setEmail] = useState(user.email);
   const [pending, setPending] = useState(''); const [error, setError] = useState<{ section: string; message: string } | null>(null);
   const [saved, setSaved] = useState(''); const [copied, setCopied] = useState(false);
   const [invitation, setInvitation] = useState<{ code: string; expiresAt: string } | null>(null);
-  const [showBalance, setShowBalance] = useState(data.preferences.showBankBalance);
   const inviteLink = invitation ? `${window.location.origin}/#invite=${encodeURIComponent(invitation.code)}` : '';
   async function save(section: string, action: () => Promise<void>) {
     setPending(section); setError(null); setSaved('');
@@ -22,8 +21,6 @@ export default function Account({ data, user, onUser, mutate, scope = 'account' 
   }
   const feedback = (section: string) => <>{error?.section === section && <div className="form-error" role="alert">{error.message}</div>}{saved === section && !['invite', 'copy'].includes(section) && <p className="settings-success" role="status">Modifiche salvate.</p>}</>;
   const button = (section: string, label: string) => <button className="button primary" disabled={!!pending}>{pending === section ? 'Salvataggio…' : label}</button>;
-  if (scope === 'preferences') return <div className="account-grid">
-    <section className="panel settings-card"><SectionHeading title="Preferenze" /><div className="settings-body"><span className="settings-icon"><SlidersHorizontal size={25} /></span><label className="checkbox-label"><input type="checkbox" checked={showBalance} disabled={!!pending} onChange={e => { const checked = e.target.checked; setShowBalance(checked); void save('preferences', async () => { try { await mutate('/preferences', 'PUT', { showBankBalance: checked }); } catch (error) { setShowBalance(!checked); throw error; } }); }} />Mostra in Panoramica, sotto il saldo del mese, quanto c’è oggi sui conti collegati</label><p className="form-hint">La scelta vale solo per il tuo account. Il dato compare quando almeno un conto è collegato.</p>{feedback('preferences')}</div></section></div>;
   if (scope === 'household') return <div className="account-grid">
     <section className="panel settings-card"><SectionHeading title="La vostra casa" /><form onSubmit={e => submit(e, 'household', async form => { await mutate('/household', 'PUT', { name: form.get('householdName') }); })}><span className="settings-icon"><House size={25} /></span><label>Nome della casa<input name="householdName" defaultValue={data.household.name} readOnly={user.role !== 'admin'} required maxLength={80} /></label>{user.role === 'admin' ? <>{feedback('household')}{button('household', 'Salva nome della casa')}</> : <p className="form-hint">L’amministratore può modificare il nome della casa.</p>}</form></section>
     <section className="panel settings-card family-settings"><SectionHeading title="Famiglia e inviti" /><div className="settings-body"><span className="settings-icon"><Users size={25} /></span><div className="share-members">{data.members.map(member => <div key={member.id}><span className="avatar">{member.name.slice(0, 1)}</span><strong>{member.name}{member.id === user.id ? ' (tu)' : ''}</strong><span>{member.role === 'admin' ? 'Amministratore' : 'Membro'}</span></div>)}</div>{user.role === 'admin' ? <><p className="form-hint">Invita una persona della famiglia: il link permette di creare un account personale nel vostro spazio condiviso.</p>{invitation && <><label>Link di invito<input value={inviteLink} readOnly onFocus={e => e.target.select()} /></label><label>Codice invito<input value={invitation.code} readOnly onFocus={e => e.target.select()} /></label><button type="button" className="button secondary" disabled={!!pending} onClick={() => void save('copy', async () => { await navigator.clipboard.writeText(inviteLink); setCopied(true); })}>{copied ? <Check size={16} /> : <Copy size={16} />}{copied ? 'Link copiato' : 'Copia link'}</button><p className="form-hint">Valido fino al {new Date(invitation.expiresAt).toLocaleDateString('it-IT')}. Un nuovo link sostituisce il precedente.</p></>}<button type="button" className="button primary" disabled={!!pending} onClick={() => void save('invite', async () => { setInvitation(await mutate('/invitation', 'POST')); setCopied(false); })}><Link size={16} />{pending === 'invite' ? 'Generazione…' : invitation ? 'Genera nuovo link' : 'Genera link di invito'}</button>{feedback('invite')}{feedback('copy')}</> : <p className="form-hint">L’amministratore può generare i link di invito.</p>}</div></section></div>;

@@ -16,6 +16,11 @@ test('a family can manage money, goals, shopping and pinned files on desktop and
   await page.getByLabel('Nome del vostro spazio').fill('Casa Catalano');
   await page.getByRole('button', { name: 'Entra a casa' }).click();
   await expect(page.getByRole('heading', { name: 'La nostra casa, in ordine.' })).toBeVisible();
+  // The quick buttons are off by default and can be turned on in the settings.
+  await expect(page.locator('.stat-card')).toHaveCount(4); await expect(page.getByRole('button', { name: 'Nuova entrata' })).toHaveCount(0);
+  await go(page, 'Impostazioni'); await page.getByRole('tab', { name: /^Panoramica/ }).click();
+  await page.getByLabel('Mostra in Panoramica i pulsanti Nuova entrata e Nuova uscita').check(); await expect(page.getByText('Modifiche salvate.')).toBeVisible();
+  await go(page, 'Panoramica');
   await page.getByRole('button', { name: 'Nuova entrata' }).click();
   let dialog = page.getByRole('dialog');
   await dialog.getByLabel('Nome', { exact: true }).fill('Stipendio');
