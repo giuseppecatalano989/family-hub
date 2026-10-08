@@ -17,9 +17,17 @@ test('a member links a bank in read-only mode, sees the family balance and impor
   await dialog.getByRole('button', { name: 'Continua sul sito della banca' }).click();
   await expect(page.getByRole('alert')).toContainText('Conto collegato');
   await expect(page).toHaveURL(/\/#bank$/);
-  const card = page.locator('.bank-card'); await expect(card).toContainText('Conto Famiglia'); await expect(card).toContainText('•••• 3456'); await expect(card).toContainText('Consenso valido fino al');
+  const group = page.locator('.bank-group'); await expect(group).toContainText('Intesa Sanpaolo'); await expect(group).toContainText('Consenso valido fino al');
+  const card = page.locator('.bank-card', { hasText: 'Conto Famiglia' }); await expect(card).toContainText('•••• 3456');
+  // One consent, two accounts: removing the card keeps the bank linked and can be undone.
+  page.once('dialog', d => d.accept()); await page.getByRole('button', { name: 'Rimuovi Carta prepagata' }).click();
+  await expect(page.locator('.bank-card')).toHaveCount(1); await expect(page.locator('.bank-excluded')).toContainText('Carta prepagata');
+  await page.locator('.bank-excluded').getByRole('button', { name: 'Ripristina' }).click();
+  await expect(page.locator('.bank-card')).toHaveCount(2);
+  page.once('dialog', d => d.accept()); await page.getByRole('button', { name: 'Rimuovi Carta prepagata' }).click(); await expect(page.locator('.bank-card')).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Rimuovi Conto Famiglia' })).toHaveCount(0);
   // Linking only: no balances, refresh or movements in this section.
-  await expect(card).not.toContainText('2.345,67'); await expect(page.locator('.transactions-panel')).toHaveCount(0); await expect(page.getByRole('button', { name: /^Aggiorna/ })).toHaveCount(0);
+  await expect(group).not.toContainText('2.345,67'); await expect(page.locator('.transactions-panel')).toHaveCount(0); await expect(page.getByRole('button', { name: /^Aggiorna/ })).toHaveCount(0);
   await page.getByLabel('Se il risparmio del mese non copre tutte le quote').selectOption('primary');
   await expect(page.getByLabel('Se il risparmio del mese non copre tutte le quote')).toHaveValue('primary');
   await page.screenshot({ path: info.outputPath('conti-bancari.png'), fullPage: true });
@@ -33,8 +41,8 @@ test('a member links a bank in read-only mode, sees the family balance and impor
   const goalCard = page.locator('.goal-card', { hasText: 'Fondo emergenze' }); await expect(goalCard).toContainText('300,00 € al mese'); await expect(goalCard).toContainText('Primario');
   await go(page, 'Panoramica'); await expect(page.getByRole('button', { name: 'Saldo dei conti collegati: vai ai conti bancari' })).toContainText('2.345,67');
   await page.getByRole('button', { name: 'Saldo dei conti collegati: vai ai conti bancari' }).click();
-  await page.getByLabel('Con la famiglia condividi').selectOption('balance'); await expect(card.locator('.badge')).toHaveText('Movimenti privati'); await go(page, 'Uscite'); await expect(page.locator('.transaction-row', { hasText: 'Esselunga' })).toContainText('Privato'); await go(page, 'Conti bancari');
-  page.once('dialog', d => d.accept()); await page.getByRole('button', { name: 'Scollega Intesa Sanpaolo' }).click();
+  await card.getByLabel('Con la famiglia condividi').selectOption('balance'); await expect(card.locator('.badge')).toHaveText('Movimenti privati'); await go(page, 'Uscite'); await expect(page.locator('.transaction-row', { hasText: 'Esselunga' })).toContainText('Privato'); await go(page, 'Conti bancari');
+  page.once('dialog', d => d.accept()); await page.getByRole('button', { name: 'Scollega banca' }).click();
   await expect(page.getByRole('heading', { name: 'Nessun conto collegato' })).toBeVisible();
   await go(page, 'Uscite'); await expect(page.locator('.transaction-row', { hasText: 'Esselunga' })).toBeVisible();
   expect(errors).toEqual([]);
