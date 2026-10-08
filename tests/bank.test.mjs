@@ -490,3 +490,14 @@ test('cards linked before the IBAN rule are removed with their imported records'
   assert.equal(data.bank.total, 145055);
   assert.equal(data.transactions.some(t => t.description === 'Ristorante'), false);
 });
+
+test('the real balance line is a personal preference, off by default', async () => {
+  await start({ bankProvider: provider });
+  const { alice, bob } = await family();
+  assert.deepEqual((await state(alice)).preferences, { showBankBalance: false });
+  assert.equal((await request('/preferences', { method: 'PUT', session: alice, body: { showBankBalance: 'yes' } })).status, 400);
+  assert.equal((await request('/preferences', { method: 'PUT', session: alice, body: { showBankBalance: true } })).status, 200);
+  assert.deepEqual((await state(alice)).preferences, { showBankBalance: true });
+  assert.deepEqual((await state(bob)).preferences, { showBankBalance: false }, 'each account keeps its own choice');
+  assert.equal((await request('/preferences', { method: 'PUT', body: { showBankBalance: true } })).status, 401);
+});

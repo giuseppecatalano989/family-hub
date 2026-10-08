@@ -21,6 +21,7 @@ export interface FamilyState {
   categories: Category[]; transactions: Transaction[]; goals: Goal[]; contributions: Contribution[]; shopping: ShoppingItem[]; notes: Note[];
   deadlines: Deadline[]; waste: WasteSchedule[]; bills: Bill[]; meals: Meal[]; week: string; backups: BackupStatus | null;
   bank: BankState;
+  preferences: { showBankBalance: boolean };
 }
 export interface RecurringRule {
   id: string; kind: 'income' | 'expense'; start_month: string; effective_month: string;

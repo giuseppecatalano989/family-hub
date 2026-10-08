@@ -274,6 +274,11 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         });
         res.json({ ok: true });
     });
+    // Personal display choices; each account changes only its own.
+    app.put('/api/preferences', async (req, res) => {
+        await run('INSERT INTO user_preferences VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET show_bank_balance = excluded.show_bank_balance', req.user.id, boolean(req.body.showBankBalance));
+        res.json({ ok: true });
+    });
     app.put('/api/household', async (req, res) => {
         if (req.user.role !== 'admin') fail('Solo l’amministratore può modificare il nome della casa.', 403);
         const name = text(req.body.name, 'Nome della casa', 80);
@@ -318,6 +323,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             ...await workflows.state(req.user, month, req.query.week),
             backups: req.user.role === 'admin' ? await backups.status() : null,
             bank: await bank.state(req.user),
+            preferences: { showBankBalance: !!(await one('SELECT show_bank_balance FROM user_preferences WHERE user_id = ?', req.user.id))?.show_bank_balance },
             household: await one('SELECT id, name FROM households WHERE id = ?', hid),
             members: await all('SELECT id, name, role FROM users WHERE household_id = ? ORDER BY role, name', hid),
             categories: await all('SELECT * FROM categories WHERE household_id = ? ORDER BY position', hid),
