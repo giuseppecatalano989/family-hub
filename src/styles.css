@@ -147,3 +147,16 @@
 .bank-tip{margin-top:6px;border:1px solid var(--line);border-radius:11px;background:#fff}
 .settings-page{display:grid;gap:24px}
 .settings-page .bank-strategy{margin:0}
+.settings-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.settings-tab{display:flex;align-items:center;gap:12px;min-width:0;padding:14px 16px;border:1px solid var(--line);border-radius:14px;background:#fff;text-align:left;transition:border-color .15s,background .15s}
+.settings-tab svg{flex:none;color:var(--muted)}
+.settings-tab span{display:grid;gap:2px;min-width:0}
+.settings-tab strong{font-weight:600;font-size:15.5px}
+.settings-tab small{color:var(--muted);font-size:12.5px;line-height:1.35}
+.settings-tab:hover{border-color:#cfdccf}
+.settings-tab.active{border-color:var(--green);background:var(--mint)}
+.settings-tab.active svg,.settings-tab.active strong{color:var(--green-dark)}
+.settings-panel{display:grid;gap:24px;min-width:0}
+.settings-panel>.planning-section,.settings-panel>.bank-tip{margin:0}
+@media(max-width:1100px){.settings-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:650px){.settings-tabs{gap:8px}.settings-tab{padding:12px;gap:10px}.settings-tab small{display:none}.settings-tab strong{font-size:14.5px}}

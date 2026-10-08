@@ -44,7 +44,7 @@ export function Bank({ data, act, busy, navigate }: Props) {
       <div className="recurring-top"><span className="bank-badges"><span className={`badge ${account.visibility === 'shared' ? 'green' : ''}`}>{account.visibility === 'shared' ? 'Condiviso' : 'Movimenti privati'}</span>{account.savings && <span className="badge green">Risparmio</span>}</span></div>
       <h3>{account.name}</h3><p>{account.bank}{account.iban_last4 ? ` · •••• ${account.iban_last4}` : ''} · {account.owner}</p>
     </article>)}</div></section>}
-    <div className="panel-tip bank-tip"><ShieldCheck size={18} /><span>Solo lettura: Family Hub legge saldo e movimenti tramite Enable Banking e non può disporre pagamenti. Le credenziali restano sul sito della tua banca. I movimenti diventano entrate e uscite; la ripartizione dei risparmi è in Impostazioni.</span></div>
+    <div className="panel-tip bank-tip"><ShieldCheck size={18} /><span>Solo lettura: Family Hub legge saldo e movimenti tramite Enable Banking e non può disporre pagamenti. Le credenziali restano sul sito della tua banca. I movimenti diventano entrate e uscite.</span></div>
     {connect && <ConnectDialog key={connect.bank || 'new'} initial={connect} onClose={() => setConnect(null)} />}
   </>;
 }
