@@ -1,21 +1,23 @@
 import { useEffect, useState } from 'react';
-import { LayoutDashboard, Landmark, PiggyBank, ShieldCheck, Users } from 'lucide-react';
+import { Bell, LayoutDashboard, Landmark, PiggyBank, ShieldCheck, Users } from 'lucide-react';
 import Account from './Account';
 import { Bank } from './Bank';
 import { DashboardSettings } from './DashboardSettings';
+import { NotificationSettings } from './NotificationSettings';
 import { SectionHeading } from './components';
 import { Backups, type WorkflowProps } from './WorkflowPages';
 import type { User } from './types';
 import type { Page } from './pages';
 
 type Props = WorkflowProps & { user: User; onUser: (user: User) => void; mutate: <T>(path: string, method: string, body?: unknown) => Promise<T>; navigate: (page: Page) => void };
-type Category = 'conti' | 'panoramica' | 'famiglia' | 'backup';
+type Category = 'conti' | 'panoramica' | 'notifiche' | 'famiglia' | 'backup';
 
 const categories: { id: Category; label: string; description: string; icon: typeof Landmark }[] = [
-  { id: 'conti', label: 'Conti bancari', description: 'Collegamenti, condivisione e risparmi', icon: Landmark },
-  { id: 'panoramica', label: 'Panoramica', description: 'Card, ordine e pulsanti', icon: LayoutDashboard },
-  { id: 'famiglia', label: 'Casa e famiglia', description: 'Nome, membri e inviti', icon: Users },
-  { id: 'backup', label: 'Backup e dati', description: 'Copie e esportazione', icon: ShieldCheck },
+  { id: 'conti', label: 'Conti bancari', description: 'Collegamenti e risparmi', icon: Landmark },
+  { id: 'panoramica', label: 'Panoramica', description: 'Card e pulsanti', icon: LayoutDashboard },
+  { id: 'notifiche', label: 'Notifiche', description: 'Cosa e dove', icon: Bell },
+  { id: 'famiglia', label: 'Casa e famiglia', description: 'Nome e inviti', icon: Users },
+  { id: 'backup', label: 'Backup e dati', description: 'Copie e ZIP', icon: ShieldCheck },
 ];
 
 // The bank redirect still lands on #bank; categories live in #settings/<category>.
@@ -49,6 +51,7 @@ export function Settings(props: Props) {
         </section>
       </>}
       {category === 'panoramica' && <DashboardSettings data={data} mutate={props.mutate} />}
+      {category === 'notifiche' && <NotificationSettings data={data} mutate={props.mutate} />}
       {category === 'famiglia' && <Account {...props} scope="household" />}
       {category === 'backup' && <Backups {...props} />}
     </div>

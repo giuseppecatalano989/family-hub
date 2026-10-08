@@ -87,7 +87,7 @@ La categoria **Conti bancari** di **Impostazioni** collega i conti tramite [Enab
 - Non c’è una sezione separata per i movimenti: diventano **Entrate** e **Uscite**. Le uscite importate senza categoria sono segnate “Da classificare”: in Uscite il filtro **Da classificare** le raccoglie e **Modifica** assegna la categoria, che vale anche per i prossimi movimenti dello stesso esercente o IBAN e, con Risparmio, ripartisce il versamento sugli obiettivi. La Panoramica indica quante uscite del mese restano da classificare. Le uscite private degli altri membri senza categoria compaiono come “Da classificare” nel grafico finché il titolare non le classifica.
 - Vengono collegati solo i **conti con IBAN**: carte di credito, prepagate (anche se hanno un IBAN, quando la banca le indica come carte) e finanziamenti sono esclusi, così non falsano saldo e budget. Le carte collegate con versioni precedenti vengono rimosse da sole al primo aggiornamento, insieme alle registrazioni che avevano importato.
 - I conti sono raggruppati per banca: un consenso può coprire più conti. **Rinnova** e **Scollega banca** valgono per tutta la banca; **Rimuovi conto** (la ×) toglie un solo conto da vista, saldo, budget e importazioni lasciando la banca collegata, ed elimina le entrate e le uscite importate da quel conto; restano le registrazioni inserite a mano. Un conto rimosso non riappare, nemmeno rinnovando il consenso: per riaverlo scollega e ricollega la banca. Per i conti rimossi con versioni precedenti, che avevano lasciato le registrazioni importate, il primo aggiornamento rilegge una sola volta i loro movimenti degli ultimi 90 giorni ed elimina le registrazioni corrispondenti (stesso titolare, tipo, importo, giorno e descrizione della banca, senza altri collegamenti). L’ultimo conto di una banca si toglie con Scollega banca.
-- **Collega una banca** apre l’elenco delle banche italiane disponibili. Dopo l’autorizzazione la banca riporta all’app e il conto compare con il saldo (disponibile, se la banca lo fornisce, altrimenti contabile).
+- **Collega una banca** chiede il paese della banca (Italia di partenza) e apre l’elenco delle sue banche: alcune banche online, come Trade Republic o N26, compaiono sotto il paese della sede. Dopo l’autorizzazione la banca riporta all’app e il conto compare con il saldo (disponibile, se la banca lo fornisce, altrimenti contabile).
 - Ogni membro collega i propri conti e sceglie per ciascuno cosa condividere: **Saldo e movimenti** oppure **Movimenti privati**. Il **saldo familiare** somma tutti i conti in euro.
 - I movimenti contabilizzati di tutti i conti collegati, dal mese del collegamento, diventano automaticamente **Entrate** e **Uscite** della famiglia e contano nel budget. Per i conti con **Movimenti privati** il titolare vede le proprie operazioni per intero (con l’indicazione “Privato”), mentre gli altri membri vedono soltanto una riga di totale per mese, tipo e categoria, ad esempio “Spese di Bob” o “Entrate di Bob”, senza esercenti né singoli importi, anche nell’esportazione CSV. Solo il titolare può modificarle o eliminarle. Cambiare la scelta vale anche per le registrazioni già importate.
 - **Stipendi a metà o fine mese.** Inserisci ogni stipendio come **Entrata ricorrente** (per esempio 1.800 € il giorno 27): dal primo giorno del mese l’importo conta nel budget, così le percentuali delle categorie hanno subito una base. Quando arriva l’accredito, la stessa registrazione prende senza avvisi importo e giorno reali: vedi sempre una sola entrata del mese, senza duplicati; se l’accredito slitta al mese successivo resta nel mese a cui si riferisce. Un accredito sostituisce lo stipendio previsto solo se arriva entro dieci giorni dalla data prevista e se è riconoscibile come stipendio: proviene dall’ordinante che ha già pagato quello stipendio (in tal caso anche con importo diverso, per esempio con la tredicesima), oppure ha una causale da stipendio (stipendio, emolumenti, retribuzione, cedolino, pensione…) o il codice SEPA `SALA`, oppure lo stesso ordinante ha accreditato una cifra simile nei mesi precedenti. Negli ultimi due casi l’importo deve differire al massimo del 30%. Vendite, rimborsi e altre entrate occasionali restano entrate separate, anche con lo stesso importo. Con più stipendi possibili ha la precedenza quello inserito dal titolare del conto. La correzione è conservata anche se poi modifichi la ricorrenza.
@@ -105,6 +105,18 @@ La categoria **Conti bancari** di **Impostazioni** collega i conti tramite [Enab
 **Configurazione.** Crea un account Enable Banking e registra un’applicazione di produzione, indicando come redirect `https://<il-tuo-dominio>/api/bank/callback`. Nella modalità gratuita *restricted* vanno collegati prima, dal pannello Enable Banking, i conti che l’app potrà leggere: ogni titolare (per esempio entrambi i partner) completa lì l’autorizzazione del proprio conto. Nelle variabili private **Production** di Vercel imposta `ENABLE_BANKING_APP_ID` e `ENABLE_BANKING_PRIVATE_KEY` (il contenuto del file `.pem`, anche con `\n` al posto degli a capo, oppure in Base64). `ENABLE_BANKING_REDIRECT_URL` è facoltativa se il dominio coincide con quello predefinito dell’app. Non usare prefissi `VITE_` e non salvare la chiave nel repository. Senza configurazione la sezione mostra che il collegamento non è attivo.
 
 Le sessioni Enable Banking sono cifrate nel database (AES-256-GCM con una chiave derivata dalla chiave privata): cambiare chiave richiede di ricollegare i conti. Gli importi restano interi in centesimi. Le tabelle `bank_*` sono create in modo additivo e incluse nei backup dell’istanza; lo ZIP familiare contiene conti e saldi, i movimenti bancari dei soli conti condivisi, le registrazioni private con descrizione “Movimento bancario privato” e nessuna sessione o impronta IBAN. Rimuovere un membro elimina i suoi collegamenti bancari e conserva le registrazioni importate, rendendo anonime quelle private.
+
+## Notifiche
+
+**Impostazioni → Notifiche** attiva le notifiche push **su ogni dispositivo** (telefono o computer) e sceglie, per il proprio account, quali ricevere:
+
+- **Dalla famiglia:** modifiche di un familiare alla lavagna, alla lista della spesa o ai pasti programmati, al massimo una ogni 15 minuti per persona e sezione. Le proprie modifiche non generano notifiche.
+- **Promemoria della sera:** scadenze in arrivo secondo il loro promemoria o passate senza essere gestite, e il conferimento rifiuti del giorno dopo con l’orario.
+- **Soldi:** budget di una categoria superato (una volta per categoria e mese, solo con entrate ricorrenti impostate) e banca: nuove uscite importate da classificare, consenso in scadenza entro 7 giorni, collegamento scaduto o in errore. Le uscite dei conti con movimenti privati arrivano solo al titolare.
+
+Su Android e sui computer basta il browser. Su **iPhone e iPad** le notifiche arrivano solo dall’app aggiunta alla schermata Home (Safari → Condividi → Aggiungi alla schermata Home, iOS 16.4 o successivo); la sezione lo spiega quando serve. **Invia una notifica di prova** verifica il dispositivo. Le notifiche immediate partono dopo la modifica che le causa; i promemoria della sera partono dal cron giornaliero di Vercel alle 17:00 UTC (in serata in Italia; su Hobby l’orario è indicativo nell’ora) oppure, in locale, dal timer del server dalle 19.
+
+Le chiavi VAPID possono essere impostate in `VAPID_PUBLIC_KEY` e `VAPID_PRIVATE_KEY` (con `VAPID_SUBJECT`, un `mailto:` o un indirizzo `https://`); se mancano, il server ne crea una coppia al primo uso e la conserva nel database, condivisa da tutte le istanze, senza configurazione. Cambiare chiavi richiede di riattivare le notifiche sui dispositivi. Il server invia soltanto ai servizi push dei browser (Google, Mozilla, Apple, Microsoft), mai a indirizzi scelti dal client, e dimentica i dispositivi che il servizio non riconosce più. Indirizzi e chiavi dei dispositivi non escono dal server né entrano nello ZIP familiare; ogni notifica è registrata una sola volta per persona, e il registro si svuota dopo 60 giorni. Rimuovere un membro elimina i suoi dispositivi e le sue scelte.
 
 ## Conferimento rifiuti
 
@@ -151,6 +163,7 @@ Il server legge facoltativamente `.env`. Per configurarlo, copia `.env.example` 
 | `BACKUP_DIR` | percorso `DATA_DIR` seguito da `-backups` | Destinazione persistente dei backup automatici. |
 | `AUTO_BACKUPS` | attivo | Impostare `0` per disattivare la pianificazione automatica. |
 | `TRUST_PROXY` | disattivato | Impostare `1` solo dietro un reverse proxy HTTPS fidato a un singolo hop. |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | create e salvate nel database | Chiavi facoltative delle notifiche push; la privata resta sul backend, senza prefisso `VITE_`. |
 
 ## Build e avvio
 
@@ -285,6 +298,7 @@ server/waste.mjs         Calendario del conferimento rifiuti
 server/uploads.mjs       Allegati della lavagna caricati a parti
 server/recovery.mjs      Recupero password con link monouso
 server/bank.mjs          Conti bancari in sola lettura tramite Enable Banking
+server/notifications.mjs Notifiche push: dispositivi, scelte, eventi e promemoria della sera
 server/reset-email.mjs   Invio email tramite Brevo o Resend
 server/backups.mjs       Snapshot, ZIP familiare, verifica e ripristino
 server/postgres.mjs      Persistenza PostgreSQL per Neon
@@ -292,9 +306,9 @@ server/cloud.mjs         Backend condiviso per il deployment serverless
 server/cloud-backups.mjs Backup cloud e copie portabili
 server/*-cli.mjs         Comandi privati del gestore (backup, rimozione membri, diagnostica email), senza rotte HTTP
 api/index.mjs            Funzione Vercel; nessun fallback a dati temporanei
-vercel.json              Deployment e cron giornaliero
+vercel.json              Deployment, cron dei backup e dei promemoria della sera
 tests/                   Test API, calcoli, backend cloud e flussi browser
-public/                  Logo, icone e manifest dell’app
+public/                  Logo, icone, manifest e service worker delle notifiche
 .data/                   Dati locali e allegati, ignorati da Git
 .data-backups/           Backup automatici, ignorati da Git
 ```

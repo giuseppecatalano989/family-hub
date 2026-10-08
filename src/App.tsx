@@ -36,7 +36,7 @@ const pageCopy = {
   account: ['Il tuo account.', 'Profilo, accesso e impostazioni della famiglia.'],
   bills: ['Le scadenze, senza pensieri.', 'Impegni e promemoria condivisi, con eventuali pagamenti.'],
   meals: ['Cosa c’è di buono?', 'Un menu condiviso per organizzare pasti e spesa.'],
-  settings: ['Impostazioni.', 'Conti bancari, Panoramica, casa e famiglia, backup.'],
+  settings: ['Impostazioni.', 'Conti bancari, Panoramica, notifiche, casa e famiglia, backup.'],
   overview: ['La nostra casa, in ordine.', 'Un’occhiata al mese e a tutto quello che conta.'],
   budget: ['Ripartizione budget.', 'Un piano semplice per le spese della famiglia.'],
   goals: ['Facciamo spazio ai progetti.', 'Piccoli passi di oggi, traguardi di domani.'],

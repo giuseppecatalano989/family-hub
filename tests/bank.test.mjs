@@ -145,6 +145,9 @@ test('linking shared and balance-only accounts builds a family total, imports an
   const { alice, bob } = await family();
   assert.equal((await request('/bank/banks')).status, 401);
   assert.deepEqual((await (await request('/bank/banks', { session: alice })).json()).banks.map(b => b.name), ['Banca Due', 'Intesa Sanpaolo']);
+  assert.equal((await request('/bank/banks?country=DE', { session: alice })).status, 200, 'banks registered abroad, like Trade Republic, are listed by country');
+  assert.deepEqual(provider.calls.filter(c => c[0] === 'banks').map(c => c[1]).slice(-2), ['IT', 'DE']);
+  assert.equal((await request('/bank/banks?country=XX', { session: alice })).status, 400);
   assert.equal((await request('/bank/connections', { method: 'POST', session: alice, body: { bank: 'Banca Inventata', visibility: 'shared' } })).status, 400);
 
   // A state started by Alice cannot be completed by Bob's browser and is single use.
@@ -459,7 +462,7 @@ test('only current accounts with an IBAN are linked; one can be removed and stay
   assert.deepEqual(data.bank.accounts.map(a => a.name), ['Conto Alice'], 'the bank stays linked');
   assert.equal(data.bank.total, 145055);
   assert.equal(data.transactions.some(t => t.description === 'Edicola'), false, 'records it imported leave with it');
-  assert.deepEqual(data.bank.connections.map(c => Object.keys(c).sort()), [['bank', 'id', 'last_error', 'status', 'valid_until']], 'removed accounts are not listed');
+  assert.deepEqual(data.bank.connections.map(c => Object.keys(c).sort()), [['bank', 'country', 'id', 'last_error', 'status', 'valid_until']], 'removed accounts are not listed');
   assert.deepEqual((await state(bob)).bank.connections, []);
   assert.equal((await request(`/bank/accounts/${main.id}`, { method: 'DELETE', session: alice })).status, 400, 'the last account is removed by unlinking the bank');
 
@@ -523,6 +526,26 @@ test('cards linked before the IBAN rule are removed with their imported records'
   assert.deepEqual(data.bank.accounts.map(a => a.name), ['Conto Alice']);
   assert.equal(data.bank.total, 145055);
   assert.equal(data.transactions.some(t => t.description === 'Ristorante'), false);
+});
+
+test('new bank expenses to classify are notified to who can see them; a failing link to its owner', async () => {
+  const sent = [];
+  await start({ bankProvider: provider, pushSender: async (subscription, payload) => { sent.push({ endpoint: subscription.endpoint, ...JSON.parse(payload) }); } });
+  const { alice, bob } = await family();
+  for (const [session, name] of [[alice, 'alice'], [bob, 'bob']])
+    await request('/notifications/subscriptions', { method: 'POST', session, body: { endpoint: `https://fcm.googleapis.com/fcm/send/${name}-device`, keys: { p256dh: 'B'.repeat(87), auth: 'a'.repeat(22) } } });
+  provider.data.transactions = { 'uid-a': [tx('n1', '60.00', 'DBIT', '2026-10-14', { creditor: { name: 'Negozio Vario' } })], 'uid-b': [tx('b1', '25.00', 'DBIT', '2026-10-14', { creditor: { name: 'Libreria Centrale' } })] };
+  await link(alice, 'alice', 'shared');
+  await link(bob, 'bob', 'balance');
+  await request('/bank/refresh', { method: 'POST', session: alice }); await instance.notifications.idle();
+  const bodies = name => sent.filter(m => m.endpoint.includes(`/${name}-`) && m.url === '#expenses').map(m => [m.title, m.body]);
+  assert.deepEqual(bodies('alice'), [['Un’uscita da classificare', 'Negozio Vario. Scegli la categoria in Uscite.']], 'others\' private expenses stay private');
+  assert.deepEqual(bodies('bob'), [['Un’uscita da classificare', 'Negozio Vario. Scegli la categoria in Uscite.'], ['Un’uscita da classificare', 'Libreria Centrale. Scegli la categoria in Uscite.']], 'his own private expense too');
+  await request('/bank/refresh', { method: 'POST', session: alice }); await instance.notifications.idle();
+  assert.equal(sent.filter(m => m.url === '#expenses').length, 3, 'each expense is notified once');
+  instance.db.prepare("UPDATE bank_connections SET status = 'expired' WHERE user_id = ?").run(bob.user.id);
+  await request('/shopping', { method: 'POST', session: alice, body: { name: 'Latte', quantity: '', section: 'Altro' } }); await instance.notifications.idle();
+  assert.deepEqual(sent.filter(m => m.url === '#settings/conti').map(m => [m.endpoint.includes('/bob-'), m.body]), [[true, 'Il consenso è scaduto: rinnova il collegamento.']]);
 });
 
 test('the real balance line is a personal preference, off by default', async () => {

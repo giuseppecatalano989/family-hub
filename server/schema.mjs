@@ -225,3 +225,21 @@ export const BANK_SCHEMA = `
   );
 `;
 TABLES.push('user_preferences', 'dashboard_preferences', 'bank_connections', 'bank_accounts', 'bank_account_exclusions', 'bank_exclusion_cleanups', 'bank_movements', 'savings_destinations', 'savings_contributions', 'goal_plans', 'savings_settings', 'savings_allocations', 'salary_payers', 'private_transactions');
+// Push notifications: per-device subscriptions, per-account choices, a log that
+// sends each notice once, and the VAPID keys when they are not set in the environment.
+export const NOTIFICATION_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS push_keys (
+    id INTEGER PRIMARY KEY CHECK(id = 1), public_key TEXT NOT NULL, private_key TEXT NOT NULL, created_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), endpoint TEXT NOT NULL UNIQUE,
+    p256dh TEXT NOT NULL, auth TEXT NOT NULL, created_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS notification_preferences (
+    user_id TEXT PRIMARY KEY REFERENCES users(id), types TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS notification_log (
+    user_id TEXT NOT NULL REFERENCES users(id), key TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(user_id, key)
+  );
+`;
+TABLES.push('push_subscriptions', 'notification_preferences');
