@@ -525,14 +525,15 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
         res.json({ ok: true });
       });
     },
-    async state(user, month) {
+    // Bank accounts are not monthly: the latest movements are returned whatever the selected month.
+    async state(user) {
       const accounts = await all(`SELECT a.id, a.name, a.iban_last4, a.currency, a.visibility, a.savings, a.balance, a.balance_kind, a.balance_at, a.import_from,
         c.id AS connection_id, c.aspsp_name AS bank, c.status, c.valid_until, c.last_sync_at, c.last_error, c.user_id, u.name AS owner
         FROM bank_accounts a JOIN bank_connections c ON c.id = a.connection_id JOIN users u ON u.id = c.user_id
         WHERE a.household_id = ? ORDER BY u.name, c.aspsp_name, a.name`, user.household_id);
       const movements = await all(`SELECT m.id, m.account_id, m.kind, m.amount, m.date, m.description, m.status, m.transaction_id FROM bank_movements m
         JOIN bank_accounts a ON a.id = m.account_id JOIN bank_connections c ON c.id = a.connection_id
-        WHERE m.household_id = ? AND substr(m.date, 1, 7) = ? AND (a.visibility = 'shared' OR c.user_id = ?) ORDER BY m.date DESC, m.external_id LIMIT 300`, user.household_id, month, user.id);
+        WHERE m.household_id = ? AND (a.visibility = 'shared' OR c.user_id = ?) ORDER BY m.date DESC, m.external_id LIMIT 100`, user.household_id, user.id);
       return {
         configured: !!provider,
         total: accounts.filter(a => a.currency === 'EUR' && a.balance !== null).reduce((sum, a) => sum + Number(a.balance), 0),

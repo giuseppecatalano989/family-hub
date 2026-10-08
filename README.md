@@ -74,6 +74,7 @@ Le nuove tabelle sono create in modo additivo, senza modificare o cancellare i d
 
 La sezione **Conti bancari** collega i conti tramite [Enable Banking](https://enablebanking.com), con un consenso PSD2 di sola lettura (AIS): Family Hub legge **saldo e movimenti** e non può disporre pagamenti o bonifici. Le credenziali bancarie si inseriscono soltanto sul sito o nell’app della banca.
 
+- La sezione non dipende dal mese selezionato: mostra saldi aggiornati e gli ultimi 100 movimenti dei conti visibili.
 - **Collega una banca** apre l’elenco delle banche italiane disponibili. Dopo l’autorizzazione la banca riporta all’app e il conto compare con il saldo (disponibile, se la banca lo fornisce, altrimenti contabile).
 - Ogni membro collega i propri conti e sceglie per ciascuno cosa condividere: **Saldo e movimenti** oppure **Movimenti privati**. Il **saldo familiare** somma tutti i conti in euro.
 - I movimenti contabilizzati di tutti i conti collegati, dal mese del collegamento, diventano automaticamente **Entrate** e **Uscite** della famiglia e contano nel budget. Per i conti con **Movimenti privati** il titolare vede le proprie operazioni per intero (con l’indicazione “Privato”), mentre gli altri membri vedono soltanto una riga di totale per mese, tipo e categoria, ad esempio “Spese di Bob” o “Entrate di Bob”, senza esercenti né singoli importi, anche nell’esportazione CSV. Solo il titolare può modificarle o eliminarle. Cambiare la scelta vale anche per le registrazioni già importate.

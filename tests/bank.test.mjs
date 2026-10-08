@@ -174,6 +174,8 @@ test('linking shared and balance-only accounts builds a family total, imports an
   assert.equal((await state(alice, '2026-09')).transactions.length, 0, 'movements before the linking month are not imported');
   assert.equal(data.bank.movements.find(m => m.description === 'CONAD SUPERSTORE').status, 'matched');
   assert.equal(data.bank.movements.some(m => m.description === 'In attesa'), false);
+  assert.equal(data.bank.movements.some(m => m.description === 'Farmacia Centrale'), true, 'bank movements are not limited to the selected month');
+  assert.deepEqual((await state(alice, '2026-03')).bank.movements.map(m => m.id), data.bank.movements.map(m => m.id));
 
   // Bob keeps his movements private: they count in the budget, Alice only sees totals.
   assert.equal((await link(bob, 'bob', 'balance')).headers.get('location'), '/?banca=collegato#bank');

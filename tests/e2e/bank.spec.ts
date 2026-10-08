@@ -9,6 +9,7 @@ test('a member links a bank in read-only mode, sees the family balance and impor
   await page.getByLabel('Il tuo nome').fill('Giuseppe'); await page.getByLabel('Email', { exact: true }).fill(`bank-${info.project.name}-${Date.now()}@example.test`); await page.getByLabel('Password', { exact: true }).fill('test-password-123'); await page.getByLabel('Nome del vostro spazio').fill('Famiglia banca'); await page.getByRole('button', { name: 'Entra a casa' }).click();
   await go(page, 'Conti bancari'); await expect(page.getByRole('heading', { name: 'I conti di famiglia.' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Nessun conto collegato' })).toBeVisible();
+  await expect(page.getByLabel('Mese selezionato')).toHaveCount(0);
   await page.getByRole('button', { name: 'Collega una banca' }).first().click();
   const dialog = page.getByRole('dialog'); await dialog.getByLabel('Cerca la tua banca').fill('intesa');
   await dialog.getByRole('listbox', { name: 'Banca' }).selectOption('Intesa Sanpaolo');

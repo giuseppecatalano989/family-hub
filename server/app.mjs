@@ -317,7 +317,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             ...await planning.state(req.user, month),
             ...await workflows.state(req.user, month, req.query.week),
             backups: req.user.role === 'admin' ? await backups.status() : null,
-            bank: await bank.state(req.user, month),
+            bank: await bank.state(req.user),
             household: await one('SELECT id, name FROM households WHERE id = ?', hid),
             members: await all('SELECT id, name, role FROM users WHERE household_id = ? ORDER BY role, name', hid),
             categories: await all('SELECT * FROM categories WHERE household_id = ? ORDER BY position', hid),
