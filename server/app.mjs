@@ -332,7 +332,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
     const deadlines = installDeadlines(app, { db, one, all, run, atomic, owned, fail, text, cents, date, now });
     const planning = installPlanning(app, { db, one, all, run, atomic, owned, fail, text, cents, now });
     const waste = installWaste(app, { db, all, run, owned, fail, text });
-    const savings = installGoalSavings(app, { one, all, run, atomic, owned, fail, cents, now });
+    const savings = installGoalSavings(app, { one, all, run, atomic, owned, fail, cents, now, reconcile: bank.reconcileSavings });
     bank.routes();
     const backups = cloudBackups || createBackupManager({ db, dataDir, backupDir, enabled: automaticBackups });
     app.get('/api/backups/export', async (req, res, next) => {
@@ -416,6 +416,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         await atomic(async () => {
             await bank.releaseSavings(req.params.id);
             await run('DELETE FROM transactions WHERE id = ? AND household_id = ?', req.params.id, req.user.household_id);
+            await bank.reconcileSavings(req.user.household_id);
         });
         res.json({ ok: true });
     });
@@ -459,6 +460,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         await atomic(async () => {
             await run('INSERT INTO goals VALUES (?, ?, ?, ?, ?, ?, ?, ?)', id, req.user.household_id, text(title, 'Obiettivo', 120), horizon, cents(target), cents(saved, true), dueDate ? date(dueDate) : null, now());
             await savePlan(id, plan, req.user.household_id);
+            await bank.reconcileSavings(req.user.household_id);
         });
         res.status(201).json({ id });
     });
@@ -471,12 +473,17 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         await atomic(async () => {
             await run('UPDATE goals SET title = ?, horizon = ?, target = ?, due_date = ? WHERE id = ? AND household_id = ?', text(title, 'Obiettivo', 120), horizon, cents(target), dueDate ? date(dueDate) : null, req.params.id, req.user.household_id);
             await savePlan(req.params.id, plan, req.user.household_id);
+            await bank.reconcileSavings(req.user.household_id);
         });
         res.json({ ok: true });
     });
     app.delete('/api/goals/:id', async (req, res) => {
         await owned('goals', req.params.id, req.user);
-        await run('DELETE FROM goals WHERE id = ? AND household_id = ?', req.params.id, req.user.household_id);
+        // The balance shares of a deleted goal go to the others.
+        await atomic(async () => {
+            await run('DELETE FROM goals WHERE id = ? AND household_id = ?', req.params.id, req.user.household_id);
+            await bank.reconcileSavings(req.user.household_id);
+        });
         res.json({ ok: true });
     });
     app.post('/api/shopping', async (req, res) => {

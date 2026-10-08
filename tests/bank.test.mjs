@@ -137,7 +137,7 @@ test('without configuration the bank section is disabled', async () => {
   const { alice } = await family();
   assert.equal((await request('/bank/banks', { session: alice })).status, 503);
   const data = await state(alice);
-  assert.deepEqual(data.bank, { configured: false, total: 0, savingsTotal: 0, accounts: [], connections: [], savingsStrategy: 'proportional' });
+  assert.deepEqual(data.bank, { configured: false, total: 0, savingsTotal: 0, accounts: [], connections: [], savingsStrategy: 'proportional', savingsUnassigned: 0 });
 });
 
 test('linking shared and balance-only accounts builds a family total, imports and reconciles shared movements', async () => {
@@ -437,10 +437,58 @@ test('the owner marks a savings account: deposits become savings, its own moveme
   assert.equal(data.bank.accounts.find(a => a.name === 'Deposito').savings, true);
   const deposit = data.transactions.find(t => t.amount === 30000);
   assert.equal(deposit.kind, 'expense'); assert.equal(deposit.category_id, data.categories[5].id);
-  assert.equal(data.goals[0].saved, 30000);
+  assert.equal(data.goals[0].saved, 500000, 'the whole balance of the savings account goes to the goals, the deposit included');
+  assert.equal(data.bank.savingsUnassigned, 0);
   assert.equal(data.transactions.some(t => t.description === 'Acquisto ETF'), false, 'purchases inside the savings account stay out of the budget');
   assert.equal(data.transactions.some(t => t.amount === 10000), false, 'withdrawals from savings are giroconti');
   assert.deepEqual([data.bank.total, data.bank.savingsTotal], [145055, 500000], 'savings balances are added up apart');
+});
+
+test('the savings balance is all assigned to goals; targeted deposits move automatic shares and new money follows the split', async () => {
+  await start({ bankProvider: provider });
+  const { alice, bob } = await family();
+  const TR = 'IT55T0300203280000000000777';
+  provider.data.sessions.tr = [{ uid: 'uid-t', iban: TR, name: 'Deposito', currency: 'EUR', type: 'SVGS' }];
+  provider.data.balances['uid-t'] = [{ balance_type: 'ITAV', balance_amount: { amount: '5000.00', currency: 'EUR' } }];
+  provider.data.transactions = { 'uid-t': [] };
+  const goal = async (title, monthly, target) => (await (await request('/goals', { method: 'POST', session: bob, body: { title, horizon: 'long', target, monthly } })).json()).id;
+  const casa = await goal('Casa', 50000, 2000000);
+  await link(bob, 'tr', 'shared');
+  let data = await state(alice);
+  const deposito = data.bank.accounts.find(a => a.name === 'Deposito');
+  assert.equal(data.goals[0].saved, 0, 'nothing is assigned before the account is marked as savings');
+  await request(`/bank/accounts/${deposito.id}`, { method: 'PATCH', session: bob, body: { savings: true } });
+  const saved = async () => Object.fromEntries((await state(alice)).goals.map(g => [g.title, g.saved]));
+  assert.deepEqual(await saved(), { Casa: 500000 });
+  // A new goal does not take what is already assigned; a targeted deposit does, from the other goals.
+  const auto = await goal('Auto', 20000, 300000);
+  assert.deepEqual(await saved(), { Casa: 500000, Auto: 0 });
+  assert.equal((await request(`/goals/${auto}/contributions`, { method: 'POST', session: alice, body: { amount: 100000 } })).status, 201);
+  assert.deepEqual(await saved(), { Casa: 400000, Auto: 100000 });
+  data = await state(alice);
+  assert.deepEqual(data.contributions.filter(c => c.goal_id === auto).map(c => [c.amount, c.automatic]), [[100000, 0]]);
+  assert.deepEqual(data.contributions.filter(c => c.goal_id === casa).map(c => [c.amount, c.automatic]), [[400000, 1]]);
+  // New money covers this month's missing quotas first, then follows the quotas.
+  const sync = async amount => {
+    provider.data.balances['uid-t'] = [{ balance_type: 'ITAV', balance_amount: { amount, currency: 'EUR' } }];
+    instance.db.prepare('UPDATE bank_connections SET last_attempt_at = ?').run('2026-01-01T00:00:00.000Z');
+    await instance.bank.synchronizeAll();
+  };
+  await sync('5300.00');
+  assert.deepEqual(await saved(), { Casa: 407143, Auto: 122857 });
+  // A withdrawal gives back automatic shares only; the targeted deposit stays.
+  await sync('1000.00');
+  data = await state(alice);
+  assert.equal(data.goals.reduce((sum, g) => sum + g.saved, 0), 100000);
+  assert.deepEqual(data.contributions.filter(c => !c.automatic).map(c => c.amount), [100000]);
+  // Targets cap the goals: what no goal can take stays visible as unassigned.
+  await sync('30000.00');
+  data = await state(alice);
+  assert.deepEqual(Object.fromEntries(data.goals.map(g => [g.title, g.saved])), { Casa: 2000000, Auto: 300000 });
+  assert.equal(data.bank.savingsUnassigned, 700000);
+  // Deleting a goal frees its shares: with every target reached they stay unassigned.
+  await request(`/goals/${auto}`, { method: 'DELETE', session: bob });
+  assert.equal((await state(alice)).bank.savingsUnassigned, 1000000);
 });
 
 test('only current accounts with an IBAN are linked; one can be removed and stays hidden until the bank is unlinked', async () => {

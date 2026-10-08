@@ -5,6 +5,7 @@ import { Bank } from './Bank';
 import { DashboardSettings } from './DashboardSettings';
 import { NotificationSettings } from './NotificationSettings';
 import { SectionHeading } from './components';
+import { money } from './finance';
 import { Backups, type WorkflowProps } from './WorkflowPages';
 import type { User } from './types';
 import type { Page } from './pages';
@@ -44,8 +45,9 @@ export function Settings(props: Props) {
         <Bank data={data} act={act} busy={busy} navigate={navigate} />
         <section className="panel planning-section bank-strategy"><SectionHeading title="Ripartizione dei risparmi" />
           <div className="bank-strategy-body">
-            <p>I versamenti verso conti risparmio e investimento vengono divisi da soli tra gli obiettivi, secondo l’accantonamento mensile di ciascuno.{planned.length ? ` Obiettivi con quota: ${planned.map(g => `${g.title}${g.is_primary ? ' (primario)' : ''}`).join(', ')}.` : ''}</p>
+            <p>Il saldo dei conti segnati come risparmio è diviso tutto tra gli obiettivi, secondo l’accantonamento mensile di ciascuno, e così ogni nuovo versamento. Per un versamento mirato usa Aggiungi risparmio nell’obiettivo: la quota viene tolta prima agli altri obiettivi.{planned.length ? ` Obiettivi con quota: ${planned.map(g => `${g.title}${g.is_primary ? ' (primario)' : ''}`).join(', ')}.` : ''}</p>
             <label>Se il risparmio del mese non copre tutte le quote<select value={data.bank.savingsStrategy} disabled={busy} onChange={e => void act('/savings/strategy', 'PUT', { strategy: e.target.value }).catch(() => {})}><option value="primary">Priorità all’obiettivo primario</option><option value="proportional">In proporzione alle quote mensili</option></select></label>
+            {data.bank.savingsUnassigned > 0 && <p role="status">Da assegnare: {money(data.bank.savingsUnassigned)}. Nessun obiettivo con quota mensile può ancora riceverlo: aggiungi una quota o un nuovo obiettivo.</p>}
             {!planned.length && <button className="text-button" onClick={() => navigate('goals')}><PiggyBank size={15} />Imposta le quote mensili in Obiettivi</button>}
           </div>
         </section>

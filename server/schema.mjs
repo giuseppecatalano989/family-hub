@@ -214,6 +214,11 @@ export const BANK_SCHEMA = `
     contribution_id TEXT NOT NULL UNIQUE REFERENCES contributions(id) ON DELETE CASCADE,
     PRIMARY KEY(transaction_id, contribution_id)
   );
+  -- Automatic shares of the savings accounts' balance, by Rome month.
+  CREATE TABLE IF NOT EXISTS savings_balance_allocations (
+    contribution_id TEXT PRIMARY KEY REFERENCES contributions(id) ON DELETE CASCADE,
+    household_id TEXT NOT NULL REFERENCES households(id), month TEXT NOT NULL
+  );
   -- One deposit can now feed several goals: earlier single links move here once.
   INSERT INTO savings_allocations SELECT transaction_id, contribution_id FROM savings_contributions WHERE true ON CONFLICT DO NOTHING;
   DELETE FROM savings_contributions;
@@ -224,7 +229,7 @@ export const BANK_SCHEMA = `
     transaction_id TEXT PRIMARY KEY REFERENCES transactions(id) ON DELETE CASCADE, owner_id TEXT NOT NULL REFERENCES users(id)
   );
 `;
-TABLES.push('user_preferences', 'dashboard_preferences', 'bank_connections', 'bank_accounts', 'bank_account_exclusions', 'bank_exclusion_cleanups', 'bank_movements', 'savings_destinations', 'savings_contributions', 'goal_plans', 'savings_settings', 'savings_allocations', 'salary_payers', 'private_transactions');
+TABLES.push('user_preferences', 'dashboard_preferences', 'bank_connections', 'bank_accounts', 'bank_account_exclusions', 'bank_exclusion_cleanups', 'bank_movements', 'savings_destinations', 'savings_contributions', 'goal_plans', 'savings_settings', 'savings_allocations', 'salary_payers', 'private_transactions', 'savings_balance_allocations');
 // Push notifications: per-device subscriptions, per-account choices, a log that
 // sends each notice once, and the VAPID keys when they are not set in the environment.
 export const NOTIFICATION_SCHEMA = `
