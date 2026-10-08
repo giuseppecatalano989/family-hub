@@ -38,7 +38,13 @@ La ripartizione usa come base solo le **entrate ricorrenti** del mese: gli stipe
 
 ### Confronto tra mesi
 
-Sotto la ripartizione, **Confronto tra mesi** mostra gli ultimi sei mesi fino a quello selezionato: per ogni mese una colonna delle entrate e una delle uscite, divisa per categoria con i colori della ripartizione. La tabella confronta il mese selezionato con il precedente per categoria, totale uscite, entrate e saldo; le differenze in rosso indicano più spese o meno entrate. Le uscite senza categoria compaiono come “Da classificare”. Il server invia soltanto totali per mese e categoria, quindi le registrazioni private degli altri membri restano non elencate.
+Ogni sezione confronta gli ultimi sei mesi fino a quello selezionato, con una colonna per mese e una tabella che mette il mese a confronto con il precedente:
+
+- **Entrate → Entrate a confronto:** entrate ricorrenti e occasionali, e il loro totale.
+- **Uscite → Uscite a confronto:** le uscite divise per categoria con i colori della ripartizione, più “Da classificare”, e il totale.
+- **Panoramica → I mesi a confronto:** entrate, uscite e saldo del mese. È una card come le altre: si nasconde o si sposta da **Impostazioni → Panoramica**.
+
+Le differenze in rosso indicano più spese o meno entrate. Il server invia soltanto totali per mese e categoria, quindi le registrazioni private degli altri membri restano non elencate.
 
 ## Risparmi degli obiettivi
 
@@ -73,7 +79,7 @@ Il pulsante account nella barra superiore o il nome nella barra laterale apre **
 La sezione **Impostazioni** è divisa in quattro categorie, ognuna con le sue impostazioni:
 
 - **Conti bancari:** collegamenti, rinnovo, condivisione e **Ripartizione dei risparmi** tra gli obiettivi.
-- **Panoramica:** scelte personali per la Panoramica: i pulsanti Nuova entrata e Nuova uscita (spenti all’inizio), la riga “Oggi sui conti” e quali card vedere e in che ordine. Gli indicatori in alto (entrate, uscite, saldo, risparmi) e i riquadri (uscite per categoria, vita di casa, traguardi, ultimi movimenti) si nascondono e si spostano separatamente; i riquadri sono disposti due per riga. **Ripristina predefinita** torna all’aspetto iniziale.
+- **Panoramica:** scelte personali per la Panoramica: i pulsanti Nuova entrata e Nuova uscita (spenti all’inizio), la riga “Oggi sui conti” e quali card vedere e in che ordine. Gli indicatori in alto (entrate, uscite, saldo, risparmi) e i riquadri (uscite per categoria, vita di casa, traguardi, ultimi movimenti, mesi a confronto) si nascondono e si spostano separatamente; i riquadri sono disposti due per riga. **Ripristina predefinita** torna all’aspetto iniziale.
 - **Casa e famiglia:** **La vostra casa** (nome, modificabile solo dall’amministratore) e **Famiglia e inviti**.
 - **Backup e dati:** copie automatiche ed esportazione ZIP.
 

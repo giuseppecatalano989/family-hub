@@ -2,7 +2,7 @@ import { Fragment, useState, type CSSProperties, type ReactNode } from 'react';
 import { ArrowDownLeft, ArrowUpRight, Wallet, PiggyBank, Target, ShoppingBasket, StickyNote, Plus, Pencil, Trash2, Pin, Paperclip, Check, Search, Download, ChevronRight, CircleCheck, TrendingUp, AlertCircle, Recycle, Utensils, CalendarClock, LayoutDashboard } from 'lucide-react';
 import { Empty, Progress, SectionHeading } from './components';
 import { allocateBudget, budgetIncome, localDate, money, readableDate, totals } from './finance';
-import type { DashboardCard, FamilyState, Transaction, Goal, Note, Meal, RecurringRule, WasteSchedule, Deadline } from './types';
+import type { DashboardCard, FamilyState, MonthSummary, Transaction, Goal, Note, Meal, RecurringRule, WasteSchedule, Deadline } from './types';
 
 export type Page = 'settings' | 'waste' | 'incomes' | 'expenses' | 'account' | 'overview' | 'budget' | 'goals' | 'shopping' | 'notes' | 'bills' | 'meals';
 export type Dialog = { type: 'deadline'; deadline?: Deadline } | { type: 'manage'; deadline: Deadline } | { type: 'waste'; schedule?: WasteSchedule; name?: string; color?: string } | { type: 'recurring'; rule?: RecurringRule; kind?: 'income' | 'expense'; name?: string; categoryId?: string } | { type: 'transaction'; transaction?: Transaction; kind?: 'income' | 'expense' } | { type: 'budget' } | { type: 'goal'; goal?: Goal } | { type: 'contribution'; goal: Goal } | { type: 'note'; note?: Note } | { type: 'viewNote'; note: Note } | { type: 'meal'; meal?: Meal; date?: string; slot?: 'lunch' | 'dinner' } | null;
@@ -60,12 +60,14 @@ export function Overview({ data, open, navigate }: Props) {
     { page: 'notes' as const, title: 'Lavagna di famiglia', icon: StickyNote, color: 'lavender', caption: '' },
   ].map(item => <button className="daily-row daily-link" key={item.page} onClick={() => navigate(item.page)} aria-label={item.title}><span className={`daily-icon ${item.color}`}><item.icon size={23} /></span><div><strong>{item.title}</strong>{item.caption && <p>{item.caption}</p>}</div><ChevronRight size={18} /></button>)}</section>,
     goals: <DashboardPanel title="I nostri prossimi traguardi" page="goals" action="Vedi obiettivi" navigate={navigate}>{data.goals.length ? <div className="compact-goals">{(activeGoals.length ? activeGoals : data.goals).slice(0, 2).map(g => <GoalCard key={g.id} goal={g} open={open} compact />)}</div> : <Empty icon={<Target size={26} />} title="Qualcosa di bello da progettare" description="Un viaggio, un fondo di sicurezza, una casa. Date un nome al prossimo obiettivo." action="Crea un obiettivo" onAction={() => open({ type: 'goal' })} />}</DashboardPanel>,
+    comparison: <MonthComparison data={data} mode="overview" />,
     recent: <DashboardPanel title="Gli ultimi movimenti" page="expenses" action="Vedi tutti" navigate={navigate}>{data.transactions.length ? data.transactions.slice(0, 4).map(t => <TransactionRow transaction={t} data={data} key={t.id} />) : <Empty icon={<Wallet size={26} />} title="Facciamo il punto sul mese" description="Registra la prima entrata o uscita. Il resto prende forma da qui." action="Aggiungi un’entrata" onAction={() => open({ type: 'transaction', kind: 'income' })} />}</DashboardPanel>,
   };
   // Cards follow the account's choice: figures on top, then panels two by two.
   const visible = data.preferences.dashboard.order.filter(id => !data.preferences.dashboard.hidden.includes(id));
   const stats = visible.filter(id => STAT_CARDS.includes(id));
-  const rows = [visible.filter(id => !STAT_CARDS.includes(id)).slice(0, 2), visible.filter(id => !STAT_CARDS.includes(id)).slice(2)].filter(row => row.length);
+  const panels = visible.filter(id => !STAT_CARDS.includes(id));
+  const rows = panels.map((_, i) => panels.slice(i, i + 2)).filter((_, i) => i % 2 === 0);
   if (!visible.length) return <section className="panel"><Empty icon={<LayoutDashboard size={26} />} title="La Panoramica è vuota" description="Hai nascosto tutte le card. Scegli quali vedere e in che ordine dalle impostazioni." action="Personalizza la Panoramica" onAction={() => { window.location.hash = 'settings/panoramica'; }} /></section>;
   return <>{stats.length > 0 && <div className="stats-grid" style={{ '--stat-columns': stats.length } as CSSProperties}>{stats.map(id => <Fragment key={id}>{cards[id]}</Fragment>)}</div>}{exceeded.length > 0 && <div className="budget-alert"><AlertCircle size={19} /><span>{exceeded.length === 1 ? `${exceeded[0].name} ha superato il budget del mese.` : `${exceeded.length} categorie hanno superato il budget del mese.`}{base === 0 ? ' Imposta le entrate ricorrenti, come gli stipendi, per definire gli importi disponibili.' : ' Dai un’occhiata alla ripartizione.'}</span><button className="text-button" onClick={() => navigate('budget')}>Vedi budget<ChevronRight size={16} /></button></div>}{rows.map((row, i) => <div key={row.join()} className={`${i ? 'overview-bottom' : 'overview-main'}${row.length === 1 ? ' overview-single' : ''}`}>{row.map(id => <Fragment key={id}>{cards[id]}</Fragment>)}</div>)}</>;
 }
@@ -76,33 +78,45 @@ export function Budget({ data, open }: Props) {
   return <><div className="budget-intro"><div><span className="eyebrow">UN PIANO PER IL VOSTRO MESE</span><h2>Ogni euro, al posto giusto.</h2><p>Dividete le entrate per ciò che conta per voi.<br />Le percentuali sono uno schema condiviso, modificabile nel tempo.</p></div><div className="budget-income"><span>Entrate da ripartire</span><strong>{money(income)}</strong><small>entrate ricorrenti del mese</small></div></div><section className="panel"><div className="section-heading"><h2>La nostra ripartizione</h2><button className="button secondary" onClick={() => open({ type: 'budget' })}><Pencil size={16} />Modifica schema</button></div><div className="allocation-bar" role="img" aria-label={data.categories.map(c => `${c.name} ${c.percentage / 100}%`).join(', ')}>{data.categories.map(c => <span key={c.id} style={{ width: `${c.percentage / 100}%`, background: c.color }} />)}</div><div className="budget-grid">{data.categories.map(c => {
     const spent = spentByCategory(data, c.id); const limit = budgets[c.id]; const over = spent > limit;
     return <article className="budget-category" key={c.id}><div className="budget-category-heading"><span className="category-dot" style={{ background: c.color }} /><h3>{c.name}</h3><span className="percentage-badge" style={{ color: c.color, background: `${c.color}12` }}>{c.percentage / 100}%</span></div><div className="budget-amounts"><strong>{money(spent)}</strong><span>di {money(limit)}</span></div><Progress value={limit ? spent / limit * 100 : spent ? 100 : 0} color={over ? 'var(--red)' : c.color} /><p className={over ? 'negative' : ''}>{over ? `${money(spent - limit)} oltre il budget` : `${money(limit - spent)} ancora disponibili`}</p></article>;
-  })}</div><div className="panel-tip"><PiggyBank size={18} /><span>Scegliete uno schema predefinito oppure modificate Pers.: le percentuali devono sommare il 100%. Gli accantonamenti negli obiettivi si registrano separatamente dai movimenti.</span></div></section><MonthComparison data={data} /></>;
+  })}</div><div className="panel-tip"><PiggyBank size={18} /><span>Scegliete uno schema predefinito oppure modificate Pers.: le percentuali devono sommare il 100%. Gli accantonamenti negli obiettivi si registrano separatamente dai movimenti.</span></div></section></>;
 }
 
 const monthLabel = (month: string, style: 'short' | 'long' = 'short') => new Intl.DateTimeFormat('it-IT', { month: style, ...(style === 'long' ? { year: 'numeric' } : {}) }).format(new Date(`${month}-15T12:00:00`));
-const UNCLASSIFIED_COLOR = '#a7b0a2';
-// Spending of the last six months by category, and the selected month against the previous one.
-function MonthComparison({ data }: { data: FamilyState }) {
+type Series = { id: string; name: string; color: string; value: (m: MonthSummary) => number; moreIsBetter?: boolean };
+const INCOME_COLOR = '#7fb894'; const EXPENSE_COLOR = '#e0a26f';
+// The last six months up to the selected one: Entrate compares incomes, Uscite
+// expenses by category, the overview incomes against expenses.
+export function MonthComparison({ data, mode }: { data: FamilyState; mode: 'income' | 'expense' | 'overview' }) {
   const history = data.history; const current = history[history.length - 1]; const previous = history[history.length - 2];
   if (!current || !previous) return null;
-  const rows = [...data.categories.map(c => ({ id: c.id, name: c.name, color: c.color })), { id: '', name: 'Da classificare', color: UNCLASSIFIED_COLOR }]
-    .filter(row => row.id || history.some(m => m.categories['']));
-  const highest = Math.max(1, ...history.map(m => Math.max(m.expense, m.income)));
-  // Spending more reads as a warning; for incomes and balance, more is good news.
-  const change = (now: number, before: number, moreIsBetter = false) => now === before ? <span className="comparison-change">=</span> : <span className={`comparison-change ${(now > before) === moreIsBetter ? 'better' : 'worse'}`}>{now > before ? '+' : '−'}{money(Math.abs(now - before))}</span>;
-  const empty = history.every(m => !m.expense && !m.income);
-  return <section className="panel month-comparison"><div className="section-heading"><div><h2>Confronto tra mesi</h2><p>Gli ultimi sei mesi fino a {monthLabel(current.month, 'long')}.</p></div></div>
-    {empty ? <Empty icon={<TrendingUp size={28} />} title="Ancora nessun movimento da confrontare" description="Entrate e uscite dei mesi precedenti compariranno qui." /> : <>
-    <div className="comparison-chart" role="img" aria-label={history.map(m => `${monthLabel(m.month, 'long')}: uscite ${money(m.expense)}, entrate ${money(m.income)}`).join('; ')}>{history.map(m => <div className={`comparison-month ${m.month === current.month ? 'current' : ''}`} key={m.month}>
-      <div className="comparison-bars"><span className="comparison-income" style={{ height: `${m.income / highest * 100}%` }} /><span className="comparison-expense" style={{ height: `${m.expense / highest * 100}%` }}>{rows.map(row => m.categories[row.id] ? <i key={row.id} style={{ flexGrow: m.categories[row.id], background: row.color }} /> : null)}</span></div>
-      <strong>{monthLabel(m.month)}</strong><small>{money(m.expense)}</small></div>)}</div>
-    <div className="comparison-legend"><span><i className="comparison-income" />Entrate</span><span><i className="comparison-expense-key" />Uscite per categoria</span></div>
-    <div className="comparison-table" role="table" aria-label={`Uscite di ${monthLabel(current.month, 'long')} rispetto a ${monthLabel(previous.month, 'long')}`}>
-      <div className="comparison-row comparison-head" role="row"><span role="columnheader">Categoria</span><span role="columnheader">{monthLabel(previous.month)}</span><span role="columnheader">{monthLabel(current.month)}</span><span role="columnheader">Differenza</span></div>
-      {rows.map(row => { const now = current.categories[row.id] || 0; const before = previous.categories[row.id] || 0; return <div className="comparison-row" role="row" key={row.id}><span role="cell"><span className="category-dot" style={{ background: row.color }} />{row.name}</span><span role="cell">{money(before)}</span><span role="cell">{money(now)}</span><span role="cell">{change(now, before)}</span></div>; })}
-      <div className="comparison-row comparison-total" role="row"><span role="cell">Totale uscite</span><span role="cell">{money(previous.expense)}</span><span role="cell">{money(current.expense)}</span><span role="cell">{change(current.expense, previous.expense)}</span></div>
-      <div className="comparison-row" role="row"><span role="cell">Entrate</span><span role="cell">{money(previous.income)}</span><span role="cell">{money(current.income)}</span><span role="cell">{change(current.income, previous.income, true)}</span></div>
-      <div className="comparison-row" role="row"><span role="cell">Saldo del mese</span><span role="cell">{money(previous.income - previous.expense)}</span><span role="cell">{money(current.income - current.expense)}</span><span role="cell">{change(current.income - current.expense, previous.income - previous.expense, true)}</span></div>
+  const categories: Series[] = [...data.categories.map(c => ({ id: c.id, name: c.name, color: c.color })), { id: '', name: 'Da classificare', color: '#a7b0a2' }]
+    .filter(c => c.id || history.some(m => m.categories['']))
+    .map(c => ({ ...c, value: (m: MonthSummary) => m.categories[c.id] || 0 }));
+  const incomes: Series[] = [{ id: 'recurring', name: 'Ricorrenti', color: INCOME_COLOR, value: m => m.budgetIncome, moreIsBetter: true }, { id: 'oneoff', name: 'Occasionali', color: '#b9dcc4', value: m => m.income - m.budgetIncome, moreIsBetter: true }];
+  // Bars: one stacked column per series group and month.
+  const columns: { id: string; label: string; parts: Series[] }[] = mode === 'income' ? [{ id: 'income', label: 'Entrate', parts: incomes }]
+    : mode === 'expense' ? [{ id: 'expense', label: 'Uscite', parts: categories }]
+    : [{ id: 'income', label: 'Entrate', parts: [{ id: 'income', name: 'Entrate', color: INCOME_COLOR, value: m => m.income }] }, { id: 'expense', label: 'Uscite', parts: [{ id: 'expense', name: 'Uscite', color: EXPENSE_COLOR, value: m => m.expense }] }];
+  const rows: Series[] = mode === 'income' ? incomes : mode === 'expense' ? categories : [{ id: 'income', name: 'Entrate', color: INCOME_COLOR, value: m => m.income, moreIsBetter: true }, { id: 'expense', name: 'Uscite', color: EXPENSE_COLOR, value: m => m.expense }];
+  const total: Series | null = mode === 'income' ? { id: 'total', name: 'Totale entrate', color: '', value: m => m.income, moreIsBetter: true }
+    : mode === 'expense' ? { id: 'total', name: 'Totale uscite', color: '', value: m => m.expense }
+    : { id: 'total', name: 'Saldo del mese', color: '', value: m => m.income - m.expense, moreIsBetter: true };
+  const height = (m: MonthSummary, column: (typeof columns)[number]) => column.parts.reduce((sum, part) => sum + Math.max(0, part.value(m)), 0);
+  const highest = Math.max(1, ...history.flatMap(m => columns.map(c => height(m, c))));
+  const caption = (m: MonthSummary) => money(mode === 'income' ? m.income : mode === 'expense' ? m.expense : m.income - m.expense);
+  const change = (series: Series) => { const now = series.value(current); const before = series.value(previous); return now === before ? <span className="comparison-change">=</span> : <span className={`comparison-change ${(now > before) === !!series.moreIsBetter ? 'better' : 'worse'}`}>{now > before ? '+' : '−'}{money(Math.abs(now - before))}</span>; };
+  const title = mode === 'income' ? 'Entrate a confronto' : mode === 'expense' ? 'Uscite a confronto' : 'I mesi a confronto';
+  const empty = history.every(m => !(mode === 'income' ? m.income : mode === 'expense' ? m.expense : m.income + m.expense));
+  const legend = mode === 'expense' ? null : (mode === 'income' ? incomes : rows);
+  return <section className={`panel month-comparison ${mode}-comparison`}><div className="section-heading"><div><h2>{title}</h2><p>Gli ultimi sei mesi fino a {monthLabel(current.month, 'long')}.</p></div></div>
+    {empty ? <Empty icon={<TrendingUp size={28} />} title="Ancora niente da confrontare" description={mode === 'income' ? 'Le entrate dei mesi precedenti compariranno qui.' : mode === 'expense' ? 'Le uscite dei mesi precedenti compariranno qui.' : 'Entrate e uscite dei mesi precedenti compariranno qui.'} /> : <>
+    <div className="comparison-chart" role="img" aria-label={history.map(m => `${monthLabel(m.month, 'long')}: ${columns.map(c => `${c.label.toLocaleLowerCase('it')} ${money(height(m, c))}`).join(', ')}`).join('; ')}>{history.map(m => <div className={`comparison-month ${m.month === current.month ? 'current' : ''}`} key={m.month}>
+      <div className="comparison-bars">{columns.map(c => <span key={c.id} style={{ height: `${height(m, c) / highest * 100}%` }}>{c.parts.map(part => part.value(m) > 0 ? <i key={part.id} style={{ flexGrow: part.value(m), background: part.color }} /> : null)}</span>)}</div>
+      <strong>{monthLabel(m.month)}</strong><small>{caption(m)}</small></div>)}</div>
+    {legend && <div className="comparison-legend">{legend.map(l => <span key={l.id}><i style={{ background: l.color }} />{l.name}</span>)}</div>}
+    <div className="comparison-table" role="table" aria-label={`${monthLabel(current.month, 'long')} rispetto a ${monthLabel(previous.month, 'long')}`}>
+      <div className="comparison-row comparison-head" role="row"><span role="columnheader">{mode === 'expense' ? 'Categoria' : mode === 'income' ? 'Tipo' : 'Voce'}</span><span role="columnheader">{monthLabel(previous.month)}</span><span role="columnheader">{monthLabel(current.month)}</span><span role="columnheader">Differenza</span></div>
+      {[...rows, total].map(row => <div className={`comparison-row ${row.id === 'total' ? 'comparison-total' : ''}`} role="row" key={row.id}><span role="cell">{row.color && <span className="category-dot" style={{ background: row.color }} />}{row.name}</span><span role="cell">{money(row.value(previous))}</span><span role="cell">{money(row.value(current))}</span><span role="cell">{change(row)}</span></div>)}
     </div></>}
   </section>;
 }
