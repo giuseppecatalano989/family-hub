@@ -143,6 +143,7 @@
 .bank-group .recurring-card p{margin:0}
 .stat-caption.bank-today{display:block;margin-top:4px}
 .stat-caption.bank-today b{font-weight:600;color:#3f4a43}
+.bank-card .bank-savings{margin-top:12px;font-size:14.5px}
 
 .bank-tip{margin-top:6px;border:1px solid var(--line);border-radius:11px;background:#fff}
 .settings-page{display:grid;gap:24px}

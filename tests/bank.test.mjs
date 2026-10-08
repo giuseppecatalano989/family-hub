@@ -137,7 +137,7 @@ test('without configuration the bank section is disabled', async () => {
   const { alice } = await family();
   assert.equal((await request('/bank/banks', { session: alice })).status, 503);
   const data = await state(alice);
-  assert.deepEqual(data.bank, { configured: false, total: 0, accounts: [], connections: [], savingsStrategy: 'proportional' });
+  assert.deepEqual(data.bank, { configured: false, total: 0, savingsTotal: 0, accounts: [], connections: [], savingsStrategy: 'proportional' });
 });
 
 test('linking shared and balance-only accounts builds a family total, imports and reconciles shared movements', async () => {
@@ -413,7 +413,7 @@ test('bank deposits to savings fill Risparmio and are shared among goals automat
   assert.equal(instance.db.prepare("SELECT enabled FROM savings_destinations WHERE name = 'Cassa di Risparmio di Asti'").get().enabled, 0);
 });
 
-test('a savings account is recognised when linked: deposits become savings, its own movements stay out', async () => {
+test('the owner marks a savings account: deposits become savings, its own movements stay out, its balance is apart', async () => {
   await start({ bankProvider: provider });
   const { alice, bob } = await family();
   const TR = 'IT55T0300203280000000000777';
@@ -426,14 +426,21 @@ test('a savings account is recognised when linked: deposits become savings, its 
   await request('/goals', { method: 'POST', session: bob, body: { title: 'Casa', horizon: 'long', target: 2000000, monthly: 50000 } });
   await link(bob, 'tr', 'shared');
   await link(alice, 'alice', 'shared');
-  const data = await state(alice);
-  assert.equal(data.bank.accounts.find(a => a.name === 'Deposito').savings, true, 'SVGS accounts are savings');
+  let data = await state(alice);
+  const deposito = data.bank.accounts.find(a => a.name === 'Deposito');
+  assert.equal(deposito.savings, false, 'never marked automatically, not even SVGS accounts');
+  assert.equal(data.transactions.some(t => t.amount === 30000), false, 'until then the deposit is a giroconto');
+  assert.equal(data.transactions.some(t => t.description === 'Acquisto ETF'), true);
+  assert.equal((await request(`/bank/accounts/${deposito.id}`, { method: 'PATCH', session: alice, body: { savings: true } })).status, 404, 'only its owner marks it');
+  assert.equal((await request(`/bank/accounts/${deposito.id}`, { method: 'PATCH', session: bob, body: { savings: true } })).status, 200);
+  data = await state(alice);
+  assert.equal(data.bank.accounts.find(a => a.name === 'Deposito').savings, true);
   const deposit = data.transactions.find(t => t.amount === 30000);
   assert.equal(deposit.kind, 'expense'); assert.equal(deposit.category_id, data.categories[5].id);
   assert.equal(data.goals[0].saved, 30000);
   assert.equal(data.transactions.some(t => t.description === 'Acquisto ETF'), false, 'purchases inside the savings account stay out of the budget');
   assert.equal(data.transactions.some(t => t.amount === 10000), false, 'withdrawals from savings are giroconti');
-  assert.equal(data.bank.total, 145055 + 500000);
+  assert.deepEqual([data.bank.total, data.bank.savingsTotal], [145055, 500000], 'savings balances are added up apart');
 });
 
 test('only current accounts with an IBAN are linked; one can be removed and stays hidden until the bank is unlinked', async () => {
