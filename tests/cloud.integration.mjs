@@ -28,6 +28,7 @@ beforeEach(async () => {
   instances = []; servers = []; const started = await start(); instance = started.app; base = started.base;
 });
 afterEach(async () => {
+  for (const app of instances) await app.notifications.idle();
   for (const server of servers) await new Promise(r => server.close(r));
   for (const app of instances) await app.db.close();
 });
@@ -457,4 +458,25 @@ test('bank links share balances across instances, sync from the protected cron a
   const payload = JSON.parse(Buffer.from(unzipSync(new Uint8Array(await exported.arrayBuffer()))['casa.json']).toString('utf8'));
   assert.equal(JSON.stringify(payload).includes('session_secret'), false);
   assert.equal(payload.data.bank_accounts.length, 2); assert.equal(payload.data.bank_movements.length, 3, 'shared movements only'); assert.equal(payload.data.savings_destinations.length, 1); assert.equal(payload.data.goal_plans.length, 2); assert.equal(payload.data.savings_allocations.length, 2);
+});
+
+test('push notifications share keys and choices across instances and run from the protected evening cron', async () => {
+  const sent = [];
+  const pushSender = async (subscription, payload) => { sent.push({ endpoint: subscription.endpoint, ...JSON.parse(payload) }); };
+  const first = await start({ pushSender }); const second = await start({ pushSender });
+  const owner = await register('push-owner@example.test');
+  const member = await register('push-member@example.test', (await json(await request('/invitation', { method: 'POST', session: owner }))).code);
+  const device = { endpoint: 'https://fcm.googleapis.com/fcm/send/owner-device', keys: { p256dh: 'B'.repeat(87), auth: 'a'.repeat(22) } };
+  await json(await request('/notifications/subscriptions', { method: 'POST', session: owner, body: device, target: first.base }), 201);
+  const keyOne = (await json(await request('/state?month=2026-10&week=2026-10-05', { session: owner, target: first.base }))).notifications;
+  const keyTwo = (await json(await request('/state?month=2026-10&week=2026-10-05', { session: owner, target: second.base }))).notifications;
+  assert.equal(keyOne.publicKey, keyTwo.publicKey); assert.equal(keyTwo.devices, 1);
+  await json(await request('/shopping', { method: 'POST', session: member, body: { name: 'Latte', quantity: '', section: 'Altro' }, target: second.base }), 201);
+  await second.app.notifications.idle();
+  assert.deepEqual(sent.map(m => [m.endpoint, m.body]), [[device.endpoint, 'Prova ha aggiornato la lista della spesa.']]);
+  await json(await request('/waste', { method: 'POST', session: owner, body: { name: 'Carta', days: [0, 1, 2, 3, 4, 5, 6], timeWindow: '', notes: '', color: '#176854' }, target: first.base }), 201);
+  assert.equal((await request('/internal/notifications', { target: first.base })).status, 401);
+  await json(await request('/internal/notifications', { headers: { authorization: 'Bearer test-cron-local-only' }, target: first.base }));
+  await json(await request('/internal/notifications', { headers: { authorization: 'Bearer test-cron-local-only' }, target: second.base }));
+  assert.equal(sent.filter(m => m.url === '#waste').length, 1, 'sent once across instances');
 });

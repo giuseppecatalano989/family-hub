@@ -5,6 +5,7 @@ import { randomBytes, randomUUID, createHash, scryptSync, timingSafeEqual } from
 import { mkdirSync, existsSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { installWaste } from './waste.mjs';
+import { installNotifications } from './notifications.mjs';
 import { installPlanning } from './planning.mjs';
 import { installDeadlines } from './deadlines.mjs';
 import { installWorkflows } from './workflows.mjs';
@@ -64,7 +65,7 @@ function passwordMatches(password, stored) {
     const candidate = scryptSync(password, salt, 64);
     return timingSafeEqual(candidate, Buffer.from(key, 'hex'));
 }
-export function createApp({ dataDir, production = false, trustProxy = false, distDir, automaticBackups = false, backupDir, database, cloudBackups, cronSecret, resetMailer = resetEmailSender(), appUrl = DEFAULT_APP_URL, scheduleResetDelivery, bankProvider = enableBankingProvider(), bankRedirectUrl = process.env.ENABLE_BANKING_REDIRECT_URL || `${appUrl}/api/bank/callback`, clock } = {}) {
+export function createApp({ dataDir, production = false, trustProxy = false, distDir, automaticBackups = false, backupDir, database, cloudBackups, cronSecret, resetMailer = resetEmailSender(), appUrl = DEFAULT_APP_URL, scheduleResetDelivery, bankProvider = enableBankingProvider(), bankRedirectUrl = process.env.ENABLE_BANKING_REDIRECT_URL || `${appUrl}/api/bank/callback`, clock, pushSender, scheduleBackground } = {}) {
     if (!dataDir)
         throw new Error('dataDir is required');
     mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -119,14 +120,25 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         next();
     });
     app.use(express.json({ limit: '100kb' }));
+    const cronAllowed = req => {
+        const expected = cronSecret && Buffer.from(`Bearer ${cronSecret}`);
+        const actual = Buffer.from(req.get('authorization') || '');
+        return !!expected && expected.length === actual.length && timingSafeEqual(expected, actual);
+    };
+    // The evening round of notifications: waste collection, deadlines, consents.
+    if (cronSecret)
+        app.get('/api/internal/notifications', async (req, res) => {
+            if (!cronAllowed(req))
+                return res.status(401).json({ error: 'Accesso non consentito.' });
+            await notifications.evening({ queued: true });
+            res.json({ status: 'ok' });
+        });
     if (cloudBackups)
         app.get('/api/internal/backup', async (req, res) => {
-            const expected = cronSecret && Buffer.from(`Bearer ${cronSecret}`);
-            const actual = Buffer.from(req.get('authorization') || '');
-            if (!expected || expected.length !== actual.length || !timingSafeEqual(expected, actual))
+            if (!cronAllowed(req))
                 return res.status(401).json({ error: 'Accesso non consentito.' });
             await planning.synchronizeAll();
-            try { await bank.synchronizeAll(); } catch (error) { console.error('Aggiornamento bancario non riuscito:', error.message); }
+            try { await bank.synchronizeAll(); await notifications.afterBankSync({ queued: true }); } catch (error) { console.error('Aggiornamento bancario non riuscito:', error.message); }
             await cloudBackups.runIfDue();
             const status = await cloudBackups.status();
             res.status(status.error ? 503 : 200).json({ status: status.error ? 'error' : 'ok' });
@@ -246,6 +258,9 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             return res.status(403).json({ error: 'Sessione non valida. Aggiorna la pagina.' });
         next();
     });
+    // Registered after sign-in so that changes know who made them.
+    const notifications = installNotifications(app, { db, one, all, run, atomic, fail, exclusive }, { appUrl, schedule: scheduleBackground, ...(pushSender ? { sender: pushSender } : {}), ...(clock ? { clock } : {}) });
+    notifications.routes();
     app.post('/api/logout', async (req, res) => {
         await run('DELETE FROM sessions WHERE token_hash = ?', req.user.token_hash);
         res.clearCookie('casa_session', { path: '/' });
@@ -343,6 +358,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             ...await workflows.state(req.user, month, req.query.week),
             backups: req.user.role === 'admin' ? await backups.status() : null,
             bank: await bank.state(req.user),
+            notifications: await notifications.state(req.user),
             preferences: { showBankBalance: !!(await one('SELECT show_bank_balance FROM user_preferences WHERE user_id = ?', req.user.id))?.show_bank_balance, ...dashboardPreferences(await one('SELECT quick_actions, cards FROM dashboard_preferences WHERE user_id = ?', req.user.id)) },
             household: await one('SELECT id, name FROM households WHERE id = ?', hid),
             members: await all('SELECT id, name, role FROM users WHERE household_id = ? ORDER BY role, name', hid),
@@ -623,5 +639,6 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             console.error('Server error:', error.message);
         res.status(error.status || 500).json({ error: error.status ? error.message : 'Si è verificato un errore. Riprova.' });
     });
-    return { app, db, backups, bank: { configured: bank.configured, synchronizeAll: () => exclusive(() => bank.synchronizeAll()) }, close: () => { backups.stop(); return db.close(); } };
+    return { app, db, backups, bank: { configured: bank.configured, synchronizeAll: async () => { await exclusive(() => bank.synchronizeAll()); await notifications.afterBankSync(); } },
+        notifications: { evening: () => notifications.evening(), idle: () => notifications.idle() }, close: () => { backups.stop(); return db.close(); } };
 }

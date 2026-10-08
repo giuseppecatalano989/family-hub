@@ -11,7 +11,7 @@ type Props = { data: FamilyState; act: (path: string, method: string, body?: unk
 // Linking only: connect, disconnect, renew and sharing. Balances live in the
 // overview, imported records in Entrate and Uscite; savings are split automatically.
 export function Bank({ data, act, busy, navigate }: Props) {
-  const [connect, setConnect] = useState<{ bank?: string; visibility?: BankAccount['visibility'] } | null>(null);
+  const [connect, setConnect] = useState<{ bank?: string; country?: string; visibility?: BankAccount['visibility'] } | null>(null);
   const bank = data.bank;
   if (!bank.configured) return <section className="panel"><Empty icon={<Landmark size={26} />} title="Collegamento bancario non ancora attivo" description="Il gestore dell’app deve configurare Enable Banking sul server (ENABLE_BANKING_APP_ID e ENABLE_BANKING_PRIVATE_KEY). Dopo, ognuno potrà collegare il proprio conto in sola lettura." /></section>;
   const others = bank.accounts.filter(a => !a.mine);
@@ -21,7 +21,7 @@ export function Bank({ data, act, busy, navigate }: Props) {
         const accounts = bank.accounts.filter(a => a.connection_id === connection.id);
         const left = Math.floor((Date.parse(connection.valid_until) - Date.now()) / 86400000);
         const expired = connection.status === 'expired' || left < 0;
-        const renew = () => setConnect({ bank: connection.bank, visibility: accounts[0]?.visibility });
+        const renew = () => setConnect({ bank: connection.bank, country: connection.country, visibility: accounts[0]?.visibility });
         return <article className="panel bank-group" key={connection.id}>
           <div className="bank-group-heading"><div><h3>{connection.bank}</h3>
             {expired ? <div className="bank-warning"><AlertCircle size={15} /><span>Consenso scaduto o revocato.</span><button className="text-button" onClick={renew}>Rinnova</button></div>
@@ -36,6 +36,7 @@ export function Bank({ data, act, busy, navigate }: Props) {
             <h4>{account.name}</h4>
             <p>{account.iban_last4 ? `•••• ${account.iban_last4}` : 'Conto senza IBAN'}</p>
             <label className="bank-visibility">Con la famiglia condividi<select value={account.visibility} disabled={busy} onChange={e => void act(`/bank/accounts/${account.id}`, 'PATCH', { visibility: e.target.value }).catch(() => {})}><option value="shared">Saldo e movimenti</option><option value="balance">Saldo e totali, movimenti privati</option></select></label>
+            <label className="checkbox-label bank-savings"><input type="checkbox" checked={account.savings} disabled={busy} onChange={e => { const savings = e.target.checked; if (confirm(savings ? `Segnare “${account.name}” come conto risparmio o investimento? I suoi movimenti interni (acquisti, interessi) escono dal budget, i versamenti dagli altri conti diventano Risparmio e si dividono tra gli obiettivi, il saldo compare nella card dei risparmi.` : `Togliere “${account.name}” dai conti risparmio? I suoi movimenti tornano nel budget e i versamenti dagli altri conti diventano giroconti.`)) void act(`/bank/accounts/${account.id}`, 'PATCH', { savings }).catch(() => {}); }} />Conto risparmio o investimento</label>
           </div>)}</div>}
         </article>;
       }) : <section className="panel"><Empty icon={<Landmark size={26} />} title="Nessun conto collegato" description="Collega il tuo conto in sola lettura: il saldo entra nel totale di famiglia e i movimenti diventano entrate e uscite del budget." action="Collega una banca" onAction={() => setConnect({})} /></section>}
@@ -49,20 +50,25 @@ export function Bank({ data, act, busy, navigate }: Props) {
   </>;
 }
 
-function ConnectDialog({ initial, onClose }: { initial: { bank?: string; visibility?: BankAccount['visibility'] }; onClose: () => void }) {
+const countries: [string, string][] = [['IT', 'Italia'], ['DE', 'Germania'], ['ES', 'Spagna'], ['FR', 'Francia'], ['NL', 'Paesi Bassi'], ['BE', 'Belgio'], ['AT', 'Austria'], ['PT', 'Portogallo'], ['IE', 'Irlanda'], ['LU', 'Lussemburgo'], ['FI', 'Finlandia'], ['LT', 'Lituania']];
+
+function ConnectDialog({ initial, onClose }: { initial: { bank?: string; country?: string; visibility?: BankAccount['visibility'] }; onClose: () => void }) {
+  const [country, setCountry] = useState(initial.country || 'IT');
   const [banks, setBanks] = useState<{ name: string }[] | null>(null);
   const [search, setSearch] = useState(initial.bank || '');
   const [selected, setSelected] = useState(initial.bank || '');
   const [visibility, setVisibility] = useState<BankAccount['visibility']>(initial.visibility || 'shared');
   const [pending, setPending] = useState(false); const [error, setError] = useState('');
-  useEffect(() => { let alive = true; api<{ banks: { name: string }[] }>('/bank/banks').then(r => { if (alive) setBanks(r.banks); }).catch(e => { if (alive) setError((e as Error).message); }); return () => { alive = false; }; }, []);
+  useEffect(() => { let alive = true; setBanks(null); setError(''); api<{ banks: { name: string }[] }>(`/bank/banks?country=${country}`).then(r => { if (alive) setBanks(r.banks); }).catch(e => { if (alive) setError((e as Error).message); }); return () => { alive = false; }; }, [country]);
   const filtered = useMemo(() => (banks || []).filter(b => b.name.toLocaleLowerCase('it').includes(search.trim().toLocaleLowerCase('it'))).slice(0, 80), [banks, search]);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setPending(true); setError('');
-    try { const { url } = await api<{ url: string }>('/bank/connections', 'POST', { bank: selected, visibility }); window.location.assign(url); }
+    try { const { url } = await api<{ url: string }>('/bank/connections', 'POST', { bank: selected, country, visibility }); window.location.assign(url); }
     catch (e) { setError((e as Error).message); setPending(false); }
   }
   return <Modal title={initial.bank ? 'Rinnova il collegamento' : 'Collega una banca'} subtitle="Accesso in sola lettura a saldo e movimenti." onClose={onClose}><form onSubmit={e => void submit(e)}>
+    <label>Paese della banca<select value={country} onChange={e => { setCountry(e.target.value); setSelected(''); }}>{countries.map(([code, name]) => <option key={code} value={code}>{name}</option>)}</select></label>
+    <p className="form-hint">Alcune banche online, come Trade Republic o N26, compaiono sotto il paese della loro sede.</p>
     <label>Cerca la tua banca<input value={search} onChange={e => setSearch(e.target.value)} placeholder="Ad esempio: Intesa Sanpaolo" autoComplete="off" /></label>
     <label>Banca<select value={selected} onChange={e => setSelected(e.target.value)} required size={Math.min(6, Math.max(2, filtered.length))} disabled={!banks}><option value="" disabled>{banks ? filtered.length ? 'Seleziona dall’elenco' : 'Nessuna banca trovata' : 'Caricamento delle banche…'}</option>{filtered.map(b => <option key={b.name} value={b.name}>{b.name}</option>)}</select></label>
     <fieldset className="bank-choice"><legend>Cosa condividi con la famiglia</legend>

@@ -66,6 +66,7 @@ const SAVINGS_POSITION = 5;
 const PLANNED_TOLERANCE = 30;
 // Savings and investment destinations; generic words such as "risparmio" are
 // excluded because they also appear in bank names (Cassa di Risparmio).
+export const BANK_COUNTRIES = ['IT', 'DE', 'ES', 'FR', 'NL', 'BE', 'AT', 'PT', 'IE', 'LU', 'FI', 'LT'];
 const SAVINGS = /\b(trade republic|scalable capital|moneyfarm|directa sim|degiro|raisin|conto arancio|rendimax|illimity|conto deposito|conto risparmio|fondo pensione|previdenza complementare|piano di accumulo|pac|bitpanda|xtb|freedom24|salvadanaio)\b/u;
 const SALARY = /\b(stipend\w*|emolument\w*|retribuzion\w*|salari\w*|cedolin\w*|busta paga|mensilit\w*|pension\w*|payroll|salary|wages)\b/u;
 export const romeToday = (time = Date.now()) => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Rome' }).format(new Date(time));
@@ -231,14 +232,19 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
   const monthStart = () => `${romeToday(clock()).slice(0, 7)}-01`;
   const psuOf = req => ({ ip: req.ip, userAgent: req.get('user-agent') || '' });
   const requireProvider = () => { if (!provider) fail('Il collegamento bancario non è configurato. Chiedi al gestore di impostare Enable Banking.', 503); };
-  let bankCache = null;
-  async function banks() {
+  // Banks are listed per country: some, like Trade Republic, are offered only
+  // under the country where the provider registered them.
+  const bankCache = new Map();
+  async function banks(country = 'IT') {
     requireProvider();
-    if (!bankCache || clock() - bankCache.at > 12 * 3600000) {
-      try { bankCache = { at: clock(), list: (await provider.banks('IT')).sort((a, b) => a.name.localeCompare(b.name, 'it')) }; }
-      catch (error) { if (error instanceof BankError) fail(messages[error.code], 502); throw error; }
-    }
-    return bankCache.list;
+    if (!BANK_COUNTRIES.includes(country)) fail('Paese della banca non valido.');
+    const cached = bankCache.get(country);
+    if (cached && clock() - cached.at < 12 * 3600000) return cached.list;
+    try {
+      const list = (await provider.banks(country)).sort((a, b) => a.name.localeCompare(b.name, 'it'));
+      bankCache.set(country, { at: clock(), list });
+      return list;
+    } catch (error) { if (error instanceof BankError) fail(messages[error.code], 502); throw error; }
   }
   async function endRemote(secrets) {
     for (const secret of secrets) {
@@ -477,11 +483,11 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
           const existing = hashValue && await one(`SELECT a.id FROM bank_accounts a JOIN bank_connections c ON c.id = a.connection_id
             WHERE a.household_id = ? AND c.user_id = ? AND a.iban_hash = ? AND a.connection_id <> ?`, request.household_id, request.user_id, hashValue, connectionId);
           if (existing) await run('UPDATE bank_accounts SET connection_id = ?, provider_uid = ? WHERE id = ?', connectionId, account.uid, existing.id);
-          // Savings accounts are recognised from the bank's account type (SVGS) or name.
+          // New accounts are current accounts; their owner marks the savings ones.
           else await run(`INSERT INTO bank_accounts (id, household_id, connection_id, provider_uid, name, iban_hash, iban_last4, currency, visibility, import_from, created_at, savings)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(connection_id, provider_uid) DO NOTHING`,
             randomUUID(), request.household_id, connectionId, account.uid, account.name, hashValue, normalizeIban(account.iban)?.slice(-4) || null, account.currency,
-            request.visibility, monthStart(), now(), account.type === 'SVGS' || SAVINGS.test(`${request.aspsp_name} ${account.name}`.toLocaleLowerCase('it')) ? 1 : 0);
+            request.visibility, monthStart(), now(), 0);
         }
         await purgeCards(request.household_id);
         const empty = await all(`SELECT id, session_secret FROM bank_connections c WHERE c.user_id = ? AND c.id <> ? AND NOT EXISTS (SELECT 1 FROM bank_accounts a WHERE a.connection_id = c.id)`, request.user_id, connectionId);
@@ -518,11 +524,11 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
       if (saving) await allocateSavings(transactionId, hid);
     },
     routes() {
-      app.get('/api/bank/banks', async (req, res) => { res.json({ banks: (await banks()).map(({ name, country }) => ({ name, country })) }); });
+      app.get('/api/bank/banks', async (req, res) => { res.json({ banks: (await banks(req.query.country === undefined ? 'IT' : String(req.query.country))).map(({ name, country }) => ({ name, country })) }); });
       app.post('/api/bank/connections', async (req, res) => {
         requireProvider();
         if (!['shared', 'balance'].includes(req.body.visibility)) fail('Scegli cosa condividere con la famiglia.');
-        const bank = (await banks()).find(b => b.name === req.body.bank);
+        const bank = (await banks(req.body.country === undefined ? 'IT' : String(req.body.country))).find(b => b.name === req.body.bank);
         if (!bank) fail('Seleziona una banca dall’elenco.');
         const state = randomBytes(32).toString('hex');
         await atomic(async () => {
@@ -652,10 +658,12 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
         WHERE a.household_id = ? ORDER BY u.name, c.aspsp_name, a.name`, user.household_id);
       return {
         configured: !!provider,
-        total: accounts.filter(a => a.currency === 'EUR' && a.balance !== null).reduce((sum, a) => sum + Number(a.balance), 0),
+        // Current accounts and savings accounts are added up separately.
+        total: accounts.filter(a => a.currency === 'EUR' && a.balance !== null && !a.savings).reduce((sum, a) => sum + Number(a.balance), 0),
+        savingsTotal: accounts.filter(a => a.currency === 'EUR' && a.balance !== null && a.savings).reduce((sum, a) => sum + Number(a.balance), 0),
         accounts: accounts.map(({ user_id, last_error, ...a }) => ({ ...a, savings: !!a.savings, balance: a.balance === null ? null : Number(a.balance), mine: user_id === user.id, last_error: user_id === user.id ? last_error : null })),
         // The owner's links; removed accounts are not shown.
-        connections: await all('SELECT id, aspsp_name AS bank, status, valid_until, last_error FROM bank_connections WHERE household_id = ? AND user_id = ? ORDER BY created_at', user.household_id, user.id),
+        connections: await all('SELECT id, aspsp_name AS bank, aspsp_country AS country, status, valid_until, last_error FROM bank_connections WHERE household_id = ? AND user_id = ? ORDER BY created_at', user.household_id, user.id),
         savingsStrategy: (await one('SELECT strategy FROM savings_settings WHERE household_id = ?', user.household_id))?.strategy || 'proportional',
       };
     },

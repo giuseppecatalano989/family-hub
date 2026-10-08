@@ -21,6 +21,7 @@ export interface FamilyState {
   categories: Category[]; transactions: Transaction[]; goals: Goal[]; contributions: Contribution[]; shopping: ShoppingItem[]; notes: Note[];
   deadlines: Deadline[]; waste: WasteSchedule[]; bills: Bill[]; meals: Meal[]; week: string; backups: BackupStatus | null;
   bank: BankState;
+  notifications: { publicKey: string; types: Record<NotificationType, boolean>; devices: number };
   preferences: { showBankBalance: boolean; quickActions: boolean; dashboard: { order: DashboardCard[]; hidden: DashboardCard[] } };
 }
 export interface RecurringRule {
@@ -47,6 +48,7 @@ export interface BankAccount {
   visibility: 'shared' | 'balance'; savings: boolean; import_from: string | null; balance: number | null; balance_kind: 'available' | 'booked' | null; balance_at: string | null;
   status: 'active' | 'expired' | 'error'; valid_until: string; last_sync_at: string | null; last_error: string | null;
 }
-export interface BankConnection { id: string; bank: string; status: 'active' | 'expired' | 'error'; valid_until: string; last_error: string | null }
-export interface BankState { configured: boolean; total: number; accounts: BankAccount[]; connections: BankConnection[]; savingsStrategy: 'primary' | 'proportional' }
+export interface BankConnection { id: string; bank: string; country: string; status: 'active' | 'expired' | 'error'; valid_until: string; last_error: string | null }
+export interface BankState { configured: boolean; total: number; savingsTotal: number; accounts: BankAccount[]; connections: BankConnection[]; savingsStrategy: 'primary' | 'proportional' }
 export type DashboardCard = 'income' | 'expense' | 'balance' | 'savings' | 'spending' | 'home' | 'goals' | 'recent';
+export type NotificationType = 'notes' | 'shopping' | 'meals' | 'deadlines' | 'budget' | 'waste' | 'bank';
