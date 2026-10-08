@@ -4,7 +4,7 @@ import { Empty, Progress, SectionHeading } from './components';
 import { allocateBudget, budgetIncome, localDate, money, readableDate, totals } from './finance';
 import type { FamilyState, Transaction, Goal, Note, Meal, RecurringRule, WasteSchedule, Deadline } from './types';
 
-export type Page = 'bank' | 'waste' | 'incomes' | 'expenses' | 'account' | 'overview' | 'budget' | 'goals' | 'shopping' | 'notes' | 'bills' | 'meals' | 'backups';
+export type Page = 'bank' | 'movements' | 'settings' | 'waste' | 'incomes' | 'expenses' | 'account' | 'overview' | 'budget' | 'goals' | 'shopping' | 'notes' | 'bills' | 'meals';
 export type Dialog = { type: 'deadline'; deadline?: Deadline } | { type: 'manage'; deadline: Deadline } | { type: 'waste'; schedule?: WasteSchedule; name?: string; color?: string } | { type: 'recurring'; rule?: RecurringRule; kind?: 'income' | 'expense'; name?: string; categoryId?: string } | { type: 'transaction'; transaction?: Transaction; kind?: 'income' | 'expense' } | { type: 'budget' } | { type: 'goal'; goal?: Goal } | { type: 'contribution'; goal: Goal } | { type: 'note'; note?: Note } | { type: 'viewNote'; note: Note } | { type: 'meal'; meal?: Meal; date?: string; slot?: 'lunch' | 'dinner' } | null;
 type Props = { data: FamilyState; open: (dialog: Dialog) => void; navigate: (page: Page) => void; act: (path: string, method: string, body?: unknown) => Promise<void>; busy: boolean };
 const horizons = { short: 'Breve termine', medium: 'Medio termine', long: 'Lungo termine' };

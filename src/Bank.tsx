@@ -14,7 +14,6 @@ export function Bank({ data, act, busy, navigate }: Props) {
   const [connect, setConnect] = useState<{ bank?: string; visibility?: BankAccount['visibility'] } | null>(null);
   const bank = data.bank;
   if (!bank.configured) return <section className="panel"><Empty icon={<Landmark size={26} />} title="Collegamento bancario non ancora attivo" description="Il gestore dell’app deve configurare Enable Banking sul server (ENABLE_BANKING_APP_ID e ENABLE_BANKING_PRIVATE_KEY). Dopo, ognuno potrà collegare il proprio conto in sola lettura." /></section>;
-  const planned = data.goals.filter(g => g.monthly > 0 && g.saved < g.target);
   const others = bank.accounts.filter(a => !a.mine);
   return <>
     <section className="planning-section"><div className="section-heading"><h2>I tuoi collegamenti</h2><button className="button primary" disabled={busy} onClick={() => setConnect({})}><Plus size={16} />Collega una banca</button></div>
@@ -45,14 +44,7 @@ export function Bank({ data, act, busy, navigate }: Props) {
       <div className="recurring-top"><span className="bank-badges"><span className={`badge ${account.visibility === 'shared' ? 'green' : ''}`}>{account.visibility === 'shared' ? 'Condiviso' : 'Movimenti privati'}</span>{account.savings && <span className="badge green">Risparmio</span>}</span></div>
       <h3>{account.name}</h3><p>{account.bank}{account.iban_last4 ? ` · •••• ${account.iban_last4}` : ''} · {account.owner}</p>
     </article>)}</div></section>}
-    <section className="panel planning-section bank-strategy"><SectionHeading title="Risparmi verso gli obiettivi" />
-      <div className="bank-strategy-body">
-        <p>I versamenti verso conti risparmio e investimento vengono divisi da soli tra gli obiettivi, secondo l’accantonamento mensile di ciascuno.{planned.length ? ` Obiettivi con quota: ${planned.map(g => `${g.title}${g.is_primary ? ' (primario)' : ''}`).join(', ')}.` : ''}</p>
-        <label>Se il risparmio del mese non copre tutte le quote<select value={bank.savingsStrategy} disabled={busy} onChange={e => void act('/savings/strategy', 'PUT', { strategy: e.target.value }).catch(() => {})}><option value="primary">Priorità all’obiettivo primario</option><option value="proportional">In proporzione alle quote mensili</option></select></label>
-        {!planned.length && <button className="text-button" onClick={() => navigate('goals')}>Imposta le quote mensili in Obiettivi</button>}
-      </div>
-      <div className="panel-tip"><ShieldCheck size={18} /><span>Solo lettura: Family Hub legge saldo e movimenti tramite Enable Banking e non può disporre pagamenti. Le credenziali restano sul sito della tua banca.</span></div>
-    </section>
+    <div className="panel-tip bank-tip"><ShieldCheck size={18} /><span>Solo lettura: Family Hub legge saldo e movimenti tramite Enable Banking e non può disporre pagamenti. Le credenziali restano sul sito della tua banca. I movimenti sono in Movimenti; la ripartizione dei risparmi in Impostazioni.</span></div>
     {connect && <ConnectDialog key={connect.bank || 'new'} initial={connect} onClose={() => setConnect(null)} />}
   </>;
 }

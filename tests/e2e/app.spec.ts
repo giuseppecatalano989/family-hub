@@ -97,7 +97,7 @@ test('a family can manage money, goals, shopping and pinned files on desktop and
   await page.getByRole('button', { name: 'Metti in evidenza Documenti per le vacanze' }).click();
   await expect(page.locator('.note-card')).toContainText('IN EVIDENZA');
 
-  await page.getByRole('button', { name: 'Il tuo account', exact: true }).click();
+  await go(page, 'Impostazioni');
   await page.getByRole('button', { name: 'Genera link di invito' }).click();
   const inviteLink = await page.getByLabel('Link di invito').inputValue();
   await go(page, 'Lavagna');

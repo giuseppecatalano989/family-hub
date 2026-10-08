@@ -36,6 +36,7 @@ http.createServer((req, res) => {
     if (url.pathname.endsWith('/transactions')) return json(res, 200, { transactions: [
       { entry_reference: 'e2e-1', transaction_amount: { amount: '54.20', currency: 'EUR' }, credit_debit_indicator: 'DBIT', status: 'BOOK', booking_date: `${month}-01`, creditor: { name: 'Esselunga' } },
       { entry_reference: 'e2e-3', transaction_amount: { amount: '150.00', currency: 'EUR' }, credit_debit_indicator: 'DBIT', status: 'BOOK', booking_date: `${month}-01`, creditor: { name: 'Trade Republic Bank GmbH' }, creditor_account: { iban: 'IT55T0300203280000000000777' }, remittance_information: ['PAC mensile'] },
+      { entry_reference: 'e2e-4', transaction_amount: { amount: '23.00', currency: 'EUR' }, credit_debit_indicator: 'DBIT', status: 'BOOK', booking_date: `${month}-01`, creditor: { name: 'Negozio Vario' } },
       { entry_reference: 'e2e-2', transaction_amount: { amount: '1800.00', currency: 'EUR' }, credit_debit_indicator: 'CRDT', status: 'BOOK', booking_date: `${month}-01`, debtor: { name: 'Stipendio Rossi' } },
     ] });
     if (req.method === 'DELETE') { res.writeHead(204); return res.end(); }
