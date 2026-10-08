@@ -126,7 +126,7 @@ TABLES.push('waste_schedules');
 export const DEADLINE_SCHEMA = `
   CREATE TABLE IF NOT EXISTS deadlines (
     id TEXT PRIMARY KEY, household_id TEXT NOT NULL REFERENCES households(id), name TEXT NOT NULL,
-    start_date TEXT NOT NULL, due_day INTEGER NOT NULL CHECK(due_day BETWEEN 1 AND 31), frequency TEXT NOT NULL CHECK(frequency IN ('once','monthly','yearly')),
+    start_date TEXT NOT NULL, due_day INTEGER NOT NULL CHECK(due_day BETWEEN 1 AND 31), frequency TEXT NOT NULL CHECK(frequency IN ('once','monthly','quarterly','semiannual','yearly')),
     requires_payment INTEGER NOT NULL CHECK(requires_payment IN (0,1)),
     amount INTEGER, category_id TEXT REFERENCES categories(id),
     reminder_days INTEGER NOT NULL CHECK(reminder_days BETWEEN 0 AND 30), active INTEGER NOT NULL DEFAULT 1,

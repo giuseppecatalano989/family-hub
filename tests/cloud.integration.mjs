@@ -480,3 +480,32 @@ test('push notifications share keys and choices across instances and run from th
   await json(await request('/internal/notifications', { headers: { authorization: 'Bearer test-cron-local-only' }, target: second.base }));
   assert.equal(sent.filter(m => m.url === '#waste').length, 1, 'sent once across instances');
 });
+
+test('cloud databases accept quarterly deadlines after the old check, compare months and let the administrator remove a member', async () => {
+  const pool = new Pool({ connectionString });
+  try {
+    await pool.query(`ALTER TABLE casa.deadlines DROP CONSTRAINT deadlines_frequency_check;
+      ALTER TABLE casa.deadlines ADD CONSTRAINT deadlines_frequency_check CHECK(frequency IN ('once','monthly','yearly'))`);
+  } finally { await pool.end(); }
+  const owner = await register(); const categoryId = (await state(owner)).categories[0].id;
+  const input = { name: 'Condominio', startDate: '2026-08-31', frequency: 'quarterly', requiresPayment: false, reminderDays: 3 };
+  assert.equal((await request('/deadlines', { method: 'POST', body: input, session: owner })).status, 500);
+  const restarted = await start();
+  const deadline = await json(await request('/deadlines', { method: 'POST', body: input, session: owner, target: restarted.base }), 201);
+  assert.equal((await state(owner)).deadlines.find(d => d.id === deadline.id), undefined);
+  const november = await json(await request('/state?month=2026-11', { session: owner, target: restarted.base }));
+  assert.equal(november.deadlines.find(d => d.id === deadline.id).due_date, '2026-11-30');
+  await start();
+
+  const { code } = await json(await request('/invitation', { method: 'POST', session: owner }));
+  const member = await register('member@example.test', code);
+  const expense = await create('/transactions', { kind: 'expense', amount: 4250, categoryId, description: 'Spesa', date: '2026-10-03' }, member);
+  await create('/transactions', { kind: 'expense', amount: 1000, categoryId, description: 'Spesa', date: '2026-09-03' }, owner);
+  const history = (await state(owner)).history;
+  assert.deepEqual(history.slice(-2).map(m => [m.month, m.expense, m.categories[categoryId]]), [['2026-09', 1000, 1000], ['2026-10', 4250, 4250]]);
+  assert.equal((await request(`/members/${member.user.id}`, { method: 'DELETE', body: { currentPassword: 'password-errata' }, session: owner })).status, 400);
+  await json(await request(`/members/${member.user.id}`, { method: 'DELETE', body: { currentPassword: 'test-password-123' }, session: owner, target: restarted.base }));
+  assert.equal((await request('/state?month=2026-10', { session: member })).status, 401);
+  const after = await state(owner);
+  assert.equal(after.members.length, 1); assert.equal(after.transactions.find(t => t.id === expense.id).author, 'Prova');
+});

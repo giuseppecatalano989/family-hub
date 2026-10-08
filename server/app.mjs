@@ -15,6 +15,7 @@ import { RECOVERY_SCHEMA, createRecovery } from './recovery.mjs';
 import { installGoalSavings } from './goal-savings.mjs';
 import { resetEmailSender, DEFAULT_APP_URL } from './reset-email.mjs';
 import { installChunkUploads } from './uploads.mjs';
+import { detachMember } from './member-removal.mjs';
 import { installBank, enableBankingProvider, presentTransactions } from './bank.mjs';
 const MAX_CENTS = 1000000000;
 const COLORS = ['mint', 'amber', 'blue', 'rose', 'neutral'];
@@ -328,6 +329,27 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         await run('UPDATE households SET invite_hash = ?, invite_expires = ? WHERE id = ?', hash(code), expires, req.user.household_id);
         res.json({ code, expiresAt: new Date(expires).toISOString() });
     });
+    // The administrator removes a member after confirming with their own password:
+    // shared records move to the administrator, the member's accesses are revoked.
+    app.delete('/api/members/:id', async (req, res) => {
+        if (req.user.role !== 'admin')
+            fail('Solo chi ha creato lo spazio può rimuovere i membri.', 403);
+        const current = text(req.body?.currentPassword, 'Password attuale', 128);
+        const secrets = await atomic(async () => {
+            const admin = await one('SELECT password_hash FROM users WHERE id = ?', req.user.id);
+            if (!passwordMatches(current, admin.password_hash))
+                fail('Password attuale non corretta.', 400);
+            const member = await one("SELECT id FROM users WHERE id = ? AND household_id = ? AND role = 'member'", req.params.id, req.user.household_id);
+            if (!member)
+                fail('Membro non trovato.', 404);
+            const connections = await all('SELECT session_secret FROM bank_connections WHERE user_id = ? AND session_secret IS NOT NULL', member.id);
+            await detachMember(run, member.id, req.user.id);
+            await run("DELETE FROM users WHERE id = ? AND role = 'member'", member.id);
+            return connections.map(c => c.session_secret);
+        });
+        await bank.endSessions(secrets);
+        res.json({ ok: true });
+    });
     const workflows = installWorkflows(app, { db, one, all, run, atomic, owned, fail, text, cents, date, now });
     const deadlines = installDeadlines(app, { db, one, all, run, atomic, owned, fail, text, cents, date, now });
     const planning = installPlanning(app, { db, one, all, run, atomic, owned, fail, text, cents, now });
@@ -343,6 +365,28 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         else
             streamFamilyBackup(db, dataDir, req.user.household_id, res, next);
     });
+    // Monthly totals of the six months up to the selected one, for the comparison
+    // in Ripartizione budget. Aggregates only: private records are never itemised.
+    async function monthlyHistory(hid, month) {
+        const months = Array.from({ length: 6 }, (_, index) => {
+            const date = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5)) - 6 + index, 1));
+            return date.toISOString().slice(0, 7);
+        });
+        const rows = await all(`SELECT substr(t.date, 1, 7) AS month, t.kind, t.category_id, CASE WHEN o.rule_id IS NULL THEN 0 ELSE 1 END AS recurring, SUM(t.amount) AS amount
+            FROM transactions t LEFT JOIN recurring_occurrences o ON o.transaction_id = t.id
+            WHERE t.household_id = ? AND t.date >= ? AND t.date < ? GROUP BY 1, 2, 3, 4`, hid, `${months[0]}-01`, `${month}-32`);
+        return months.map(m => {
+            const entry = { month: m, income: 0, budgetIncome: 0, expense: 0, categories: {} };
+            for (const row of rows.filter(r => r.month === m)) {
+                const amount = Number(row.amount);
+                if (row.kind === 'income') { entry.income += amount; if (Number(row.recurring)) entry.budgetIncome += amount; continue; }
+                entry.expense += amount;
+                const key = row.category_id || '';
+                entry.categories[key] = (entry.categories[key] || 0) + amount;
+            }
+            return entry;
+        });
+    }
     app.get('/api/state', async (req, res) => {
         const month = req.query.month;
         if (typeof month !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || month < '1900-01' || month > '2199-12')
@@ -364,6 +408,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             members: await all('SELECT id, name, role FROM users WHERE household_id = ? ORDER BY role, name', hid),
             categories: await all('SELECT * FROM categories WHERE household_id = ? ORDER BY position', hid),
             transactions: presentTransactions(await all(`SELECT t.*, u.name AS author, o.rule_id AS recurring_id, p.owner_id AS private_owner, (SELECT a.name FROM bank_movements m JOIN bank_accounts a ON a.id = m.account_id WHERE m.transaction_id = t.id) AS bank_account FROM transactions t JOIN users u ON u.id = t.author_id LEFT JOIN recurring_occurrences o ON o.transaction_id = t.id LEFT JOIN private_transactions p ON p.transaction_id = t.id WHERE t.household_id = ? AND substr(t.date, 1, 7) = ? ORDER BY t.date DESC, t.created_at DESC`, hid, month), req.user.id),
+            history: await monthlyHistory(hid, month),
             ...await savings.state(hid),
             shopping: await all('SELECT s.*, u.name AS author FROM shopping s JOIN users u ON u.id = s.author_id WHERE s.household_id = ? ORDER BY s.checked, s.created_at DESC', hid),
             notes: notes.map(note => ({ ...note, attachments: attachments.filter(a => a.note_id === note.id).map(({ storage_name, ...a }) => a) })),

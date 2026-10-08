@@ -36,6 +36,10 @@ La ripartizione usa come base solo le **entrate ricorrenti** del mese: gli stipe
 
 **Salva schema** applica la scelta. Nei predefiniti, nomi e percentuali sono fissi anche lato server. In Pers. sono modificabili e devono sommare esattamente il 100%. Applicare un predefinito conserva Pers. e gli identificativi delle categorie, quindi non cambia i movimenti. Le precedenti modifiche ai predefiniti tornano ai valori di fabbrica senza cambiare automaticamente la ripartizione attuale. Lo schema 50/30/20 non è più proposto; i suoi eventuali dati storici restano nei backup.
 
+### Confronto tra mesi
+
+Sotto la ripartizione, **Confronto tra mesi** mostra gli ultimi sei mesi fino a quello selezionato: per ogni mese una colonna delle entrate e una delle uscite, divisa per categoria con i colori della ripartizione. La tabella confronta il mese selezionato con il precedente per categoria, totale uscite, entrate e saldo; le differenze in rosso indicano più spese o meno entrate. Le uscite senza categoria compaiono come “Da classificare”. Il server invia soltanto totali per mese e categoria, quindi le registrazioni private degli altri membri restano non elencate.
+
 ## Risparmi degli obiettivi
 
 **Obiettivi → Gestisci risparmi** permette di aggiungere accantonamenti, correggere gli importi con la matita e rimuoverli con il cestino dopo conferma. L’importo iniziale è separato dagli accantonamenti successivi: modificarlo o azzerarlo conserva gli altri importi. La gestione resta disponibile anche sugli obiettivi raggiunti e aggiorna automaticamente totale, progresso e dashboard.
@@ -75,7 +79,11 @@ La sezione **Impostazioni** è divisa in quattro categorie, ognuna con le sue im
 
 Ogni categoria ha un indirizzo proprio (`#settings/conti`, `#settings/panoramica`, `#settings/famiglia`, `#settings/backup`); i vecchi indirizzi `#bank`, `#backups` e `#settings/preferenze` restano validi. Le impostazioni e gli inviti rimangono riservati alla propria famiglia.
 
-La sezione **Famiglia e inviti** genera un link valido sette giorni, oltre al codice. Il link usa un frammento URL, che non viene inviato al server, apre la registrazione con il codice già compilato e viene ripulito dalla barra degli indirizzi. Generare un nuovo invito sostituisce il precedente. Il logout è il pulsante con freccia accanto al nome nella barra laterale.
+La sezione **Famiglia e inviti** genera un link valido sette giorni, oltre al codice. Il link usa un frammento URL, che non viene inviato al server, apre la registrazione con il codice già compilato e viene ripulito dalla barra degli indirizzi. Generare un nuovo invito sostituisce il precedente.
+
+Nella stessa sezione l'amministratore può rimuovere un membro con l'icona accanto al nome, confermando con la propria password. L'account viene eliminato e i suoi accessi chiusi; movimenti, accantonamenti, appunti, spesa, pasti, ricorrenze e scadenze gestite restano alla famiglia, attribuiti all'amministratore. I suoi collegamenti bancari vengono chiusi anche presso il fornitore, e le sue uscite private restano nel budget come “Movimento bancario privato”. L'amministratore non può essere rimosso.
+
+Il logout è il pulsante con freccia accanto al nome nella barra laterale.
 
 Le nuove tabelle sono create in modo additivo, senza modificare o cancellare i dati esistenti. Ricorrenze, versioni, mesi saltati e template fanno parte dei backup dell'istanza, del ripristino cloud e dell'esportazione familiare. I backup precedenti alle nuove tabelle possono ancora essere ripristinati in un nuovo database.
 
@@ -131,7 +139,7 @@ Le voci sono condivise e modificabili dai membri della stessa famiglia; altre fa
 - **Panoramica:** entrate, uscite e saldo del mese, distribuzione delle spese, avvisi di sforamento e riepilogo degli obiettivi.
 - **Entrate e Uscite:** sezioni separate per registrazioni occasionali e ricorrenti, con modifica, eliminazione, selezione del mese, ricerca, filtri per categoria ed esportazione CSV di tutti i mesi.
 - **Budget:** quattro schemi fissi (Conservativa, Prudente, Equilibrata, Svago) e lo schema **Pers.**, l’unico modificabile, con totale obbligatorio del 100%. Gli importi sono calcolati sulle sole **entrate ricorrenti** del mese (stipendi e ogni entrata impostata come ricorrente); le entrate occasionali, come vendite, rimborsi o regali, restano in Entrate e nel saldo del mese ma non aumentano il budget delle categorie. Vedi [Entrate, uscite e ripartizione budget](#entrate-uscite-e-ripartizione-budget).
-- **Scadenze:** impegni singoli, mensili o annuali, con promemoria, modifica e archivio. Il pagamento è facoltativo: segnare una scadenza come gestita crea una sola uscita se previsto, anche con richieste contemporanee. Annullare la gestione rimuove l’uscita collegata. Gli addebiti automatici vanno nelle Uscite ricorrenti. Le vecchie bollette e i loro pagamenti sono conservati come scadenze.
+- **Scadenze:** impegni singoli, mensili, trimestrali, semestrali o annuali, con promemoria, modifica e archivio. Il pagamento è facoltativo: segnare una scadenza come gestita crea una sola uscita se previsto, anche con richieste contemporanee. Annullare la gestione rimuove l’uscita collegata. Gli addebiti automatici vanno nelle Uscite ricorrenti. Le vecchie bollette e i loro pagamenti sono conservati come scadenze.
 - **Menu settimanale:** pranzo e cena per ogni giorno, porzioni, ingredienti e note di preparazione. Trasferimento degli ingredienti nella spesa senza duplicati dello stesso pasto; gli ingredienti già collegati e ancora da acquistare seguono le modifiche del menu.
 - **Impostazioni:** per categorie: conti bancari e ripartizione dei risparmi, preferenze personali, casa e famiglia (nome e inviti), backup e dati: copie automatiche dell’app ogni 24 ore (ultime sette conservate), esportazione ZIP della propria famiglia e strumenti di verifica e ripristino in una nuova directory.
 - **Obiettivi:** breve, medio e lungo termine, importo da raggiungere, scadenza facoltativa, risparmio iniziale, accantonamenti successivi correggibili ed eliminabili, modifica ed eliminazione.
@@ -258,7 +266,7 @@ Le password vengono derivate con scrypt e un salt casuale. Le sessioni durano 14
 
 ### Scadenze e menu
 
-Le scadenze possono essere singole, mensili o annuali. Il giorno 29, 30 o 31 si adatta all’ultimo giorno dei mesi più corti; un anniversario del 29 febbraio cade il 28 negli anni non bisestili. Il promemoria compare nella panoramica e nello scadenziario: non invia email o notifiche esterne.
+Le scadenze possono essere singole, mensili, trimestrali, semestrali o annuali; le ultime tre si ripetono a partire dal mese della data di scadenza. Il giorno 29, 30 o 31 si adatta all’ultimo giorno dei mesi più corti; un anniversario del 29 febbraio cade il 28 negli anni non bisestili. Il promemoria compare nella panoramica e nello scadenziario: non invia email o notifiche esterne.
 
 Il pagamento è facoltativo e l’importo previsto non modifica le uscite. “Segna gestita” registra la gestione; se è previsto un pagamento, crea un’uscita alla data e all’importo scelti. “Annulla gestione” elimina la gestione e l’eventuale uscita. Eliminare direttamente un movimento collegato rende nuovamente da gestire la scadenza. Modifica e archivio conservano gestioni e pagamenti precedenti. La conversione delle vecchie bollette avviene una sola volta per famiglia e conserva i movimenti esistenti. Le bollette con addebito automatico vanno configurate come Uscite ricorrenti per evitare doppie registrazioni.
 
@@ -315,13 +323,12 @@ public/                  Logo, icone, manifest e service worker delle notifiche
 
 ## Prossimi sviluppi utili
 
-1. Ricorrenze annuali o trimestrali e notifiche esterne.
-2. Confronto tra mesi, budget storici e categorie aggiuntive.
-3. Copie automatiche verso uno spazio esterno al server e importazione del ZIP familiare.
-4. Verifica email e gestione dei membri dall’interfaccia.
+1. Budget storici e categorie aggiuntive.
+2. Copie automatiche verso uno spazio esterno al server e importazione del ZIP familiare.
+3. Verifica email.
 
-L’app non esegue pagamenti e non invia notifiche push; i conti bancari sono collegati in sola lettura. Il recupero password richiede la configurazione del servizio email descritta sopra. Il deployment gratuito richiede il collegamento dei propri account Vercel e Neon; la pubblicazione dell’ambiente Codex non pubblica la webapp. Il comando di build Vercel è `npm run build`, impostato nel progetto (o ricavato dal framework Vite).
+L’app non esegue pagamenti; i conti bancari sono collegati in sola lettura. Il recupero password richiede la configurazione del servizio email descritta sopra. Il deployment gratuito richiede il collegamento dei propri account Vercel e Neon; la pubblicazione dell’ambiente Codex non pubblica la webapp. Il comando di build Vercel è `npm run build`, impostato nel progetto (o ricavato dal framework Vite).
 
-La rimozione di un membro richiesta al gestore usa esclusivamente il comando privato `server/member-removal-cli.mjs`, con `DATABASE_URL` backend e argomenti `--request-id`, `--member` e `--admin`. Richiede una corrispondenza univoca dei nomi nella stessa famiglia, conserva una copia privata prima della rimozione, revoca gli accessi e trasferisce i record condivisi all’amministratore. Non rimuove amministratori né dati familiari. Riutilizzare lo stesso identificativo di richiesta non elimina un account ricreato. Il comando non è esposto via HTTP e non fa parte della build ordinaria; può essere eseguito con un comando di build specifico di un singolo deployment.
+La rimozione di un membro richiesta al gestore, per nome e con una copia privata preventiva, usa il comando privato `server/member-removal-cli.mjs`, con `DATABASE_URL` backend e argomenti `--request-id`, `--member` e `--admin`. Richiede una corrispondenza univoca dei nomi nella stessa famiglia, conserva una copia privata prima della rimozione, revoca gli accessi e trasferisce i record condivisi all’amministratore. Non rimuove amministratori né dati familiari. Riutilizzare lo stesso identificativo di richiesta non elimina un account ricreato. Il comando non è esposto via HTTP e non fa parte della build ordinaria; può essere eseguito con un comando di build specifico di un singolo deployment.
 
 Scelte e limiti dell’integrazione bancaria, in sola lettura di saldo e movimenti e senza pagamenti, sono annotati in [docs/banking-integration.md](docs/banking-integration.md).

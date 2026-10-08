@@ -18,7 +18,7 @@ export interface FamilyState {
   household: { id: string; name: string };
   members: { id: string; name: string; role: string }[];
   recurring: RecurringRule[]; budgetTemplates: BudgetTemplate[]; activeTemplateId: string | null;
-  categories: Category[]; transactions: Transaction[]; goals: Goal[]; contributions: Contribution[]; shopping: ShoppingItem[]; notes: Note[];
+  categories: Category[]; transactions: Transaction[]; history: MonthSummary[]; goals: Goal[]; contributions: Contribution[]; shopping: ShoppingItem[]; notes: Note[];
   deadlines: Deadline[]; waste: WasteSchedule[]; bills: Bill[]; meals: Meal[]; week: string; backups: BackupStatus | null;
   bank: BankState;
   notifications: { publicKey: string; types: Record<NotificationType, boolean>; devices: number };
@@ -38,7 +38,7 @@ export interface WasteSchedule { id: string; name: string; days: number[]; time_
 
 export interface Deadline {
   id: string; name: string; start_date: string; due_day: number; due_date: string;
-  frequency: 'once' | 'monthly' | 'yearly'; requires_payment: number; amount: number | null;
+  frequency: 'once' | 'monthly' | 'quarterly' | 'semiannual' | 'yearly'; requires_payment: number; amount: number | null;
   category_id: string | null; reminder_days: number; active: number;
   managed: { transaction_id: string | null; amount: number | null; category_id: string | null; handled_date: string; author: string } | null;
 }
@@ -52,3 +52,6 @@ export interface BankConnection { id: string; bank: string; country: string; sta
 export interface BankState { configured: boolean; total: number; savingsTotal: number; accounts: BankAccount[]; connections: BankConnection[]; savingsStrategy: 'primary' | 'proportional'; savingsUnassigned: number }
 export type DashboardCard = 'income' | 'expense' | 'balance' | 'savings' | 'spending' | 'home' | 'goals' | 'recent';
 export type NotificationType = 'notes' | 'shopping' | 'meals' | 'deadlines' | 'budget' | 'waste' | 'bank';
+
+// Totals of a past month for the comparison; categories maps category id ('' for unclassified) to cents.
+export type MonthSummary = { month: string; income: number; budgetIncome: number; expense: number; categories: Record<string, number> };

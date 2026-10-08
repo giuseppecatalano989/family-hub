@@ -602,3 +602,80 @@ test('deleting mistaken recurring rules removes their history and occurrences wi
   assert.equal(instance.db.prepare('SELECT COUNT(*) AS count FROM recurring_occurrences').get().count,0);
   assert.equal((await request(`/recurring/${rule.id}`,{method:'DELETE',session:owner})).status,404);
 });
+
+test('quarterly and semiannual deadlines repeat from the starting month and old databases accept them', async () => {
+  const owner = await register(); const categoryId = (await state(owner)).categories[0].id;
+  const input = { name: 'Condominio', startDate: '2026-11-30', frequency: 'quarterly', requiresPayment: true, amount: 15000, categoryId, reminderDays: 3 };
+  const quarterly = await create('/deadlines', input, owner);
+  const semiannual = await create('/deadlines', { ...input, name: 'Assicurazione casa', frequency: 'semiannual' }, owner);
+  const due = async period => Object.fromEntries((await state(owner, period)).deadlines.map(d => [d.name, d.due_date]));
+  assert.deepEqual(await due('2026-10'), {});
+  assert.deepEqual(await due('2026-11'), { 'Assicurazione casa': '2026-11-30', Condominio: '2026-11-30' });
+  assert.deepEqual(await due('2027-02'), { Condominio: '2027-02-28' });
+  assert.deepEqual(await due('2027-03'), {});
+  assert.deepEqual(await due('2027-05'), { 'Assicurazione casa': '2027-05-30', Condominio: '2027-05-30' });
+  assert.deepEqual(await due('2027-08'), { Condominio: '2027-08-30' });
+  assert.equal((await create(`/deadlines/${quarterly.id}/manage`, { month: '2027-02', handledDate: '2027-02-27' }, owner)).transactionId.length > 0, true);
+  assert.equal((await request(`/deadlines/${semiannual.id}/manage`, { method: 'POST', body: { month: '2027-02', handledDate: '2027-02-27' }, session: owner })).status, 400);
+
+  const once = await create('/deadlines', { ...input, name: 'Bollo', frequency: 'once' }, owner);
+  const receipt = await create(`/deadlines/${once.id}/manage`, { month: '2026-11', handledDate: '2026-11-20' }, owner);
+  // Recreate the table with the CHECK used before these frequencies existed, then restart.
+  await new Promise(resolve => server.close(resolve)); instance.close();
+  const { DatabaseSync } = await import('node:sqlite');
+  const legacy = new DatabaseSync(path.join(dataDir, 'casa.sqlite'));
+  const sql = legacy.prepare("SELECT sql FROM sqlite_master WHERE name = 'deadlines'").get().sql;
+  legacy.exec(`DELETE FROM deadline_receipts WHERE deadline_id IN ('${quarterly.id}', '${semiannual.id}'); DELETE FROM deadlines WHERE id IN ('${quarterly.id}', '${semiannual.id}')`);
+  legacy.exec('PRAGMA foreign_keys = OFF');
+  legacy.exec(`${sql.replace('CREATE TABLE deadlines', 'CREATE TABLE deadlines_old').replace("'once','monthly','quarterly','semiannual','yearly'", "'once','monthly','yearly'")};
+    INSERT INTO deadlines_old SELECT * FROM deadlines; DROP TABLE deadlines; ALTER TABLE deadlines_old RENAME TO deadlines;`);
+  assert.throws(() => legacy.prepare("UPDATE deadlines SET frequency = 'quarterly'").run(), /CHECK constraint/);
+  legacy.close();
+  instance = createApp({ dataDir }); server = instance.app.listen(0, '127.0.0.1');
+  await new Promise(resolve => server.once('listening', resolve));
+  base = `http://127.0.0.1:${server.address().port}/api`;
+  const legacyQuarterly = await create('/deadlines', input, owner);
+  assert.equal((await state(owner, '2027-02')).deadlines.find(d => d.id === legacyQuarterly.id).due_date, '2027-02-28');
+  assert.deepEqual((await state(owner, '2026-11')).deadlines.map(d => d.name), ['Bollo', 'Condominio']);
+  const migrated = new DatabaseSync(path.join(dataDir, 'casa.sqlite'), { readOnly: true });
+  assert.equal(migrated.prepare('SELECT transaction_id FROM deadline_receipts').get().transaction_id, receipt.transactionId);
+  assert.deepEqual(migrated.prepare('PRAGMA foreign_key_check').all(), []);
+  migrated.close();
+});
+
+test('the administrator removes a member with their password, keeping shared records in the family', async () => {
+  const owner = await register(); const categoryId = (await state(owner)).categories[0].id;
+  const invitation = await (await request('/invitation', { method: 'POST', session: owner })).json();
+  const bob = await register('bob@example.it', { name: 'Bob', inviteCode: invitation.code });
+  const stranger = await register('eve@example.it', { name: 'Eve' });
+  const expense = await create('/transactions', { kind: 'expense', amount: 1250, categoryId, description: 'Pane', date: '2026-10-05' }, bob);
+  const remove = (id, session, currentPassword = 'password-test-123') => request(`/members/${id}`, { method: 'DELETE', body: { currentPassword }, session });
+  assert.equal((await remove(owner.user.id, bob)).status, 403);
+  assert.equal((await remove(bob.user.id, owner, 'password-errata-1')).status, 400);
+  assert.equal((await remove(owner.user.id, owner)).status, 404);
+  assert.equal((await remove(stranger.user.id, owner)).status, 404);
+  assert.equal((await request('/state?month=2026-10', { session: bob })).status, 200);
+  assert.equal((await remove(bob.user.id, owner)).status, 200);
+  assert.equal((await request('/state?month=2026-10', { session: bob })).status, 401);
+  const after = await state(owner);
+  assert.deepEqual(after.members.map(m => m.name), ['Alice']);
+  const kept = after.transactions.find(t => t.id === expense.id);
+  assert.equal(kept.amount, 1250);
+  assert.equal((await request('/auth/login', { method: 'POST', body: { email: 'bob@example.it', password: 'password-test-123' } })).status, 401);
+  assert.equal((await remove(bob.user.id, owner)).status, 404);
+});
+
+test('the state compares the last six months with totals by category, without itemising private records', async () => {
+  const owner = await register(); const [home, food] = (await state(owner)).categories;
+  await create('/transactions', { kind: 'expense', amount: 10000, categoryId: home.id, description: 'Affitto', date: '2026-09-02' }, owner);
+  await create('/transactions', { kind: 'expense', amount: 2550, categoryId: food.id, description: 'Spesa', date: '2026-10-30' }, owner);
+  await create('/transactions', { kind: 'expense', amount: 450, categoryId: food.id, description: 'Mercato', date: '2026-10-01' }, owner);
+  await create('/transactions', { kind: 'income', amount: 5000, description: 'Vendita', date: '2026-10-12' }, owner);
+  await create('/transactions', { kind: 'expense', amount: 999, categoryId: food.id, description: 'Troppo vecchia', date: '2026-04-30' }, owner);
+  await create('/transactions', { kind: 'expense', amount: 777, categoryId: food.id, description: 'Futura', date: '2026-11-01' }, owner);
+  const { history } = await state(owner, '2026-10');
+  assert.deepEqual(history.map(m => m.month), ['2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10']);
+  assert.deepEqual(history[4], { month: '2026-09', income: 0, budgetIncome: 0, expense: 10000, categories: { [home.id]: 10000 } });
+  assert.deepEqual(history[5], { month: '2026-10', income: 5000, budgetIncome: 0, expense: 3000, categories: { [food.id]: 3000 } });
+  assert.equal((await state(owner, '2027-01')).history[0].month, '2026-08');
+});

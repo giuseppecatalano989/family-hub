@@ -1,5 +1,6 @@
-// Operator-only maintenance: no HTTP endpoint. The request identifier prevents
-// a retried deployment from deleting a newly recreated account with that name.
+// Operator maintenance by name, with a private copy first; the administrator can
+// also remove a member from Impostazioni (DELETE /api/members/:id). The request
+// identifier prevents a retried deployment from deleting a recreated account.
 export async function removeMember({ db, requestId, memberName, adminName, takeBackup }) {
   if (!db.cloud || !/^[a-zA-Z0-9-]{16,100}$/.test(requestId || '') || !memberName?.trim() || !adminName?.trim() || typeof takeBackup !== 'function') {
     throw new Error('Configurazione della rimozione non valida.');
@@ -16,30 +17,37 @@ export async function removeMember({ db, requestId, memberName, adminName, takeB
     const { id, admin_id: adminId } = matches[0];
     const backup = await takeBackup();
     if (!backup?.id) throw new Error('Copia privata non confermata. Nessun account eliminato.');
-    let preservedRecords = 0;
-    for (const table of ['transactions', 'contributions', 'shopping', 'notes', 'meals', 'recurring_rules', 'deadline_receipts']) {
-      const result = await db.prepare(`UPDATE ${table} SET author_id = ? WHERE author_id = ?`).run(adminId, id);
-      preservedRecords += result.changes;
-    }
-    await db.prepare('DELETE FROM file_uploads WHERE user_id = ?').run(id);
-    // Removes the member's bank links, balances and copied movements; imported records stay.
-    await db.prepare('DELETE FROM bank_auth_requests WHERE user_id = ?').run(id);
-    await db.prepare('DELETE FROM bank_account_exclusions WHERE user_id = ?').run(id);
-    await db.prepare('DELETE FROM user_preferences WHERE user_id = ?').run(id);
-    await db.prepare('DELETE FROM dashboard_preferences WHERE user_id = ?').run(id);
-    await db.prepare('DELETE FROM push_subscriptions WHERE user_id = ?').run(id);
-    await db.prepare('DELETE FROM notification_preferences WHERE user_id = ?').run(id);
-    await db.prepare('DELETE FROM notification_log WHERE user_id = ?').run(id);
-    await db.prepare('DELETE FROM bank_connections WHERE user_id = ?').run(id);
-    // Private records keep counting in the budget without revealing their details.
-    await db.prepare("UPDATE transactions SET description = 'Movimento bancario privato' WHERE id IN (SELECT transaction_id FROM private_transactions WHERE owner_id = ?)").run(id);
-    await db.prepare('DELETE FROM private_transactions WHERE owner_id = ?').run(id);
-    await db.prepare('DELETE FROM sessions WHERE user_id = ?').run(id);
-    await db.prepare('DELETE FROM password_resets WHERE user_id = ?').run(id);
+    const preservedRecords = await detachMember((sql, ...args) => db.prepare(sql).run(...args), id, adminId);
     const removed = await db.prepare("DELETE FROM users WHERE id = ? AND role = 'member'").run(id);
     if (removed.changes !== 1) throw new Error('Rimozione non confermata.');
     const result = { removed: true, preservedRecords, backupId: backup.id };
     await db.prepare('INSERT INTO member_removals VALUES (?, ?)').run(requestId, JSON.stringify(result));
     return result;
   });
+}
+
+// Shared records move to the administrator; the member's personal settings,
+// bank links, devices and accesses are removed. Runs inside the caller's transaction.
+export async function detachMember(run, id, adminId) {
+  let preservedRecords = 0;
+  for (const table of ['transactions', 'contributions', 'shopping', 'notes', 'meals', 'recurring_rules', 'deadline_receipts']) {
+    const result = await run(`UPDATE ${table} SET author_id = ? WHERE author_id = ?`, adminId, id);
+    preservedRecords += result.changes;
+  }
+  await run('DELETE FROM file_uploads WHERE user_id = ?', id);
+  // Removes the member's bank links, balances and copied movements; imported records stay.
+  await run('DELETE FROM bank_auth_requests WHERE user_id = ?', id);
+  await run('DELETE FROM bank_account_exclusions WHERE user_id = ?', id);
+  await run('DELETE FROM user_preferences WHERE user_id = ?', id);
+  await run('DELETE FROM dashboard_preferences WHERE user_id = ?', id);
+  await run('DELETE FROM push_subscriptions WHERE user_id = ?', id);
+  await run('DELETE FROM notification_preferences WHERE user_id = ?', id);
+  await run('DELETE FROM notification_log WHERE user_id = ?', id);
+  await run('DELETE FROM bank_connections WHERE user_id = ?', id);
+  // Private records keep counting in the budget without revealing their details.
+  await run("UPDATE transactions SET description = 'Movimento bancario privato' WHERE id IN (SELECT transaction_id FROM private_transactions WHERE owner_id = ?)", id);
+  await run('DELETE FROM private_transactions WHERE owner_id = ?', id);
+  await run('DELETE FROM sessions WHERE user_id = ?', id);
+  await run('DELETE FROM password_resets WHERE user_id = ?', id);
+  return preservedRecords;
 }

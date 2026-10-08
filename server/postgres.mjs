@@ -61,6 +61,9 @@ export async function openPostgres(connectionString, { local = false, requireEmp
       await query(PLANNING_SCHEMA);
       await query(WASTE_SCHEMA);
       await query(DEADLINE_SCHEMA);
+      const frequency = (await query("SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = 'deadlines_frequency_check' AND conrelid = 'deadlines'::regclass")).rows[0];
+      if (!frequency?.def.includes('quarterly')) await query(`ALTER TABLE deadlines DROP CONSTRAINT IF EXISTS deadlines_frequency_check;
+        ALTER TABLE deadlines ADD CONSTRAINT deadlines_frequency_check CHECK(frequency IN ('once','monthly','quarterly','semiannual','yearly'))`);
       await query(BANK_SCHEMA);
       await query(NOTIFICATION_SCHEMA);
       await query(UPLOAD_SCHEMA.replaceAll(' BLOB ', ' BYTEA '));
