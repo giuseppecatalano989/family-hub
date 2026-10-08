@@ -602,3 +602,43 @@ test('deleting mistaken recurring rules removes their history and occurrences wi
   assert.equal(instance.db.prepare('SELECT COUNT(*) AS count FROM recurring_occurrences').get().count,0);
   assert.equal((await request(`/recurring/${rule.id}`,{method:'DELETE',session:owner})).status,404);
 });
+
+test('quarterly and semiannual deadlines repeat from the starting month and old databases accept them', async () => {
+  const owner = await register(); const categoryId = (await state(owner)).categories[0].id;
+  const input = { name: 'Condominio', startDate: '2026-11-30', frequency: 'quarterly', requiresPayment: true, amount: 15000, categoryId, reminderDays: 3 };
+  const quarterly = await create('/deadlines', input, owner);
+  const semiannual = await create('/deadlines', { ...input, name: 'Assicurazione casa', frequency: 'semiannual' }, owner);
+  const due = async period => Object.fromEntries((await state(owner, period)).deadlines.map(d => [d.name, d.due_date]));
+  assert.deepEqual(await due('2026-10'), {});
+  assert.deepEqual(await due('2026-11'), { 'Assicurazione casa': '2026-11-30', Condominio: '2026-11-30' });
+  assert.deepEqual(await due('2027-02'), { Condominio: '2027-02-28' });
+  assert.deepEqual(await due('2027-03'), {});
+  assert.deepEqual(await due('2027-05'), { 'Assicurazione casa': '2027-05-30', Condominio: '2027-05-30' });
+  assert.deepEqual(await due('2027-08'), { Condominio: '2027-08-30' });
+  assert.equal((await create(`/deadlines/${quarterly.id}/manage`, { month: '2027-02', handledDate: '2027-02-27' }, owner)).transactionId.length > 0, true);
+  assert.equal((await request(`/deadlines/${semiannual.id}/manage`, { method: 'POST', body: { month: '2027-02', handledDate: '2027-02-27' }, session: owner })).status, 400);
+
+  const once = await create('/deadlines', { ...input, name: 'Bollo', frequency: 'once' }, owner);
+  const receipt = await create(`/deadlines/${once.id}/manage`, { month: '2026-11', handledDate: '2026-11-20' }, owner);
+  // Recreate the table with the CHECK used before these frequencies existed, then restart.
+  await new Promise(resolve => server.close(resolve)); instance.close();
+  const { DatabaseSync } = await import('node:sqlite');
+  const legacy = new DatabaseSync(path.join(dataDir, 'casa.sqlite'));
+  const sql = legacy.prepare("SELECT sql FROM sqlite_master WHERE name = 'deadlines'").get().sql;
+  legacy.exec(`DELETE FROM deadline_receipts WHERE deadline_id IN ('${quarterly.id}', '${semiannual.id}'); DELETE FROM deadlines WHERE id IN ('${quarterly.id}', '${semiannual.id}')`);
+  legacy.exec('PRAGMA foreign_keys = OFF');
+  legacy.exec(`${sql.replace('CREATE TABLE deadlines', 'CREATE TABLE deadlines_old').replace("'once','monthly','quarterly','semiannual','yearly'", "'once','monthly','yearly'")};
+    INSERT INTO deadlines_old SELECT * FROM deadlines; DROP TABLE deadlines; ALTER TABLE deadlines_old RENAME TO deadlines;`);
+  assert.throws(() => legacy.prepare("UPDATE deadlines SET frequency = 'quarterly'").run(), /CHECK constraint/);
+  legacy.close();
+  instance = createApp({ dataDir }); server = instance.app.listen(0, '127.0.0.1');
+  await new Promise(resolve => server.once('listening', resolve));
+  base = `http://127.0.0.1:${server.address().port}/api`;
+  const legacyQuarterly = await create('/deadlines', input, owner);
+  assert.equal((await state(owner, '2027-02')).deadlines.find(d => d.id === legacyQuarterly.id).due_date, '2027-02-28');
+  assert.deepEqual((await state(owner, '2026-11')).deadlines.map(d => d.name), ['Bollo', 'Condominio']);
+  const migrated = new DatabaseSync(path.join(dataDir, 'casa.sqlite'), { readOnly: true });
+  assert.equal(migrated.prepare('SELECT transaction_id FROM deadline_receipts').get().transaction_id, receipt.transactionId);
+  assert.deepEqual(migrated.prepare('PRAGMA foreign_key_check').all(), []);
+  migrated.close();
+});

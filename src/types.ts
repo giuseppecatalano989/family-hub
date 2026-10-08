@@ -38,7 +38,7 @@ export interface WasteSchedule { id: string; name: string; days: number[]; time_
 
 export interface Deadline {
   id: string; name: string; start_date: string; due_day: number; due_date: string;
-  frequency: 'once' | 'monthly' | 'yearly'; requires_payment: number; amount: number | null;
+  frequency: 'once' | 'monthly' | 'quarterly' | 'semiannual' | 'yearly'; requires_payment: number; amount: number | null;
   category_id: string | null; reminder_days: number; active: number;
   managed: { transaction_id: string | null; amount: number | null; category_id: string | null; handled_date: string; author: string } | null;
 }

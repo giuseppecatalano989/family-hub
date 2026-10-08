@@ -2,22 +2,42 @@ import { randomUUID } from 'node:crypto';
 import { DEADLINE_SCHEMA } from './schema.mjs';
 import { dueDate } from './workflows.mjs';
 
+const FREQUENCIES = ['once', 'monthly', 'quarterly', 'semiannual', 'yearly'];
+
+// Databases created before quarterly and semiannual deadlines keep the old
+// CHECK on frequency: rebuild the table once, preserving rows and receipts.
+function widenFrequencies(db) {
+  const table = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'deadlines'").get();
+  if (table.sql.includes("'quarterly'")) return;
+  const create = DEADLINE_SCHEMA.match(/CREATE TABLE IF NOT EXISTS deadlines \([\s\S]*?\n  \);/)[0].replace('IF NOT EXISTS deadlines', 'deadlines_next');
+  db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.exec(`${create} INSERT INTO deadlines_next SELECT * FROM deadlines; DROP TABLE deadlines; ALTER TABLE deadlines_next RENAME TO deadlines;`);
+      if (db.prepare('PRAGMA foreign_key_check').all().length) throw new Error('Migrazione delle scadenze non riuscita: riferimenti non validi.');
+      db.exec('COMMIT');
+    } catch (error) { db.exec('ROLLBACK'); throw error; }
+  } finally { db.exec('PRAGMA foreign_keys = ON'); }
+}
+
 export function occurrenceDate(deadline, period) {
   const start = deadline.start_date;
   if (period < start.slice(0, 7)) return null;
   if (deadline.frequency === 'once') return period === start.slice(0, 7) ? start : null;
-  if (deadline.frequency === 'yearly' && period.slice(5) !== start.slice(5, 7)) return null;
+  const step = { quarterly: 3, semiannual: 6, yearly: 12 }[deadline.frequency];
+  if (step && (Number(period.slice(5)) - Number(start.slice(5, 7)) + 12) % step) return null;
   return dueDate(period, deadline.due_day);
 }
 
 export function installDeadlines(app, { db, one, all, run, atomic, owned, fail, text, cents, date, now }) {
-  if (!db.cloud) db.exec(DEADLINE_SCHEMA);
+  if (!db.cloud) { db.exec(DEADLINE_SCHEMA); widenFrequencies(db); }
   function month(value) {
     if (typeof value !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(value) || value < '1900-01' || value > '2199-12') fail('Mese non valido.');
     return value;
   }
   async function input(body, user) {
-    if (!['once', 'monthly', 'yearly'].includes(body.frequency)) fail('Ripetizione non valida.');
+    if (!FREQUENCIES.includes(body.frequency)) fail('Ripetizione non valida.');
     if (typeof body.requiresPayment !== 'boolean') fail('Indica se è previsto un pagamento.');
     if (!Number.isInteger(body.reminderDays) || body.reminderDays < 0 || body.reminderDays > 30) fail('Il promemoria deve essere tra 0 e 30 giorni prima.');
     const amount = body.requiresPayment ? cents(body.amount) : null;
