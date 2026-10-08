@@ -2,7 +2,7 @@ export interface User { id: string; name: string; email: string; role: 'admin' |
 export interface Category { id: string; name: string; color: string; percentage: number }
 export interface Transaction { id: string; kind: 'income' | 'expense'; amount: number; category_id: string | null; description: string; date: string; author: string; recurring_id?: string | null; bank_account?: string | null; privacy?: 'mine' | 'others' }
 export interface Goal { id: string; title: string; horizon: 'short' | 'medium' | 'long'; target: number; saved: number; initial_saved: number; due_date: string | null; monthly: number; is_primary: number }
-export interface Contribution { id: string; goal_id: string; amount: number; author: string; created_at: string }
+export interface Contribution { id: string; goal_id: string; amount: number; author: string; created_at: string; automatic: number }
 export interface ShoppingItem { id: string; name: string; quantity: string; section: string; checked: number; author: string }
 export interface Attachment { id: string; original_name: string; size: number }
 export interface Note { id: string; title: string; content: string; color: string; pinned: number; author: string; updated_at: string; attachments: Attachment[] }
@@ -49,6 +49,6 @@ export interface BankAccount {
   status: 'active' | 'expired' | 'error'; valid_until: string; last_sync_at: string | null; last_error: string | null;
 }
 export interface BankConnection { id: string; bank: string; country: string; status: 'active' | 'expired' | 'error'; valid_until: string; last_error: string | null }
-export interface BankState { configured: boolean; total: number; savingsTotal: number; accounts: BankAccount[]; connections: BankConnection[]; savingsStrategy: 'primary' | 'proportional' }
+export interface BankState { configured: boolean; total: number; savingsTotal: number; accounts: BankAccount[]; connections: BankConnection[]; savingsStrategy: 'primary' | 'proportional'; savingsUnassigned: number }
 export type DashboardCard = 'income' | 'expense' | 'balance' | 'savings' | 'spending' | 'home' | 'goals' | 'recent';
 export type NotificationType = 'notes' | 'shopping' | 'meals' | 'deadlines' | 'budget' | 'waste' | 'bank';

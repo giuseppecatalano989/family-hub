@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 
-export function installGoalSavings(app, { one, all, run, atomic, owned, fail, cents, now }) {
+// Targeted savings stay with their goal: `reconcile` lets the automatic shares of
+// the savings accounts' balance make room for them, taking from the other goals first.
+export function installGoalSavings(app, { one, all, run, atomic, owned, fail, cents, now, reconcile = async () => {} }) {
   app.post('/api/goals/:id/contributions', async (req, res) => {
     const amount = cents(req.body.amount);
     const id = randomUUID();
@@ -9,6 +11,7 @@ export function installGoalSavings(app, { one, all, run, atomic, owned, fail, ce
       const saved = cents(goal.saved + amount, true);
       await run('UPDATE goals SET saved = ? WHERE id = ? AND household_id = ?', saved, goal.id, req.user.household_id);
       await run('INSERT INTO contributions VALUES (?, ?, ?, ?, ?)', id, goal.id, amount, req.user.id, now());
+      await reconcile(req.user.household_id, goal.id);
     });
     res.status(201).json({ ok: true, id });
   });
@@ -19,6 +22,7 @@ export function installGoalSavings(app, { one, all, run, atomic, owned, fail, ce
       const contributions = await one('SELECT COALESCE(SUM(amount), 0) AS total FROM contributions WHERE goal_id = ?', goal.id);
       const saved = cents(contributions.total + amount, true);
       await run('UPDATE goals SET saved = ? WHERE id = ? AND household_id = ?', saved, goal.id, req.user.household_id);
+      await reconcile(req.user.household_id, goal.id);
     });
     res.json({ ok: true });
   }
@@ -33,7 +37,9 @@ export function installGoalSavings(app, { one, all, run, atomic, owned, fail, ce
       const saved = cents(goal.saved - contribution.amount + amount, true);
       if (req.method === 'DELETE') await run('DELETE FROM contributions WHERE id = ? AND goal_id = ?', contribution.id, goal.id);
       else await run('UPDATE contributions SET amount = ? WHERE id = ? AND goal_id = ?', amount, contribution.id, goal.id);
+      if (req.method === 'DELETE') await run('DELETE FROM savings_balance_allocations WHERE contribution_id = ?', contribution.id);
       await run('UPDATE goals SET saved = ? WHERE id = ? AND household_id = ?', saved, goal.id, req.user.household_id);
+      await reconcile(req.user.household_id, goal.id);
     });
     res.json({ ok: true });
   }
@@ -46,8 +52,8 @@ export function installGoalSavings(app, { one, all, run, atomic, owned, fail, ce
         goals: await all(`SELECT g.*, g.saved - COALESCE((SELECT SUM(c.amount) FROM contributions c WHERE c.goal_id = g.id), 0) AS initial_saved,
           COALESCE(p.monthly, 0) AS monthly, COALESCE(p.is_primary, 0) AS is_primary
           FROM goals g LEFT JOIN goal_plans p ON p.goal_id = g.id WHERE g.household_id = ? ORDER BY g.created_at DESC`, householdId),
-        contributions: await all(`SELECT c.*, u.name AS author FROM contributions c JOIN goals g ON g.id = c.goal_id
-          JOIN users u ON u.id = c.author_id WHERE g.household_id = ? ORDER BY c.created_at DESC, c.id`, householdId),
+        contributions: await all(`SELECT c.*, u.name AS author, CASE WHEN EXISTS (SELECT 1 FROM savings_balance_allocations b WHERE b.contribution_id = c.id) THEN 1 ELSE 0 END AS automatic
+          FROM contributions c JOIN goals g ON g.id = c.goal_id JOIN users u ON u.id = c.author_id WHERE g.household_id = ? ORDER BY c.created_at DESC, c.id`, householdId),
       }));
     },
   };
