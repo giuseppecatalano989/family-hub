@@ -21,7 +21,7 @@ export interface FamilyState {
   categories: Category[]; transactions: Transaction[]; goals: Goal[]; contributions: Contribution[]; shopping: ShoppingItem[]; notes: Note[];
   deadlines: Deadline[]; waste: WasteSchedule[]; bills: Bill[]; meals: Meal[]; week: string; backups: BackupStatus | null;
   bank: BankState;
-  preferences: { showBankBalance: boolean };
+  preferences: { showBankBalance: boolean; quickActions: boolean; dashboard: { order: DashboardCard[]; hidden: DashboardCard[] } };
 }
 export interface RecurringRule {
   id: string; kind: 'income' | 'expense'; start_month: string; effective_month: string;
@@ -49,3 +49,4 @@ export interface BankAccount {
 }
 export interface BankConnection { id: string; bank: string; status: 'active' | 'expired' | 'error'; valid_until: string; last_error: string | null }
 export interface BankState { configured: boolean; total: number; accounts: BankAccount[]; connections: BankConnection[]; savingsStrategy: 'primary' | 'proportional' }
+export type DashboardCard = 'income' | 'expense' | 'balance' | 'savings' | 'spending' | 'home' | 'goals' | 'recent';

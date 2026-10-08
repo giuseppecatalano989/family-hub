@@ -7,7 +7,8 @@ async function go(page: Page, name: string) {
 test('a member links a bank in read-only mode, sees the family balance and imported expenses', async ({ page }, info) => {
   const errors: string[] = []; page.on('pageerror', e => errors.push(e.message)); await page.goto('/');
   await page.getByLabel('Il tuo nome').fill('Giuseppe'); await page.getByLabel('Email', { exact: true }).fill(`bank-${info.project.name}-${Date.now()}@example.test`); await page.getByLabel('Password', { exact: true }).fill('test-password-123'); await page.getByLabel('Nome del vostro spazio').fill('Famiglia banca'); await page.getByRole('button', { name: 'Entra a casa' }).click();
-  await go(page, 'Conti bancari'); await expect(page.getByRole('heading', { name: 'I conti di famiglia.' })).toBeVisible();
+  await expect(page.getByRole('navigation').getByRole('button', { name: 'Conti bancari', exact: true })).toHaveCount(0);
+  await go(page, 'Impostazioni'); await expect(page.getByRole('heading', { name: 'Impostazioni.' })).toBeVisible(); await expect(page.getByRole('tab', { name: /^Conti bancari/ })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('heading', { name: 'Nessun conto collegato' })).toBeVisible();
   await expect(page.getByLabel('Mese selezionato')).toHaveCount(0);
   await page.getByRole('button', { name: 'Collega una banca' }).first().click();
@@ -44,12 +45,22 @@ test('a member links a bank in read-only mode, sees the family balance and impor
   const goalCard = page.locator('.goal-card', { hasText: 'Fondo emergenze' }); await expect(goalCard).toContainText('300,00 € al mese'); await expect(goalCard).toContainText('Primario');
   // Only the monthly balance; the real balance is an optional line set in the account.
   await go(page, 'Panoramica'); const balance = page.locator('.balance-card'); await expect(balance).not.toContainText('Oggi sui conti'); await expect(page.getByText('Saldo dei conti collegati')).toHaveCount(0);
-  await go(page, 'Impostazioni'); await page.getByLabel(/Mostra in Panoramica, sotto il saldo del mese/).check(); await expect(page.getByText('Modifiche salvate.')).toBeVisible();
-  await page.getByLabel('Se il risparmio del mese non copre tutte le quote').selectOption('primary'); await expect(page.getByLabel('Se il risparmio del mese non copre tutte le quote')).toHaveValue('primary');
+  await go(page, 'Impostazioni'); await page.getByRole('tab', { name: /^Panoramica/ }).click(); await expect(page).toHaveURL(/#settings\/panoramica$/);
+  await page.getByLabel(/Mostra in Panoramica, sotto il saldo del mese/).check(); await expect(page.getByText('Modifiche salvate.')).toBeVisible();
+  // Cards can be hidden and reordered; the choice is kept by the server.
+  await page.getByLabel('Risparmi per gli obiettivi', { exact: true }).uncheck(); await page.getByRole('button', { name: 'Sposta su Gli ultimi movimenti' }).click();
+  await expect(page.locator('.dashboard-card-list').last().locator('li').nth(2)).toContainText('Gli ultimi movimenti');
+  await page.screenshot({ path: info.outputPath('impostazioni-panoramica.png'), fullPage: true }); expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.reload(); await expect(page.getByLabel('Risparmi per gli obiettivi', { exact: true })).not.toBeChecked();
+  await go(page, 'Panoramica'); await expect(page.locator('.stat-card')).toHaveCount(3); await expect(page.locator('.overview-bottom .panel').first()).toContainText('Gli ultimi movimenti');
+  await page.screenshot({ path: info.outputPath('panoramica-personalizzata.png'), fullPage: true });
+  await go(page, 'Impostazioni'); await page.getByRole('tab', { name: /^Panoramica/ }).click(); await page.getByRole('button', { name: 'Ripristina predefinita' }).click();
+  await expect(page.getByLabel('Risparmi per gli obiettivi', { exact: true })).toBeChecked(); await expect(page.getByLabel(/Mostra in Panoramica, sotto il saldo del mese/)).toBeChecked();
+  await page.getByRole('tab', { name: /^Conti bancari/ }).click(); await page.getByLabel('Se il risparmio del mese non copre tutte le quote').selectOption('primary'); await expect(page.getByLabel('Se il risparmio del mese non copre tutte le quote')).toHaveValue('primary');
   await page.screenshot({ path: info.outputPath('impostazioni.png'), fullPage: true });
   await go(page, 'Panoramica'); await expect(balance).toContainText('Oggi sui conti: 2.345,67');
-  await go(page, 'Conti bancari');
-  await card.getByLabel('Con la famiglia condividi').selectOption('balance'); await expect(card.locator('.badge')).toHaveText('Movimenti privati'); await go(page, 'Uscite'); await expect(page.locator('.transaction-row', { hasText: 'Esselunga' })).toContainText('Privato'); await go(page, 'Conti bancari');
+  await go(page, 'Impostazioni');
+  await card.getByLabel('Con la famiglia condividi').selectOption('balance'); await expect(card.locator('.badge')).toHaveText('Movimenti privati'); await go(page, 'Uscite'); await expect(page.locator('.transaction-row', { hasText: 'Esselunga' })).toContainText('Privato'); await go(page, 'Impostazioni');
   page.once('dialog', d => d.accept()); await page.getByRole('button', { name: 'Scollega banca' }).click();
   await expect(page.getByRole('heading', { name: 'Nessun conto collegato' })).toBeVisible();
   await go(page, 'Uscite'); await expect(page.locator('.transaction-row', { hasText: 'Esselunga' })).toBeVisible();

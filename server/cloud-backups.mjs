@@ -23,6 +23,7 @@ const conditions = {
   savings_allocations: 'transaction_id IN (SELECT id FROM transactions WHERE household_id = ?)',
   goal_plans: 'goal_id IN (SELECT id FROM goals WHERE household_id = ?)',
   user_preferences: 'user_id IN (SELECT id FROM users WHERE household_id = ?)',
+  dashboard_preferences: 'user_id IN (SELECT id FROM users WHERE household_id = ?)',
 };
 
 // Every writer uses the same PostgreSQL advisory lock. Database rows and file

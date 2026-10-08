@@ -26,6 +26,7 @@ export async function removeMember({ db, requestId, memberName, adminName, takeB
     await db.prepare('DELETE FROM bank_auth_requests WHERE user_id = ?').run(id);
     await db.prepare('DELETE FROM bank_account_exclusions WHERE user_id = ?').run(id);
     await db.prepare('DELETE FROM user_preferences WHERE user_id = ?').run(id);
+    await db.prepare('DELETE FROM dashboard_preferences WHERE user_id = ?').run(id);
     await db.prepare('DELETE FROM bank_connections WHERE user_id = ?').run(id);
     // Private records keep counting in the budget without revealing their details.
     await db.prepare("UPDATE transactions SET description = 'Movimento bancario privato' WHERE id IN (SELECT transaction_id FROM private_transactions WHERE owner_id = ?)").run(id);
