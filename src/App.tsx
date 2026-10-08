@@ -34,7 +34,7 @@ const pageCopy = {
   waste: ['Ogni rifiuto, nel giorno giusto.', 'Il calendario di conferimento condiviso con la famiglia.'],
   incomes: ['Le entrate della famiglia.', 'Redditi occasionali e ricorrenti, in un unico posto.'],
   expenses: ['Le uscite della famiglia.', 'Spese occasionali e ricorrenti, in un unico posto.'],
-  bank: ['I conti di famiglia.', 'Saldi e movimenti bancari, in sola lettura.'],
+  bank: ['I conti di famiglia.', 'Collega, rinnova e condividi i conti, in sola lettura.'],
   account: ['Il tuo account.', 'Profilo, accesso e impostazioni della famiglia.'],
   bills: ['Le scadenze, senza pensieri.', 'Impegni e promemoria condivisi, con eventuali pagamenti.'],
   meals: ['Cosa c’è di buono?', 'Un menu condiviso per organizzare pasti e spesa.'],

@@ -187,6 +187,21 @@ export const BANK_SCHEMA = `
     transaction_id TEXT PRIMARY KEY REFERENCES transactions(id) ON DELETE CASCADE,
     contribution_id TEXT NOT NULL UNIQUE REFERENCES contributions(id) ON DELETE CASCADE
   );
+  CREATE TABLE IF NOT EXISTS goal_plans (
+    goal_id TEXT PRIMARY KEY REFERENCES goals(id) ON DELETE CASCADE,
+    monthly INTEGER NOT NULL DEFAULT 0 CHECK(monthly >= 0), is_primary INTEGER NOT NULL DEFAULT 0 CHECK(is_primary IN (0,1))
+  );
+  CREATE TABLE IF NOT EXISTS savings_settings (
+    household_id TEXT PRIMARY KEY REFERENCES households(id), strategy TEXT NOT NULL CHECK(strategy IN ('primary','proportional'))
+  );
+  CREATE TABLE IF NOT EXISTS savings_allocations (
+    transaction_id TEXT NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+    contribution_id TEXT NOT NULL UNIQUE REFERENCES contributions(id) ON DELETE CASCADE,
+    PRIMARY KEY(transaction_id, contribution_id)
+  );
+  -- One deposit can now feed several goals: earlier single links move here once.
+  INSERT INTO savings_allocations SELECT transaction_id, contribution_id FROM savings_contributions WHERE true ON CONFLICT DO NOTHING;
+  DELETE FROM savings_contributions;
   CREATE TABLE IF NOT EXISTS salary_payers (
     rule_id TEXT PRIMARY KEY REFERENCES recurring_rules(id) ON DELETE CASCADE, payer_key TEXT NOT NULL
   );
@@ -194,4 +209,4 @@ export const BANK_SCHEMA = `
     transaction_id TEXT PRIMARY KEY REFERENCES transactions(id) ON DELETE CASCADE, owner_id TEXT NOT NULL REFERENCES users(id)
   );
 `;
-TABLES.push('bank_connections', 'bank_accounts', 'bank_movements', 'savings_destinations', 'savings_contributions', 'salary_payers', 'private_transactions');
+TABLES.push('bank_connections', 'bank_accounts', 'bank_movements', 'savings_destinations', 'savings_contributions', 'goal_plans', 'savings_settings', 'savings_allocations', 'salary_payers', 'private_transactions');
