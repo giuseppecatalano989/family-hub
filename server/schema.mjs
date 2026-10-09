@@ -279,8 +279,12 @@ export const ADVISOR_SCHEMA = `
   CREATE TABLE IF NOT EXISTS advisor_assignment (
     household_id TEXT PRIMARY KEY REFERENCES households(id), automatic INTEGER NOT NULL DEFAULT 0 CHECK(automatic IN (0,1)), updated_at TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS advisor_kind_reads (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, kind TEXT NOT NULL CHECK(kind IN ('weekly','monthly')),
+    read_at TEXT NOT NULL, PRIMARY KEY(user_id, kind)
+  );
   CREATE TABLE IF NOT EXISTS advisor_reads (
     user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, read_at TEXT NOT NULL
   );
 `;
-TABLES.push('budget_month_overrides', 'advisor_settings', 'advisor_reports', 'advisor_category_hints', 'advisor_reads', 'advisor_assignment');
+TABLES.push('budget_month_overrides', 'advisor_settings', 'advisor_reports', 'advisor_category_hints', 'advisor_reads', 'advisor_assignment', 'advisor_kind_reads');

@@ -59,7 +59,7 @@ export type MonthSummary = { month: string; income: number; budgetIncome: number
 // Budget reports: figures computed by the server (cents), advice written by Claude.
 export interface BudgetAlert { categoryId: string; name: string; spent: number; limit: number; projected: number; status: 'over' | 'risk'; perDay: number }
 export interface AdvisorReport {
-  id: string; kind: 'weekly' | 'monthly'; period: string; month: string; createdAt: string;
+  id: string; kind: 'weekly' | 'monthly'; period: string; month: string; createdAt: string; unread: boolean;
   headline: string; summary: string; tips: { kind: 'avoid' | 'adjust' | 'goal' | 'info'; title: string; detail: string }[];
   adjustment: { month: string; reason: string; split: Record<string, number>; applied: boolean; applicable: boolean } | null;
   alerts: BudgetAlert[];

@@ -120,12 +120,13 @@ test('reports are prepared by themselves, read per account, and a suggested spli
   assert.equal((await request('/advisor/settings', { method: 'PUT', session: bob, body: { enabled: true } })).status, 403, 'only the administrator enables it');
   assert.equal((await request('/advisor/settings', { method: 'PUT', session: alice, body: { enabled: true } })).status, 200);
   assert.equal((await request('/advisor/reports', { method: 'POST', session: alice, body: { kind: 'weekly' } })).status, 404, 'no report by hand');
-  // Turning it on prepares the missing reports at once: the closed month, then the week.
+  // Turning it on prepares this week's report at once; mid-month, the report of
+  // the closed month is not written late: the first one arrives on the 1st.
   await instance.advisor.idle();
-  assert.deepEqual(calls.map(c => JSON.parse(c).tipo_report), ['mensile', 'settimanale']);
+  assert.deepEqual(calls.map(c => JSON.parse(c).tipo_report), ['settimanale']);
   assert.doesNotMatch(calls.join(' '), /Regalo segreto|alice|bob|Casa Rossi/, 'no private descriptions, names or household');
   current = await state(bob);
-  assert.equal(current.advisor.monthly.month, '2026-09');
+  assert.equal(current.advisor.monthly, null);
   assert.equal(current.advisor.unread, true);
   const weekly = current.advisor.weekly;
   assert.equal(weekly.headline, 'Report settimanale');
@@ -146,8 +147,8 @@ test('reports are prepared by themselves, read per account, and a suggested spli
   assert.deepEqual(current.advisor.hints, { [transfer.id]: cats[5].id });
 
   // Opening the reports clears the highlight for that account only.
-  assert.equal((await request('/advisor/read', { method: 'POST', session: alice, body: { seen: 'ieri' } })).status, 400);
-  assert.equal((await request('/advisor/read', { method: 'POST', session: alice, body: { seen: weekly.createdAt } })).status, 200);
+  assert.equal((await request('/advisor/reports/sconosciuto/read', { method: 'POST', session: alice })).status, 404);
+  assert.equal((await request(`/advisor/reports/${weekly.id}/read`, { method: 'POST', session: alice })).status, 200);
   assert.equal((await state(alice)).advisor.unread, false);
   assert.equal((await state(bob)).advisor.unread, true);
 
@@ -169,10 +170,10 @@ test('reports are prepared by themselves, read per account, and a suggested spli
   assert.equal(current.budgetSplit[cats[1].id], 2000);
 
   await instance.advisor.scheduled();
-  assert.equal(calls.length, 2, 'each report once per period');
+  assert.equal(calls.length, 1, 'each report once per period');
   time = Date.parse('2026-10-19T18:00:00Z');
   await instance.advisor.scheduled();
-  assert.equal(calls.length, 3, 'a new week, a new report');
+  assert.equal(calls.length, 2, 'a new week, a new report');
   current = await state(alice);
   assert.deepEqual([current.advisor.weekly.period, current.advisor.unread], ['2026-10-19', true], 'the new week replaces the previous one');
 
@@ -180,7 +181,7 @@ test('reports are prepared by themselves, read per account, and a suggested spli
   // and no weekly report is written for a Monday of the closed month.
   time = Date.parse('2026-11-01T18:00:00Z');
   await instance.advisor.scheduled();
-  assert.deepEqual(calls.slice(3).map(c => JSON.parse(c).tipo_report), ['mensile']);
+  assert.deepEqual(calls.slice(2).map(c => JSON.parse(c).tipo_report), ['mensile']);
   current = await state(alice, '2026-11');
   assert.deepEqual([current.advisor.monthly.month, current.advisor.weekly], ['2026-10', null]);
 
@@ -188,12 +189,17 @@ test('reports are prepared by themselves, read per account, and a suggested spli
   time = Date.parse('2026-11-02T10:00:00Z');
   assert.equal((await request(`/advisor/reports/${weekly.id}/apply`, { method: 'POST', session: alice })).status, 400);
   await instance.advisor.scheduled();
-  assert.equal((await state(alice, '2026-11')).advisor.weekly.period, '2026-11-02', 'the first week of November is shown with the monthly report');
+  current = await state(alice, '2026-11');
+  assert.equal(current.advisor.weekly.period, '2026-11-02', 'the first week of November is shown with the monthly report');
+  // Each report is read on its own: opening the monthly one leaves the weekly one new.
+  assert.equal((await request(`/advisor/reports/${current.advisor.monthly.id}/read`, { method: 'POST', session: alice })).status, 200);
+  current = await state(alice, '2026-11');
+  assert.deepEqual([current.advisor.monthly.unread, current.advisor.weekly.unread, current.advisor.unread], [false, true, true]);
 
   // The family ZIP keeps reports and settings.
   const zip = unzipSync(new Uint8Array(await (await request('/backups/export', { session: alice })).arrayBuffer()));
   const payload = JSON.parse(new TextDecoder().decode(zip['casa.json']));
-  assert.equal(payload.data.advisor_reports.length, 5);
+  assert.equal(payload.data.advisor_reports.length, 4);
   assert.equal(payload.data.advisor_settings[0].enabled, 1);
 
   // Turning it off hides reports and hints.
