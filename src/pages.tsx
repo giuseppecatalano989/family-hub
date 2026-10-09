@@ -1,6 +1,6 @@
-import { Fragment, useState, type CSSProperties, type ReactNode } from 'react';
+import { Fragment, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
 import { ArrowDownLeft, ArrowUpRight, Wallet, PiggyBank, Target, ShoppingBasket, StickyNote, Plus, Pencil, Trash2, Pin, Paperclip, Check, Search, Download, ChevronRight, CircleCheck, TrendingUp, AlertCircle, Recycle, Utensils, CalendarClock, LayoutDashboard, Sparkles } from 'lucide-react';
-import { Empty, Progress, SectionHeading } from './components';
+import { Empty, Modal, Progress, SectionHeading } from './components';
 import { AdvisorCard } from './Advisor';
 import { allocateBudget, budgetBase, budgetIncome, monthCategories, localDate, money, readableDate, totals } from './finance';
 import type { DashboardCard, FamilyState, MonthSummary, Transaction, Goal, Note, Meal, RecurringRule, WasteSchedule, Deadline } from './types';
@@ -12,9 +12,28 @@ const STAT_CARDS: DashboardCard[] = ['income', 'expense', 'balance', 'savings'];
 const horizons = { short: 'Breve termine', medium: 'Medio termine', long: 'Lungo termine' };
 const spentByCategory = (data: FamilyState, id: string) => data.transactions.filter(t => t.kind === 'expense' && t.category_id === id).reduce((sum, t) => sum + t.amount, 0);
 
+// Tapping a row opens its details; edit and delete stay on the row and in the details.
 export function TransactionRow({ transaction: t, data, onEdit, onDelete, hint }: { transaction: Transaction; data: FamilyState; onEdit?: () => void; onDelete?: () => void; hint?: { name: string; onApply: () => void } }) {
+  const [details, setDetails] = useState(false);
   const category = data.categories.find(c => c.id === t.category_id);
-  return <div className="transaction-row"><span className={`transaction-icon ${t.kind === 'income' ? 'income' : ''}`} style={t.kind === 'expense' ? { color: category?.color, background: `${category?.color}14` } : {}}>{t.kind === 'income' ? <ArrowDownLeft size={20} /> : <ArrowUpRight size={20} />}</span><div className="transaction-description"><strong>{t.description}</strong><span>{category?.name || (t.kind === 'income' ? 'Entrata' : 'Da classificare')}{t.recurring_id && ' · Ricorrente'}{t.bank_account && ` · Banca: ${t.bank_account}`}{t.privacy === 'mine' && ' · Privato'}<span className="dot-separator">·</span>{readableDate(t.date)}</span>{hint && <button type="button" className="hint-chip" onClick={hint.onApply}><Sparkles size={13} />Suggerita: {hint.name} · Applica</button>}</div><span className="transaction-author">{t.author}</span><strong className={`transaction-amount ${t.kind === 'income' ? 'positive' : ''}`}>{t.kind === 'income' ? '+' : '−'}{money(t.amount)}</strong>{onEdit && <div className="row-actions"><button className="icon-button" aria-label={`Modifica ${t.description}`} onClick={onEdit}><Pencil size={15} /></button><button className="icon-button danger" aria-label={`Elimina ${t.description}`} onClick={onDelete}><Trash2 size={15} /></button></div>}</div>;
+  const categoryName = category?.name || (t.kind === 'income' ? 'Entrata' : 'Da classificare');
+  const stop = (action: () => void) => (event: MouseEvent) => { event.stopPropagation(); action(); };
+  return <><div className="transaction-row clickable" role="button" tabIndex={0} aria-label={`Dettagli di ${t.description}`} onClick={() => setDetails(true)} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setDetails(true); } }}><span className={`transaction-icon ${t.kind === 'income' ? 'income' : ''}`} style={t.kind === 'expense' ? { color: category?.color, background: `${category?.color}14` } : {}}>{t.kind === 'income' ? <ArrowDownLeft size={20} /> : <ArrowUpRight size={20} />}</span><div className="transaction-description"><strong>{t.description}</strong><span>{categoryName}{t.recurring_id && ' · Ricorrente'}{t.bank_account && ` · Banca: ${t.bank_account}`}{t.privacy === 'mine' && ' · Privato'}<span className="dot-separator">·</span>{readableDate(t.date)}</span>{hint && <button type="button" className="hint-chip" onClick={stop(hint.onApply)}><Sparkles size={13} />Suggerita: {hint.name} · Applica</button>}</div><span className="transaction-author">{t.author}</span><strong className={`transaction-amount ${t.kind === 'income' ? 'positive' : ''}`}>{t.kind === 'income' ? '+' : '−'}{money(t.amount)}</strong>{onEdit && <div className="row-actions"><button className="icon-button" aria-label={`Modifica ${t.description}`} onClick={stop(onEdit)}><Pencil size={15} /></button><button className="icon-button danger" aria-label={`Elimina ${t.description}`} onClick={stop(() => onDelete?.())}><Trash2 size={15} /></button></div>}</div>
+    {details && <Modal title={t.description} subtitle={t.kind === 'income' ? 'Entrata' : 'Uscita'} onClose={() => setDetails(false)}>
+      <div className="transaction-details">
+        <strong className={`transaction-details-amount ${t.kind === 'income' ? 'positive' : ''}`}>{t.kind === 'income' ? '+' : '−'}{money(t.amount)}</strong>
+        <dl>
+          <dt>Data</dt><dd>{readableDate(t.date)}</dd>
+          <dt>Categoria</dt><dd>{categoryName}</dd>
+          <dt>{t.privacy === 'others' ? 'Di' : 'Registrata da'}</dt><dd>{t.author}</dd>
+          {t.bank_account && <><dt>Conto</dt><dd>{t.bank_account}</dd></>}
+          {t.recurring_id && <><dt>Tipo</dt><dd>Ricorrente</dd></>}
+          {t.privacy === 'mine' && <><dt>Visibilità</dt><dd>Privata: gli altri vedono solo i totali</dd></>}
+          {t.privacy === 'others' && <><dt>Visibilità</dt><dd>Totale del mese per categoria: i dettagli sono privati</dd></>}
+        </dl>
+      </div>
+      <div className="modal-footer">{onEdit ? <><button type="button" className="button secondary danger-text" onClick={() => { setDetails(false); onDelete?.(); }}><Trash2 size={15} />Elimina</button><button type="button" className="button primary" onClick={() => { setDetails(false); onEdit(); }}><Pencil size={15} />Modifica</button></> : <button type="button" className="button secondary" onClick={() => setDetails(false)}>Chiudi</button>}</div>
+    </Modal>}</>;
 }
 function GoalCard({ goal, open, compact = false, onDelete }: { goal: Goal; open: Props['open']; compact?: boolean; onDelete?: () => void }) {
   const progress = goal.saved / goal.target * 100;

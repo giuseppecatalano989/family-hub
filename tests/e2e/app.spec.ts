@@ -123,7 +123,10 @@ test('a family can manage money, goals, shopping and pinned files on desktop and
   await expect(page.locator('.note-content')).toContainText('Documenti controllati da Sara.', { timeout: 20000 });
   await secondContext.close();
   await go(page, 'Uscite');
-  await page.getByRole('button', { name: 'Modifica Affitto' }).click();
+  await page.getByRole('button', { name: 'Dettagli di Affitto' }).click();
+  const details = page.getByRole('dialog', { name: 'Affitto' });
+  await expect(details).toContainText('Data'); await expect(details).toContainText('Categoria');
+  await details.getByRole('button', { name: 'Modifica' }).click();
   await page.getByLabel('Importo (€)').fill('800');
   await page.getByRole('button', { name: 'Salva modifiche' }).click();
   await expect(page.locator('.mini-stats')).toContainText('2.400,00');
