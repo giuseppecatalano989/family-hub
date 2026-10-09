@@ -55,7 +55,8 @@ const sha256 = value => createHash('sha256').update(value).digest('hex');
 const DAY = 86400000;
 const MAX_CONSENT_SECONDS = 180 * 86400;
 // Owners present in the app refresh every 5 minutes; without them PSD2 allows
-// four unattended reads a day, so other members' accounts wait 6 hours.
+// four unattended reads a day, so other members' accounts wait 6 hours. Banks
+// that limit reads even with their owner present (Trade Republic) keep 6 hours.
 const PRESENT_SYNC_MS = 5 * 60000;
 const UNATTENDED_SYNC_MS = 6 * 3600000;
 // Planned recurring incomes accept a salary credit within 10 days; unless its payer
@@ -83,7 +84,7 @@ export class BankError extends Error {
 }
 const messages = {
   access: 'La banca non ha autorizzato la lettura: il consenso è scaduto o revocato. Ricollega il conto.',
-  rate: 'La banca limita gli aggiornamenti: riprova più tardi.',
+  rate: 'La banca consente pochi aggiornamenti al giorno: i conti si aggiorneranno da soli entro qualche ora.',
   request: 'La banca ha rifiutato la richiesta. Riprova o ricollega il conto.',
   unavailable: 'Servizio bancario non raggiungibile. Riprova più tardi.',
 };
@@ -501,6 +502,14 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
     }
   }
 
+  // Whether a connection can be read again: with its owner present every 5
+  // minutes, unless its bank has limited reads before.
+  async function due(connection, present) {
+    if (!connection.last_attempt_at) return true;
+    const limited = present && await one('SELECT connection_id FROM bank_rate_limits WHERE connection_id = ?', connection.id);
+    return clock() - Date.parse(connection.last_attempt_at) >= (present && !limited ? PRESENT_SYNC_MS : UNATTENDED_SYNC_MS);
+  }
+
   // Provider calls happen outside the database lock; results are written atomically.
   async function syncConnection(connection, psu) {
     if (Date.parse(connection.valid_until) <= clock()) {
@@ -518,6 +527,14 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
       }
     } catch (error) {
       const code = error instanceof BankError ? error.code : 'unavailable';
+      // A read limit is not a broken link: the data stays and later reads slow down.
+      if (code === 'rate') {
+        await atomic(async () => {
+          await run('INSERT INTO bank_rate_limits VALUES (?, ?, ?) ON CONFLICT(connection_id) DO UPDATE SET limited_at = excluded.limited_at', connection.id, connection.household_id, now());
+          await run("UPDATE bank_connections SET status = 'active', last_error = ? WHERE id = ?", messages.rate, connection.id);
+        });
+        return code;
+      }
       await run('UPDATE bank_connections SET status = ?, last_error = ? WHERE id = ?', code === 'access' ? 'expired' : 'error', messages[code], connection.id);
       return code;
     }
@@ -672,7 +689,7 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
       app.post('/api/bank/connections/:id/sync', async (req, res) => {
         requireProvider();
         const connection = await ownConnection(req.params.id, req.user);
-        if (connection.last_attempt_at && clock() - Date.parse(connection.last_attempt_at) < PRESENT_SYNC_MS) fail('Conti aggiornati da pochi minuti. Riprova più tardi.', 429);
+        if (!await due(connection, true)) fail(await one('SELECT connection_id FROM bank_rate_limits WHERE connection_id = ?', connection.id) ? messages.rate : 'Conti aggiornati da pochi minuti. Riprova più tardi.', 429);
         const error = await syncConnection(connection, psuOf(req));
         if (error) fail(error === 'expired' ? 'Il consenso della banca è scaduto. Ricollega il conto.' : messages[error], 502);
         res.json({ ok: true });
@@ -685,7 +702,7 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
         let synced = 0;
         for (const connection of await all("SELECT * FROM bank_connections WHERE household_id = ? AND status IN ('active', 'error')", req.user.household_id)) {
           const mine = connection.user_id === req.user.id;
-          if (connection.last_attempt_at && clock() - Date.parse(connection.last_attempt_at) < (mine ? PRESENT_SYNC_MS : UNATTENDED_SYNC_MS)) continue;
+          if (!await due(connection, mine)) continue;
           if (!await syncConnection(connection, mine ? psuOf(req) : null)) synced++;
         }
         res.json({ synced });
