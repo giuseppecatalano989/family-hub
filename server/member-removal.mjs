@@ -40,6 +40,7 @@ export async function detachMember(run, id, adminId) {
   await run('DELETE FROM bank_account_exclusions WHERE user_id = ?', id);
   await run('DELETE FROM user_preferences WHERE user_id = ?', id);
   await run('DELETE FROM dashboard_preferences WHERE user_id = ?', id);
+  await run('DELETE FROM advisor_reads WHERE user_id = ?', id);
   await run('DELETE FROM push_subscriptions WHERE user_id = ?', id);
   await run('DELETE FROM notification_preferences WHERE user_id = ?', id);
   await run('DELETE FROM notification_log WHERE user_id = ?', id);

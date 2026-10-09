@@ -272,5 +272,8 @@ export const ADVISOR_SCHEMA = `
     transaction_id TEXT PRIMARY KEY REFERENCES transactions(id) ON DELETE CASCADE,
     category_id TEXT NOT NULL REFERENCES categories(id) ON DELETE CASCADE, created_at TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS advisor_reads (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, read_at TEXT NOT NULL
+  );
 `;
-TABLES.push('budget_month_overrides', 'advisor_settings', 'advisor_reports', 'advisor_category_hints');
+TABLES.push('budget_month_overrides', 'advisor_settings', 'advisor_reports', 'advisor_category_hints', 'advisor_reads');

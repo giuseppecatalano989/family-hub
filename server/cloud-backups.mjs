@@ -27,6 +27,7 @@ const conditions = {
   push_subscriptions: 'user_id IN (SELECT id FROM users WHERE household_id = ?)',
   notification_preferences: 'user_id IN (SELECT id FROM users WHERE household_id = ?)',
   advisor_category_hints: 'transaction_id IN (SELECT id FROM transactions WHERE household_id = ?)',
+  advisor_reads: 'user_id IN (SELECT id FROM users WHERE household_id = ?)',
 };
 
 // Every writer uses the same PostgreSQL advisory lock. Database rows and file

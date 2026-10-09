@@ -610,7 +610,7 @@ test('new bank expenses to classify are notified to who can see them; a failing 
 test('the real balance line is a personal preference, off by default', async () => {
   await start({ bankProvider: provider });
   const { alice, bob } = await family();
-  const standard = { quickActions: false, dashboard: { order: ['income', 'expense', 'balance', 'savings', 'spending', 'advice', 'home', 'goals', 'recent', 'comparison'], hidden: [] } };
+  const standard = { quickActions: false, dashboard: { order: ['income', 'expense', 'balance', 'savings', 'spending', 'advice', 'home', 'goals', 'recent', 'comparison'], hidden: ['advice'] } };
   assert.deepEqual((await state(alice)).preferences, { showBankBalance: false, ...standard });
   assert.equal((await request('/preferences', { method: 'PUT', session: alice, body: { showBankBalance: 'yes' } })).status, 400);
   assert.equal((await request('/preferences', { method: 'PUT', session: alice, body: { showBankBalance: true } })).status, 200);
@@ -622,6 +622,8 @@ test('the real balance line is a personal preference, off by default', async () 
   assert.equal((await dashboard({ quickActions: true, order, hidden: ['savings'] })).status, 200);
   assert.deepEqual((await state(alice)).preferences, { showBankBalance: true, quickActions: true, dashboard: { order: ['recent', 'goals', 'income', 'expense', 'balance', 'savings', 'spending', 'advice', 'home', 'comparison'], hidden: ['savings'] } }, 'cards left out keep their default order after the chosen ones');
   assert.deepEqual((await state(bob)).preferences, { showBankBalance: false, ...standard });
+  assert.equal((await dashboard({ quickActions: true, order, hidden: ['savings', 'advice'] })).status, 200);
+  assert.deepEqual((await state(alice)).preferences.dashboard.hidden, ['savings', 'advice'], 'the report card stays off when the account keeps it off');
   for (const body of [{ quickActions: 'yes', order: [], hidden: [] }, { quickActions: true, order: ['income', 'income'], hidden: [] }, { quickActions: true, order: [], hidden: ['unknown'] }, { quickActions: true, order: 'income', hidden: [] }])
     assert.equal((await dashboard(body)).status, 400);
   assert.equal((await request('/preferences/dashboard', { method: 'PUT', body: { quickActions: true, order: [], hidden: [] } })).status, 401);

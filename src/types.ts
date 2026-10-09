@@ -71,6 +71,6 @@ export interface AdvisorReport {
 }
 export interface AdvisorState {
   configured: boolean; enabled: boolean; canManage: boolean; running: boolean; error: string | null;
-  weekly: AdvisorReport | null; monthly: AdvisorReport | null;
+  weekly: AdvisorReport | null; monthly: AdvisorReport | null; unread: boolean;
   hints: Record<string, string>; override: { month: string; fromReport: boolean } | null;
 }

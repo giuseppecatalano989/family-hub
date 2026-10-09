@@ -7,9 +7,11 @@ type Props = { data: FamilyState; mutate: <T>(path: string, method: string, body
 type Layout = { quickActions: boolean; order: DashboardCard[]; hidden: DashboardCard[] };
 
 const DEFAULT_ORDER: DashboardCard[] = ['income', 'expense', 'balance', 'savings', 'spending', 'advice', 'home', 'goals', 'recent', 'comparison'];
+// The budget reports open from their button beside the month; the card is optional.
+const DEFAULT_HIDDEN: DashboardCard[] = ['advice'];
 const groups: { title: string; hint: string; cards: { id: DashboardCard; label: string }[] }[] = [
   { title: 'Indicatori in alto', hint: 'Le cifre del mese, affiancate.', cards: [{ id: 'income', label: 'Entrate del mese' }, { id: 'expense', label: 'Uscite del mese' }, { id: 'balance', label: 'Saldo del mese' }, { id: 'savings', label: 'Risparmi per gli obiettivi' }] },
-  { title: 'Riquadri', hint: 'Disposti due per riga, nell’ordine scelto.', cards: [{ id: 'spending', label: 'Dove vanno le nostre uscite' }, { id: 'advice', label: 'Consigli del budget (quando attivi)' }, { id: 'home', label: 'La vita di casa' }, { id: 'goals', label: 'I nostri prossimi traguardi' }, { id: 'recent', label: 'Gli ultimi movimenti' }, { id: 'comparison', label: 'I mesi a confronto' }] },
+  { title: 'Riquadri', hint: 'Disposti due per riga, nell’ordine scelto.', cards: [{ id: 'spending', label: 'Dove vanno le nostre uscite' }, { id: 'advice', label: 'Report del budget (quando attivi)' }, { id: 'home', label: 'La vita di casa' }, { id: 'goals', label: 'I nostri prossimi traguardi' }, { id: 'recent', label: 'Gli ultimi movimenti' }, { id: 'comparison', label: 'I mesi a confronto' }] },
 ];
 
 // Personal choices for the overview: quick buttons, the real balance line, and
@@ -36,7 +38,7 @@ export function DashboardSettings({ data, mutate }: Props) {
     update({ ...layout, order });
   }
   const toggle = (id: DashboardCard, visible: boolean) => update({ ...layout, hidden: visible ? layout.hidden.filter(card => card !== id) : [...layout.hidden, id] });
-  const customised = layout.quickActions || layout.hidden.length > 0 || layout.order.some((id, i) => id !== DEFAULT_ORDER[i]);
+  const customised = layout.quickActions || layout.hidden.length !== DEFAULT_HIDDEN.length || layout.hidden.some(id => !DEFAULT_HIDDEN.includes(id)) || layout.order.some((id, i) => id !== DEFAULT_ORDER[i]);
   return <div className="settings-panel">
     {status?.error && <div className="form-error" role="alert">{status.error}</div>}
     {status?.saved && <p className="settings-success" role="status">Modifiche salvate.</p>}
@@ -45,7 +47,7 @@ export function DashboardSettings({ data, mutate }: Props) {
       <label className="checkbox-label"><input type="checkbox" checked={showBalance} onChange={e => { const checked = e.target.checked; setShowBalance(checked); void save(() => mutate('/preferences', 'PUT', { showBankBalance: checked }), () => setShowBalance(!checked)); }} />Mostra in Panoramica, sotto il saldo del mese, quanto c’è oggi sui conti collegati</label>
       <p className="form-hint">Le scelte della Panoramica valgono solo per il tuo account. Il saldo dei conti compare quando almeno un conto è collegato.</p>
     </div></section>
-    <section className="panel settings-card dashboard-cards"><div className="section-heading"><h2>Card della Panoramica</h2><button className="button secondary" disabled={!customised} onClick={() => update({ quickActions: false, order: DEFAULT_ORDER, hidden: [] })}><RotateCcw size={16} />Ripristina predefinita</button></div>
+    <section className="panel settings-card dashboard-cards"><div className="section-heading"><h2>Card della Panoramica</h2><button className="button secondary" disabled={!customised} onClick={() => update({ quickActions: false, order: DEFAULT_ORDER, hidden: DEFAULT_HIDDEN })}><RotateCcw size={16} />Ripristina predefinita</button></div>
       {groups.map(group => {
         const ordered = layout.order.filter(id => group.cards.some(c => c.id === id));
         return <div className="dashboard-group" key={group.title}><h3>{group.title}</h3><p className="form-hint">{group.hint}</p>
