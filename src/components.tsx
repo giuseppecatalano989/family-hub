@@ -6,13 +6,16 @@ export function Logo({ small = false }: { small?: boolean }) {
 }
 export function Modal({ title, subtitle, children, onClose }: { title: string; subtitle?: string; children: ReactNode; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
+  // The latest close handler, so that a re-render (the state refreshes every few
+  // seconds) neither moves the focus nor scrolls the dialog back to the top.
+  const close = useRef(onClose); close.current = onClose;
   useEffect(() => {
     const before = document.activeElement as HTMLElement;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     ref.current?.querySelector<HTMLElement>('input, button, textarea, select')?.focus();
     const handler = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { event.preventDefault(); onClose(); }
+      if (event.key === 'Escape') { event.preventDefault(); close.current(); }
       if (event.key === 'Tab') {
         const items = Array.from(ref.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href]') || []);
         const first = items[0]; const last = items.at(-1);
@@ -22,7 +25,7 @@ export function Modal({ title, subtitle, children, onClose }: { title: string; s
     };
     document.addEventListener('keydown', handler);
     return () => { document.body.style.overflow = previousOverflow; document.removeEventListener('keydown', handler); before?.focus(); };
-  }, [onClose]);
+  }, []);
   return <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><div className="modal" role="dialog" aria-modal="true" aria-label={title} ref={ref}><div className="modal-heading"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button type="button" className="icon-button" aria-label="Chiudi finestra" onClick={onClose}><X size={20} /></button></div>{children}</div></div>;
 }
 export function Empty({ icon, title, description, action, onAction }: { icon: ReactNode; title: string; description: string; action?: string; onAction?: () => void }) {

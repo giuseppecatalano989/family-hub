@@ -47,6 +47,13 @@ test('budget reports arrive by themselves, light up the report button and a sugg
   const reports = page.getByRole('dialog', { name: 'Report del budget' });
   await expect(reports.getByRole('heading', { name: 'Svago corre più veloce del previsto' }).first()).toBeVisible();
   await expect(reports.getByText('Rivedete le cene fuori').first()).toBeVisible();
+  // A refresh of the state while reading keeps the dialog where it was.
+  const modal = page.locator('.modal');
+  await modal.evaluate(el => { el.scrollTop = el.scrollHeight; });
+  const scrolled = await modal.evaluate(el => el.scrollTop);
+  const refreshed = page.waitForResponse(r => r.url().includes('/api/state'));
+  await page.evaluate(() => window.dispatchEvent(new Event('focus'))); await refreshed; await page.waitForTimeout(300);
+  expect(await modal.evaluate(el => el.scrollTop)).toBe(scrolled);
   const month = new Intl.DateTimeFormat('it-IT', { month: 'long', year: 'numeric' }).format(now);
   await reports.getByRole('button', { name: `Applica solo a ${month}` }).first().click();
   await expect(reports.getByText(`Applicata a ${month}`).first()).toBeVisible();

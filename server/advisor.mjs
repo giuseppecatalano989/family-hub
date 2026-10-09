@@ -12,7 +12,7 @@ import { mondayOf } from './workflows.mjs';
 // and descriptions lose IBANs and long codes before leaving the server.
 
 export const DEFAULT_ADVISOR_MODEL = 'claude-opus-5-5';
-const SAVINGS_POSITION = 5; const RUNNING_LIMIT = 10 * 60000; const RETRY_GAP = 6 * 3600000;
+const SAVINGS_POSITION = 5; const MONTHLY_DAYS = 7; const RUNNING_LIMIT = 10 * 60000; const RETRY_GAP = 6 * 3600000;
 const MONTHS = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
 export const monthName = month => `${MONTHS[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
 export function shiftMonth(month, delta) {
@@ -326,6 +326,9 @@ export function installAdvisor(app, { db, one, all, run, atomic, fail, exclusive
     for (const kind of ['monthly', 'weekly']) {
       // The days before the month's first Monday belong to the monthly report.
       if (kind === 'weekly' && periodOf(kind, today) < `${today.slice(0, 7)}-01`) continue;
+      // The closed month's report belongs to the month's first week: turned on
+      // later, the first monthly report arrives on the next 1st.
+      if (kind === 'monthly' && Number(today.slice(8)) > MONTHLY_DAYS) continue;
       if (await one('SELECT id FROM advisor_reports WHERE household_id = ? AND kind = ? AND period = ?', hid, kind, periodOf(kind, today))) continue;
       try { await generate(hid, kind); } catch (error) { console.error('Report del budget non preparato:', error.message); }
     }
