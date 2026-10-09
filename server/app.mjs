@@ -17,6 +17,7 @@ import { resetEmailSender, DEFAULT_APP_URL } from './reset-email.mjs';
 import { installChunkUploads } from './uploads.mjs';
 import { detachMember } from './member-removal.mjs';
 import { installBank, enableBankingProvider, presentTransactions } from './bank.mjs';
+import { installAdvisor, anthropicAdvisor } from './advisor.mjs';
 const MAX_CENTS = 1000000000;
 const COLORS = ['mint', 'amber', 'blue', 'rose', 'neutral'];
 const SESSION_MS = 14 * 86400000;
@@ -49,7 +50,7 @@ function boolean(value) {
     return value ? 1 : 0;
 }
 // Overview cards in their default order: four figures, then five panels.
-const DASHBOARD_CARDS = ['income', 'expense', 'balance', 'savings', 'spending', 'home', 'goals', 'recent', 'comparison'];
+const DASHBOARD_CARDS = ['income', 'expense', 'balance', 'savings', 'spending', 'advice', 'home', 'goals', 'recent', 'comparison'];
 function dashboardPreferences(row) {
     let saved = {};
     try { saved = row ? JSON.parse(row.cards) : {}; } catch { saved = {}; }
@@ -66,7 +67,7 @@ function passwordMatches(password, stored) {
     const candidate = scryptSync(password, salt, 64);
     return timingSafeEqual(candidate, Buffer.from(key, 'hex'));
 }
-export function createApp({ dataDir, production = false, trustProxy = false, distDir, automaticBackups = false, backupDir, database, cloudBackups, cronSecret, resetMailer = resetEmailSender(), appUrl = DEFAULT_APP_URL, scheduleResetDelivery, bankProvider = enableBankingProvider(), bankRedirectUrl = process.env.ENABLE_BANKING_REDIRECT_URL || `${appUrl}/api/bank/callback`, clock, pushSender, scheduleBackground } = {}) {
+export function createApp({ dataDir, production = false, trustProxy = false, distDir, automaticBackups = false, backupDir, database, cloudBackups, cronSecret, resetMailer = resetEmailSender(), appUrl = DEFAULT_APP_URL, scheduleResetDelivery, bankProvider = enableBankingProvider(), bankRedirectUrl = process.env.ENABLE_BANKING_REDIRECT_URL || `${appUrl}/api/bank/callback`, clock, pushSender, scheduleBackground, advisorModel = anthropicAdvisor() } = {}) {
     if (!dataDir)
         throw new Error('dataDir is required');
     mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -132,6 +133,8 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             if (!cronAllowed(req))
                 return res.status(401).json({ error: 'Accesso non consentito.' });
             await notifications.evening({ queued: true });
+            // Budget reports call Claude after the response, outside the request queue.
+            res.once('finish', () => { void advisor.runLater(); });
             res.json({ status: 'ok' });
         });
     if (cloudBackups)
@@ -354,6 +357,8 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
     const deadlines = installDeadlines(app, { db, one, all, run, atomic, owned, fail, text, cents, date, now });
     const planning = installPlanning(app, { db, one, all, run, atomic, owned, fail, text, cents, now, ...(clock ? { clock } : {}) });
     const waste = installWaste(app, { db, all, run, owned, fail, text });
+    const advisor = installAdvisor(app, { db, one, all, run, atomic, fail, exclusive, splitFor: planning.splitFor, budgetBase, notifications }, { model: advisorModel, schedule: scheduleBackground, ...(clock ? { clock } : {}) });
+    advisor.routes();
     const savings = installGoalSavings(app, { one, all, run, atomic, owned, fail, cents, now, reconcile: bank.reconcileSavings });
     bank.routes();
     const backups = cloudBackups || createBackupManager({ db, dataDir, backupDir, enabled: automaticBackups });
@@ -394,6 +399,12 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             WHERE t.household_id = ? AND t.kind = 'income' GROUP BY 1 ORDER BY 1 LIMIT 1`, hid);
         return first && month < first.month ? { month: first.month, amount: Number(first.amount) } : null;
     }
+    // Recurring incomes of the month, or the first month's when there are none yet.
+    async function budgetBase(hid, month) {
+        const own = Number((await one(`SELECT COALESCE(SUM(t.amount), 0) AS amount FROM transactions t JOIN recurring_occurrences o ON o.transaction_id = t.id
+            WHERE t.household_id = ? AND t.kind = 'income' AND substr(t.date, 1, 7) = ?`, hid, month)).amount);
+        return own || (await budgetFallback(hid, month))?.amount || 0;
+    }
     app.get('/api/state', async (req, res) => {
         const month = req.query.month;
         if (typeof month !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || month < '1900-01' || month > '2199-12')
@@ -418,6 +429,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             history: await monthlyHistory(hid, month),
             budgetFallback: await budgetFallback(hid, month),
             budgetSplit: await planning.splitFor(hid, month),
+            advisor: await advisor.state(req.user, month),
             ...await savings.state(hid),
             shopping: await all('SELECT s.*, u.name AS author FROM shopping s JOIN users u ON u.id = s.author_id WHERE s.household_id = ? ORDER BY s.checked, s.created_at DESC', hid),
             notes: notes.map(note => ({ ...note, attachments: attachments.filter(a => a.note_id === note.id).map(({ storage_name, ...a }) => a) })),
@@ -703,5 +715,6 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         res.status(error.status || 500).json({ error: error.status ? error.message : 'Si è verificato un errore. Riprova.' });
     });
     return { app, db, backups, bank: { configured: bank.configured, synchronizeAll: async () => { await exclusive(() => bank.synchronizeAll()); await notifications.afterBankSync(); } },
-        notifications: { evening: () => notifications.evening(), idle: () => notifications.idle() }, close: () => { backups.stop(); return db.close(); } };
+        notifications: { evening: () => notifications.evening(), idle: () => notifications.idle() },
+        advisor: { scheduled: () => advisor.scheduled(), idle: () => advisor.idle() }, close: () => { backups.stop(); return db.close(); } };
 }

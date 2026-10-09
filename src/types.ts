@@ -18,7 +18,7 @@ export interface FamilyState {
   household: { id: string; name: string };
   members: { id: string; name: string; role: string }[];
   recurring: RecurringRule[]; budgetTemplates: BudgetTemplate[]; activeTemplateId: string | null;
-  categories: Category[]; transactions: Transaction[]; history: MonthSummary[]; budgetFallback: { month: string; amount: number } | null; budgetSplit: Record<string, number> | null; goals: Goal[]; contributions: Contribution[]; shopping: ShoppingItem[]; notes: Note[];
+  categories: Category[]; transactions: Transaction[]; history: MonthSummary[]; budgetFallback: { month: string; amount: number } | null; budgetSplit: Record<string, number> | null; advisor: AdvisorState; goals: Goal[]; contributions: Contribution[]; shopping: ShoppingItem[]; notes: Note[];
   deadlines: Deadline[]; waste: WasteSchedule[]; bills: Bill[]; meals: Meal[]; week: string; backups: BackupStatus | null;
   bank: BankState;
   notifications: { publicKey: string; types: Record<NotificationType, boolean>; devices: number };
@@ -50,8 +50,27 @@ export interface BankAccount {
 }
 export interface BankConnection { id: string; bank: string; country: string; status: 'active' | 'expired' | 'error'; valid_until: string; last_error: string | null }
 export interface BankState { configured: boolean; total: number; savingsTotal: number; accounts: BankAccount[]; connections: BankConnection[]; savingsStrategy: 'primary' | 'proportional'; savingsUnassigned: number }
-export type DashboardCard = 'income' | 'expense' | 'balance' | 'savings' | 'spending' | 'home' | 'goals' | 'recent' | 'comparison';
+export type DashboardCard = 'income' | 'expense' | 'balance' | 'savings' | 'spending' | 'advice' | 'home' | 'goals' | 'recent' | 'comparison';
 export type NotificationType = 'notes' | 'shopping' | 'meals' | 'deadlines' | 'budget' | 'waste' | 'bank';
 
 // Totals of a past month for the comparison; categories maps category id ('' for unclassified) to cents.
 export type MonthSummary = { month: string; income: number; budgetIncome: number; expense: number; categories: Record<string, number> };
+
+// Budget reports: figures computed by the server (cents), advice written by Claude.
+export interface BudgetAlert { categoryId: string; name: string; spent: number; limit: number; projected: number; status: 'over' | 'risk'; perDay: number }
+export interface AdvisorReport {
+  id: string; kind: 'weekly' | 'monthly'; period: string; month: string; createdAt: string;
+  headline: string; summary: string; tips: { kind: 'avoid' | 'adjust' | 'goal' | 'info'; title: string; detail: string }[];
+  adjustment: { month: string; reason: string; split: Record<string, number>; applied: boolean; applicable: boolean } | null;
+  alerts: BudgetAlert[];
+  subscriptions: { key: string; name: string; monthly: number; yearly: number; increased: boolean }[];
+  frequent: { key: string; name: string; count: number; total: number }[];
+  duplicates: { name: string; amount: number; dates: string[] }[];
+  deadlines: { name: string; date: string; amount: number }[];
+  week: { from: string; to: string; total: number } | null;
+}
+export interface AdvisorState {
+  configured: boolean; enabled: boolean; canManage: boolean; running: boolean; error: string | null;
+  weekly: AdvisorReport | null; monthly: AdvisorReport | null;
+  hints: Record<string, string>; override: { month: string; fromReport: boolean } | null;
+}

@@ -26,7 +26,7 @@ export default defineConfig({
     timeout: 20000,
   }, {
     command: 'node server/index.mjs',
-    env: { NODE_ENV: 'production', PORT: '3100', DATA_DIR: dataDir, ENABLE_BANKING_APP_ID: 'e2e-app', ENABLE_BANKING_PRIVATE_KEY: pem(bankKeys.privateKey, 'pkcs8'), ENABLE_BANKING_API_URL: 'http://127.0.0.1:3101', ENABLE_BANKING_REDIRECT_URL: 'http://127.0.0.1:3100/api/bank/callback' },
+    env: { NODE_ENV: 'production', PORT: '3100', DATA_DIR: dataDir, ENABLE_BANKING_APP_ID: 'e2e-app', ENABLE_BANKING_PRIVATE_KEY: pem(bankKeys.privateKey, 'pkcs8'), ENABLE_BANKING_API_URL: 'http://127.0.0.1:3101', ENABLE_BANKING_REDIRECT_URL: 'http://127.0.0.1:3100/api/bank/callback', ANTHROPIC_API_KEY: 'e2e-anthropic-key', ANTHROPIC_BASE_URL: 'http://127.0.0.1:3101' },
     url: 'http://127.0.0.1:3100/api/health',
     reuseExistingServer: false,
     timeout: 20000,

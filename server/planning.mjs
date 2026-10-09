@@ -123,8 +123,13 @@ export function installPlanning(app, { db, one, all, run, atomic, owned, fail, t
     await run("INSERT INTO budget_versions VALUES (?, '1900-01', ?) ON CONFLICT(household_id, effective_month) DO NOTHING", hid, await splitOf(hid));
     await update();
     await run('INSERT INTO budget_versions VALUES (?, ?, ?) ON CONFLICT(household_id, effective_month) DO UPDATE SET entries = excluded.entries', hid, romeMonth(), await splitOf(hid));
+    // A change made by hand replaces a split suggested for this month only.
+    await run('DELETE FROM budget_month_overrides WHERE household_id = ? AND month = ?', hid, romeMonth());
   }
+  // A split applied from a budget report holds for its month only.
   async function splitFor(hid, target) {
+    const override = await one('SELECT entries FROM budget_month_overrides WHERE household_id = ? AND month = ?', hid, target);
+    if (override) return JSON.parse(override.entries);
     const version = await one('SELECT entries FROM budget_versions WHERE household_id = ? AND effective_month <= ? ORDER BY effective_month DESC LIMIT 1', hid, target);
     return version ? JSON.parse(version.entries) : null;
   }

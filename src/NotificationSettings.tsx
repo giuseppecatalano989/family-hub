@@ -17,7 +17,7 @@ const groups: { title: string; items: { id: NotificationType; label: string; hin
     { id: 'waste', label: 'Conferimento rifiuti', hint: 'Cosa portare fuori il giorno dopo, e a che ora.' },
   ] },
   { title: 'Soldi', items: [
-    { id: 'budget', label: 'Budget superato', hint: 'Quando una categoria supera il massimale del mese, una volta al mese.' },
+    { id: 'budget', label: 'Budget', hint: 'Quando una categoria supera il massimale del mese, una volta al mese, e quando è pronto un report dei consigli.' },
     { id: 'bank', label: 'Banca', hint: 'Nuove uscite da classificare, consenso in scadenza o collegamento in errore.' },
   ] },
 ];

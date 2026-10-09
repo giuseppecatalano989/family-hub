@@ -21,6 +21,7 @@ http.createServer((req, res) => {
     res.writeHead(302, { location: `${url.searchParams.get('redirect')}?code=e2e-code&state=${url.searchParams.get('state')}` });
     return res.end();
   }
+  if (url.pathname === '/v1/messages') return advisor(req, res);
   if (!authorized(req)) return json(res, 401, { error: 'unauthorized' });
   let body = '';
   req.on('data', chunk => { body += chunk; });
@@ -43,3 +44,20 @@ http.createServer((req, res) => {
     json(res, 404, { error: 'not found' });
   });
 }).listen(port, '127.0.0.1');
+
+// Anthropic Messages API double for the budget reports: a fixed answer built
+// from the figures the server sends, so no data leaves the test.
+function advisor(req, res) {
+  let body = '';
+  req.on('data', chunk => { body += chunk; });
+  req.on('end', () => {
+    if (req.headers['x-api-key'] !== 'e2e-anthropic-key') return json(res, 401, { type: 'error', error: { type: 'authentication_error', message: 'invalid key' } });
+    const facts = JSON.parse(JSON.parse(body).messages[0].content);
+    const ids = facts.categorie.map(c => c.id);
+    const answer = { headline: 'Svago corre più veloce del previsto', summary: 'A metà mese avete già usato buona parte del tempo libero. Rallentate le uscite serali per chiudere nel budget.',
+      tips: [{ kind: 'avoid', title: 'Rivedete le cene fuori', detail: 'Due cene a settimana in meno vi riportano nel massimale.' }, { kind: 'adjust', title: 'Ripartizione per questo mese', detail: 'Spostate il 5% da Tempo libero a Risparmio solo per questo mese.' }],
+      adjustment: { propose: true, month: facts.mese_corrente, reason: 'Per rientrare dopo le spese di inizio mese.', percentages: [35, 15, 10, 5, 5, 30].map((percent, i) => ({ category_id: ids[i], percent })) },
+      categories: facts.uscite_da_classificare.map(u => ({ transaction_id: u.id, category_id: ids[1] })) };
+    json(res, 200, { id: 'msg_e2e', type: 'message', role: 'assistant', model: JSON.parse(body).model, content: [{ type: 'text', text: JSON.stringify(answer) }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 } });
+  });
+}

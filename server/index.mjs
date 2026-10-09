@@ -20,6 +20,11 @@ if (instance.bank.configured) {
   setInterval(syncBanks, 3600000).unref();
 }
 // The evening round of notifications runs from 19:00 Rome time; each notice is sent once.
-setInterval(() => { if (romeHour(Date.now()) >= 19) instance.notifications.evening().catch(error => console.error('Notifiche della sera non inviate:', error.message)); }, 15 * 60000).unref();
+// Budget reports follow the same timer: weekly from Monday, monthly from the 1st.
+setInterval(() => {
+  if (romeHour(Date.now()) < 19) return;
+  instance.notifications.evening().catch(error => console.error('Notifiche della sera non inviate:', error.message));
+  instance.advisor.scheduled().catch(error => console.error('Report del budget non preparati:', error.message));
+}, 15 * 60000).unref();
 const server = instance.app.listen(port, '0.0.0.0', () => console.log(`Casa: server in ascolto sulla porta ${port}`));
 for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => server.close(() => { instance.close(); process.exit(0); }));

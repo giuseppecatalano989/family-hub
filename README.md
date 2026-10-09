@@ -123,6 +123,19 @@ La categoria **Conti bancari** di **Impostazioni** collega i conti tramite [Enab
 
 Le sessioni Enable Banking sono cifrate nel database (AES-256-GCM con una chiave derivata dalla chiave privata): cambiare chiave richiede di ricollegare i conti. Gli importi restano interi in centesimi. Le tabelle `bank_*` sono create in modo additivo e incluse nei backup dell’istanza; lo ZIP familiare contiene conti e saldi, i movimenti bancari dei soli conti condivisi, le registrazioni private con descrizione “Movimento bancario privato” e nessuna sessione o impronta IBAN. Rimuovere un membro elimina i suoi collegamenti bancari e conserva le registrazioni importate, rendendo anonime quelle private.
 
+## Consigli del budget con Claude
+
+**Impostazioni → Consigli IA** attiva, per tutta la famiglia (solo l’amministratore), i report preparati con Claude tramite l’API Anthropic:
+
+- **Report settimanale**, dal lunedì: com’è andata la settimana e come chiudere il mese nel budget. **Report mensile**, dal 1° del mese: il riepilogo del mese chiuso e cosa preparare. Compaiono nella card **Consigli del budget** della Panoramica, che può anche aggiornarli (al massimo una richiesta ogni 10 minuti), e arrivano come notifica a chi ha scelto le notifiche del budget.
+- Il server calcola tutte le cifre in centesimi: ritmo di spesa e proiezione di fine mese per categoria (le ricorrenze e le scadenze contano una volta sola), sforamenti con quanto resta al giorno, pagamenti ripetuti e aumenti, piccole spese frequenti, possibili doppioni, scadenze dei prossimi mesi e obiettivi. Claude legge queste cifre e scrive titolo, riepilogo e consigli; la risposta è validata (lunghezze, categorie, percentuali intere che sommano 100).
+- Quando serve il report propone una **ripartizione per un solo mese** (il corrente o i successivi): **Applica solo a…** la salva in `budget_month_overrides` senza toccare la ripartizione abituale, che torna da sola il mese dopo. Una modifica manuale della ripartizione nel mese la sostituisce; **Torna alla abituale** la annulla. I mesi chiusi la conservano.
+- Per le uscite da classificare il report suggerisce una categoria, applicabile con un clic in **Uscite**.
+
+**Privacy.** Si inviano importi, date, categorie e descrizioni dei movimenti degli ultimi sei mesi, senza IBAN, numeri lunghi, email, nomi dei familiari o della casa. Le registrazioni private dei conti “balance” entrano solo nei totali per categoria. La chiave resta nel backend.
+
+**Configurazione.** Imposta `ANTHROPIC_API_KEY` nelle variabili private di Vercel (mai con prefisso `VITE_`). Il modello predefinito è `claude-opus-5-5` (`ANTHROPIC_MODEL` per cambiarlo). I report partono dal cron serale già esistente, dopo la risposta e con `waitUntil`, o dal timer locale dalle 19; un tentativo fallito si ripete dopo 6 ore. Senza chiave la sezione spiega che i consigli non sono configurati.
+
 ## Notifiche
 
 **Impostazioni → Notifiche** attiva le notifiche push **su ogni dispositivo** (telefono o computer) e sceglie, per il proprio account, quali ricevere:
@@ -181,6 +194,7 @@ Il server legge facoltativamente `.env`. Per configurarlo, copia `.env.example` 
 | `AUTO_BACKUPS` | attivo | Impostare `0` per disattivare la pianificazione automatica. |
 | `TRUST_PROXY` | disattivato | Impostare `1` solo dietro un reverse proxy HTTPS fidato a un singolo hop. |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | create e salvate nel database | Chiavi facoltative delle notifiche push; la privata resta sul backend, senza prefisso `VITE_`. |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | non impostata, `claude-opus-5-5` | Consigli del budget con Claude; la chiave resta sul backend, senza prefisso `VITE_`. |
 
 ## Build e avvio
 
@@ -316,6 +330,7 @@ server/uploads.mjs       Allegati della lavagna caricati a parti
 server/recovery.mjs      Recupero password con link monouso
 server/bank.mjs          Conti bancari in sola lettura tramite Enable Banking
 server/notifications.mjs Notifiche push: dispositivi, scelte, eventi e promemoria della sera
+server/advisor.mjs       Consigli del budget: cifre calcolate dal server, report scritti con Claude
 server/reset-email.mjs   Invio email tramite Brevo o Resend
 server/backups.mjs       Snapshot, ZIP familiare, verifica e ripristino
 server/postgres.mjs      Persistenza PostgreSQL per Neon
