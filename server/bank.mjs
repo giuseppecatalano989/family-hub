@@ -71,6 +71,8 @@ const PLANNED_TOLERANCE = 30;
 // to 3 days after or 15 days before it, with the same amount or, from the same
 // payee, within 20% (card holds, fuel, exchange rates).
 const PENDING_TOLERANCE = 20;
+// Not yet booked: pending, and card holds that some banks report apart.
+const PENDING = ['PDNG', 'HOLD'];
 // Savings and investment destinations; generic words such as "risparmio" are
 // excluded because they also appear in bank names (Cassa di Risparmio).
 export const BANK_COUNTRIES = ['IT', 'DE', 'ES', 'FR', 'NL', 'BE', 'AT', 'PT', 'IE', 'LU', 'FI', 'LT'];
@@ -122,8 +124,8 @@ export function pickBalance(balances) {
 export function normalizeTransactions(transactions) {
   const seen = new Map();
   return (Array.isArray(transactions) ? transactions : []).flatMap(t => {
-    if (!t || (t.status && !['BOOK', 'PDNG'].includes(t.status)) || t.transaction_amount?.currency !== 'EUR') return [];
-    const pending = t.status === 'PDNG';
+    if (!t || (t.status && !['BOOK', ...PENDING].includes(t.status)) || t.transaction_amount?.currency !== 'EUR') return [];
+    const pending = PENDING.includes(t.status);
     const signed = parseAmount(t.transaction_amount.amount);
     const date = pending ? validDate(t.transaction_date) || validDate(t.value_date) || validDate(t.booking_date) : validDate(t.booking_date) || validDate(t.value_date) || validDate(t.transaction_date);
     if (!signed || !date) return [];
@@ -210,10 +212,10 @@ export function enableBankingProvider({ appId = process.env.ENABLE_BANKING_APP_I
       return { sessionId: String(result.session_id || ''), validUntil: result.access?.valid_until || null, accounts: (result.accounts || []).map(account).filter(a => a.uid) };
     },
     async balances(uid, psu) { return (await call('GET', `/accounts/${encodeURIComponent(uid)}/balances`, { psu })).balances || []; },
-    async transactions(uid, dateFrom, psu) {
+    async transactions(uid, dateFrom, psu, status) {
       const rows = []; let continuation;
       for (let page = 0; page < 30; page++) {
-        const result = await call('GET', `/accounts/${encodeURIComponent(uid)}/transactions`, { psu, query: { date_from: dateFrom, continuation_key: continuation } });
+        const result = await call('GET', `/accounts/${encodeURIComponent(uid)}/transactions`, { psu, query: { date_from: dateFrom, continuation_key: continuation, transaction_status: status } });
         rows.push(...(result.transactions || []));
         continuation = result.continuation_key;
         if (!continuation) break;
@@ -564,6 +566,7 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
     const accounts = await all('SELECT * FROM bank_accounts WHERE connection_id = ?', connection.id);
     await run('UPDATE bank_connections SET last_attempt_at = ? WHERE id = ?', now(), connection.id);
     const fetched = [];
+    const limited = !!await one('SELECT connection_id FROM bank_rate_limits WHERE connection_id = ?', connection.id);
     try {
       for (const account of accounts) {
         // Pending movements stored earlier stay inside the window, so that the bank
@@ -571,7 +574,14 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
         const last = await one("SELECT MAX(date) AS date FROM bank_movements WHERE account_id = ? AND external_id NOT LIKE 'p:%'", account.id);
         const pending = await one("SELECT MIN(date) AS date FROM bank_movements WHERE account_id = ? AND external_id LIKE 'p:%'", account.id);
         const from = [last?.date ? addDays(last.date, -10) : addDays(romeToday(clock()), -FETCHED_DAYS), pending?.date].filter(Boolean).sort()[0];
-        fetched.push({ account, balance: pickBalance(await provider.balances(account.provider_uid, psu)), movements: normalizeTransactions(await provider.transactions(account.provider_uid, from, psu)) });
+        const rows = await provider.transactions(account.provider_uid, from, psu);
+        // Some banks list pending movements only when asked: with the owner present
+        // and no read limit, they are requested apart; a refusal changes nothing.
+        if (psu && !limited && !rows.some(t => PENDING.includes(t?.status))) {
+          try { for (const status of PENDING) rows.push(...(await provider.transactions(account.provider_uid, from, psu, status)).filter(t => t?.status === status)); }
+          catch { /* the booked movements are enough */ }
+        }
+        fetched.push({ account, balance: pickBalance(await provider.balances(account.provider_uid, psu)), movements: normalizeTransactions(rows) });
       }
     } catch (error) {
       const code = error instanceof BankError ? error.code : 'unavailable';
