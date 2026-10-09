@@ -30,7 +30,6 @@ function fakeProvider() {
         tx('a3', '80.00', 'DBIT', '2026-10-05', { remittance_information: ['Bonifico a Bob'], creditor_account: { iban: IBAN_B } }),
         tx('a4', '15.00', 'DBIT', '2026-09-20', { creditor: { name: 'Farmacia Centrale' } }),
         tx('a5', '60.00', 'DBIT', '2026-10-08', { creditor: { name: 'Negozio Vario' } }),
-        tx('a6', '9.99', 'DBIT', '2026-10-09', { status: 'PDNG', creditor: { name: 'In attesa' } }),
       ],
       'uid-b': [
         tx('b1', '80.00', 'CRDT', '2026-10-05', { debtor_account: { iban: IBAN_A }, remittance_information: ['Da Alice'] }),
@@ -93,8 +92,11 @@ test('bank amounts, balances, movements and category rules are parsed without fl
   assert.deepEqual(pickBalance(provider.data.balances['uid-a']), { amount: 145055, kind: 'available' });
   assert.deepEqual(pickBalance([{ balance_type: 'CLBD', balance_amount: { amount: '-20.10', currency: 'EUR' } }]), { amount: -2010, kind: 'booked' });
   assert.equal(pickBalance([{ balance_type: 'CLBD', balance_amount: { amount: '5', currency: 'USD' } }]), null);
-  const rows = normalizeTransactions([...provider.data.transactions['uid-a'], tx(null, '5.00', 'DBIT', '2026-10-10', { remittance_information: ['Caffè'] }), tx(null, '5.00', 'DBIT', '2026-10-10', { remittance_information: ['Caffè'] })]);
-  assert.equal(rows.length, 7, 'pending movements are skipped');
+  const rows = normalizeTransactions([...provider.data.transactions['uid-a'], tx(null, '5.00', 'DBIT', '2026-10-10', { remittance_information: ['Caffè'] }), tx(null, '5.00', 'DBIT', '2026-10-10', { remittance_information: ['Caffè'] }),
+    tx('a6', '9.99', 'DBIT', null, { status: 'PDNG', transaction_date: '2026-10-09', creditor: { name: 'In attesa' } }), tx('a7', '1.00', 'DBIT', '2026-10-09', { status: 'RJCT' })]);
+  assert.equal(rows.length, 8, 'rejected movements are skipped');
+  assert.deepEqual(rows.map(r => r.pending), [false, false, false, false, false, false, false, true]);
+  assert.deepEqual([rows[7].externalId, rows[7].date, rows[7].amount], ['p:e:a6', '2026-10-09', 999], 'pending movements keep a provisional reference');
   assert.deepEqual(rows[0], { ...rows[0], externalId: 'e:a1', kind: 'expense', amount: 4230, date: '2026-10-03', description: 'CONAD SUPERSTORE' });
   assert.equal(rows[1].kind, 'income'); assert.equal(rows[1].description, 'Azienda Srl');
   assert.notEqual(rows[5].externalId, rows[6].externalId, 'identical movements without references stay distinct');
@@ -184,7 +186,6 @@ test('linking shared and balance-only accounts builds a family total, imports an
   assert.equal(september[0].category_id, data.categories[3].id);
   const conad = movements().find(m => m.description === 'CONAD SUPERSTORE');
   assert.deepEqual([conad.status, conad.transaction_id], ['matched', data.transactions.find(t => t.description === 'Spesa settimanale').id]);
-  assert.equal(movements().some(m => m.description === 'In attesa'), false);
   assert.deepEqual(movements().filter(m => m.description === 'Farmacia Centrale').map(m => [m.status, m.transaction_id]), [['imported', september[0].id]]);
   assert.deepEqual(unclassified(data).map(t => [t.description, t.amount]).sort(), [['Bonifico a Bob', 8000], ['Negozio Vario', 6000]], 'expenses to classify in Uscite');
 
@@ -617,6 +618,50 @@ test('a bank that limits reads keeps the link active and is read every 6 hours, 
   assert.equal((await state(alice)).bank.connections[0].last_error, null);
   setAttempt('2026-10-15T09:54:00.000Z');
   assert.deepEqual(await (await request('/bank/refresh', { method: 'POST', session: alice })).json(), { synced: 0 }, 'the slower pace stays after a successful read');
+});
+
+test('pending movements are imported at once and booking replaces them without duplicates', async () => {
+  await start({ bankProvider: provider });
+  const { alice } = await family();
+  const pending = (ref, amount, date, extra = {}) => tx(ref, amount, 'DBIT', null, { status: 'PDNG', transaction_date: date, ...extra });
+  provider.data.transactions = { 'uid-a': [
+    pending('p1', '9.99', '2026-10-14', { creditor: { name: 'Negozio Vario' } }),
+    pending('p2', '50.00', '2026-10-14', { creditor: { name: 'Distributore Eni' } }),
+    pending('p3', '12.00', '2026-10-13', { creditor: { name: 'Bar Annullato' } }),
+  ] };
+  await link(alice, 'alice', 'shared');
+  let data = await state(alice);
+  assert.deepEqual(data.transactions.map(t => [t.description, t.amount]).sort(), [['Bar Annullato', 1200], ['Distributore Eni', 5000], ['Negozio Vario', 999]], 'pending movements are in Uscite right away');
+  const shop = data.transactions.find(t => t.description === 'Negozio Vario');
+  const fuel = data.transactions.find(t => t.description === 'Distributore Eni');
+  const casa = data.categories[0].id;
+  assert.equal((await request(`/transactions/${shop.id}`, { method: 'PUT', session: alice, body: { kind: 'expense', amount: 999, categoryId: casa, description: 'Regalo', date: shop.date } })).status, 200);
+
+  // Still pending on the next read: nothing changes.
+  const refresh = () => { instance.db.prepare('UPDATE bank_connections SET last_attempt_at = NULL').run(); return request('/bank/refresh', { method: 'POST', session: alice }); };
+  await refresh();
+  assert.equal((await state(alice)).transactions.length, 3);
+
+  // Booked with new references and dates; the fuel hold settles lower; the bar is cancelled.
+  provider.data.transactions['uid-a'] = [
+    tx('b1', '9.99', 'DBIT', '2026-10-15', { creditor: { name: 'Negozio Vario' } }),
+    tx('b2', '42.10', 'DBIT', '2026-10-15', { creditor: { name: 'Distributore Eni' } }),
+    pending('p4', '9.99', '2026-10-15', { creditor: { name: 'Negozio Vario' } }),
+  ];
+  await refresh();
+  data = await state(alice);
+  assert.deepEqual(data.transactions.map(t => [t.description, t.amount, t.date]).sort(), [['Distributore Eni', 4210, '2026-10-15'], ['Negozio Vario', 999, '2026-10-15'], ['Regalo', 999, '2026-10-15']],
+    'booked movements replace pending ones; a second equal purchase still pending stays apart; cancelled ones leave');
+  const booked = data.transactions.find(t => t.description === 'Regalo');
+  assert.deepEqual([booked.id, booked.category_id], [shop.id, casa], 'the record keeps its category and name');
+  assert.equal(data.transactions.find(t => t.description === 'Distributore Eni').id, fuel.id);
+  assert.deepEqual(movements().map(m => m.external_id).sort(), ['e:b1', 'e:b2', 'p:e:p4']);
+
+  // Reading again never duplicates them; an older pending movement widens the read.
+  instance.db.prepare("UPDATE bank_movements SET date = '2026-09-28' WHERE external_id = 'p:e:p4'").run();
+  await refresh();
+  assert.equal((await state(alice)).transactions.length, 3);
+  assert.equal(provider.calls.filter(c => c[0] === 'transactions').at(-1)[2], '2026-09-28', 'the read covers every stored pending movement');
 });
 
 test('new bank expenses to classify are notified to who can see them; a failing link to its owner', async () => {

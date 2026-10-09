@@ -67,6 +67,10 @@ const SAVINGS_POSITION = 5;
 // History requested from the bank on the first read of an account.
 const FETCHED_DAYS = 90;
 const PLANNED_TOLERANCE = 30;
+// A booked movement replaces a pending one of the same account and kind, dated up
+// to 3 days after or 15 days before it, with the same amount or, from the same
+// payee, within 20% (card holds, fuel, exchange rates).
+const PENDING_TOLERANCE = 20;
 // Savings and investment destinations; generic words such as "risparmio" are
 // excluded because they also appear in bank names (Cassa di Risparmio).
 export const BANK_COUNTRIES = ['IT', 'DE', 'ES', 'FR', 'NL', 'BE', 'AT', 'PT', 'IE', 'LU', 'FI', 'LT'];
@@ -113,13 +117,15 @@ export function pickBalance(balances) {
 }
 
 // Converts provider transactions into stable, deduplicable movements. Pending
-// entries are skipped: banks assign their final reference once booked.
+// entries are kept with a provisional `p:` reference: banks assign the final one
+// once booked, and the booked movement then takes the pending one's place.
 export function normalizeTransactions(transactions) {
   const seen = new Map();
   return (Array.isArray(transactions) ? transactions : []).flatMap(t => {
-    if (!t || (t.status && t.status !== 'BOOK') || t.transaction_amount?.currency !== 'EUR') return [];
+    if (!t || (t.status && !['BOOK', 'PDNG'].includes(t.status)) || t.transaction_amount?.currency !== 'EUR') return [];
+    const pending = t.status === 'PDNG';
     const signed = parseAmount(t.transaction_amount.amount);
-    const date = validDate(t.booking_date) || validDate(t.value_date) || validDate(t.transaction_date);
+    const date = pending ? validDate(t.transaction_date) || validDate(t.value_date) || validDate(t.booking_date) : validDate(t.booking_date) || validDate(t.value_date) || validDate(t.transaction_date);
     if (!signed || !date) return [];
     const kind = t.credit_debit_indicator === 'CRDT' ? 'income' : t.credit_debit_indicator === 'DBIT' ? 'expense' : signed < 0 ? 'expense' : 'income';
     const remittance = (Array.isArray(t.remittance_information) ? t.remittance_information.join(' ') : String(t.remittance_information || '')).replace(/\s+/g, ' ').trim();
@@ -128,12 +134,13 @@ export function normalizeTransactions(transactions) {
     let externalId = typeof t.entry_reference === 'string' && t.entry_reference.trim() ? `e:${t.entry_reference.trim()}` : typeof t.transaction_id === 'string' && t.transaction_id.trim() ? `t:${t.transaction_id.trim()}` : null;
     if (!externalId) {
       const base = sha256(JSON.stringify([date, kind, Math.abs(signed), remittance, party || '']));
-      const count = (seen.get(base) || 0) + 1; seen.set(base, count);
+      const count = (seen.get(`${pending}:${base}`) || 0) + 1; seen.set(`${pending}:${base}`, count);
       externalId = `h:${base}:${count}`;
     }
+    if (pending) externalId = `p:${externalId}`;
     const salaryHint = kind === 'income' && (t.purpose_code === 'SALA' || SALARY.test(`${party || ''} ${remittance}`.toLocaleLowerCase('it'))) ? 1 : 0;
     const savingsHint = kind === 'expense' && SAVINGS.test(`${party || ''} ${remittance}`.toLocaleLowerCase('it')) ? 1 : 0;
-    return [{ externalId: externalId.slice(0, 200), salaryHint, savingsHint, kind, amount: Math.abs(signed), date, description: (party || remittance || (kind === 'expense' ? 'Uscita bancaria' : 'Entrata bancaria')).slice(0, 200), matchKey: matchKey(party || remittance.slice(0, 40)), counterpartyHash: ibanHash(counterpartyIban), text: `${party || ''} ${remittance}` }];
+    return [{ externalId: externalId.slice(0, 200), pending, salaryHint, savingsHint, kind, amount: Math.abs(signed), date, description: (party || remittance || (kind === 'expense' ? 'Uscita bancaria' : 'Entrata bancaria')).slice(0, 200), matchKey: matchKey(party || remittance.slice(0, 40)), counterpartyHash: ibanHash(counterpartyIban), text: `${party || ''} ${remittance}` }];
   });
 }
 
@@ -502,6 +509,44 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
     }
   }
 
+  // Runs inside a transaction. Pending movements are imported at once, like booked
+  // ones. A booked movement takes the place of the pending one the bank no longer
+  // lists, keeping its record (category, savings, edits); pending movements that
+  // disappear without being booked are removed with the record they imported.
+  async function storeMovements(hid, accountId, movements) {
+    const listed = new Set(movements.filter(m => m.pending).map(m => m.externalId));
+    const gone = (await all("SELECT * FROM bank_movements WHERE account_id = ? AND external_id LIKE 'p:%' ORDER BY date, external_id", accountId)).filter(p => !listed.has(p.external_id));
+    const insert = m => run(`INSERT INTO bank_movements (id, household_id, account_id, external_id, kind, amount, date, description, match_key, counterparty_hash, salary_hint, savings_hint, status, transaction_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'stored', NULL, ?) ON CONFLICT(account_id, external_id) DO NOTHING`,
+      randomUUID(), hid, accountId, m.externalId, m.kind, m.amount, m.date, m.description, m.matchKey, m.counterpartyHash, m.salaryHint, m.savingsHint, now());
+    for (const m of movements) {
+      if (m.pending || await one('SELECT id FROM bank_movements WHERE account_id = ? AND external_id = ?', accountId, m.externalId)) continue;
+      const days = p => (Date.parse(m.date) - Date.parse(p.date)) / DAY;
+      const rank = p => [Number(p.amount) === m.amount ? 0 : 1, p.match_key === m.matchKey ? 0 : 1, Math.abs(days(p))];
+      const previous = gone.filter(p => p.kind === m.kind && days(p) >= -3 && days(p) <= 15
+        && (Number(p.amount) === m.amount || (!!m.matchKey && p.match_key === m.matchKey && Math.abs(Number(p.amount) - m.amount) * 100 <= Number(p.amount) * PENDING_TOLERANCE)))
+        .sort((a, b) => { const x = rank(a), y = rank(b); return x[0] - y[0] || x[1] - y[1] || x[2] - y[2] || a.id.localeCompare(b.id); })[0];
+      if (!previous) { await insert(m); continue; }
+      gone.splice(gone.indexOf(previous), 1);
+      await run('UPDATE bank_movements SET external_id = ?, amount = ?, date = ?, description = ?, match_key = ?, counterparty_hash = ?, salary_hint = ?, savings_hint = ? WHERE id = ?',
+        m.externalId, m.amount, m.date, m.description, m.matchKey, m.counterpartyHash, m.salaryHint, m.savingsHint, previous.id);
+      // Only records the pending movement created follow the bank; matched manual
+      // records and salaries keep their own values, and a renamed record its name.
+      if (previous.status === 'imported' && previous.transaction_id) {
+        await run('UPDATE transactions SET amount = ?, date = ?, description = CASE WHEN description = ? THEN ? ELSE description END WHERE id = ? AND household_id = ?',
+          m.amount, m.date, previous.description, m.description, previous.transaction_id, hid);
+        if (Number(previous.amount) !== m.amount && await one('SELECT transaction_id FROM savings_allocations WHERE transaction_id = ?', previous.transaction_id)) {
+          await releaseSavings(previous.transaction_id); await allocateSavings(previous.transaction_id, hid);
+        }
+      }
+    }
+    for (const p of gone) {
+      if (p.status === 'imported' && p.transaction_id) { await releaseSavings(p.transaction_id); await run('DELETE FROM transactions WHERE id = ? AND household_id = ?', p.transaction_id, hid); }
+      await run('DELETE FROM bank_movements WHERE id = ?', p.id);
+    }
+    for (const m of movements) if (m.pending) await insert(m);
+  }
+
   // Whether a connection can be read again: with its owner present every 5
   // minutes, unless its bank has limited reads before.
   async function due(connection, present) {
@@ -521,8 +566,11 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
     const fetched = [];
     try {
       for (const account of accounts) {
-        const last = await one('SELECT MAX(date) AS date FROM bank_movements WHERE account_id = ?', account.id);
-        const from = last?.date ? addDays(last.date, -10) : addDays(romeToday(clock()), -FETCHED_DAYS);
+        // Pending movements stored earlier stay inside the window, so that the bank
+        // tells which of them are still pending.
+        const last = await one("SELECT MAX(date) AS date FROM bank_movements WHERE account_id = ? AND external_id NOT LIKE 'p:%'", account.id);
+        const pending = await one("SELECT MIN(date) AS date FROM bank_movements WHERE account_id = ? AND external_id LIKE 'p:%'", account.id);
+        const from = [last?.date ? addDays(last.date, -10) : addDays(romeToday(clock()), -FETCHED_DAYS), pending?.date].filter(Boolean).sort()[0];
         fetched.push({ account, balance: pickBalance(await provider.balances(account.provider_uid, psu)), movements: normalizeTransactions(await provider.transactions(account.provider_uid, from, psu)) });
       }
     } catch (error) {
@@ -544,7 +592,7 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
     for (const exclusion of await all(`SELECT e.id, e.provider_uid FROM bank_account_exclusions e LEFT JOIN bank_exclusion_cleanups d ON d.exclusion_id = e.id
       WHERE e.connection_id = ? AND e.provider_uid IS NOT NULL AND d.exclusion_id IS NULL`, connection.id)) {
       let movements = [];
-      try { movements = normalizeTransactions(await provider.transactions(exclusion.provider_uid, addDays(romeToday(clock()), -90), psu)); }
+      try { movements = normalizeTransactions(await provider.transactions(exclusion.provider_uid, addDays(romeToday(clock()), -90), psu)).filter(m => !m.pending); }
       catch { movements = []; }
       leftovers.push({ exclusion, movements });
     }
@@ -553,11 +601,7 @@ export function installBank(app, { db, one, all, run, atomic, fail, getSession }
       for (const { account, balance, movements } of fetched) {
         if (!await one('SELECT id FROM bank_accounts WHERE id = ?', account.id)) continue;
         if (balance) await run('UPDATE bank_accounts SET balance = ?, balance_kind = ?, balance_at = ? WHERE id = ?', balance.amount, balance.kind, now(), account.id);
-        for (const m of movements) {
-          await run(`INSERT INTO bank_movements (id, household_id, account_id, external_id, kind, amount, date, description, match_key, counterparty_hash, salary_hint, savings_hint, status, transaction_id, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'stored', NULL, ?) ON CONFLICT(account_id, external_id) DO NOTHING`,
-            randomUUID(), connection.household_id, account.id, m.externalId, m.kind, m.amount, m.date, m.description, m.matchKey, m.counterpartyHash, m.salaryHint, m.savingsHint, now());
-        }
+        await storeMovements(connection.household_id, account.id, movements);
       }
       for (const { exclusion, movements } of leftovers) {
         if (!await one('SELECT id FROM bank_account_exclusions WHERE id = ?', exclusion.id)) continue;
