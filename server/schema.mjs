@@ -252,3 +252,25 @@ export const NOTIFICATION_SCHEMA = `
   );
 `;
 TABLES.push('push_subscriptions', 'notification_preferences');
+// Budget advice: reports written with Claude from figures the server computes,
+// category hints for imported expenses, and splits that hold for one month only.
+export const ADVISOR_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS budget_month_overrides (
+    household_id TEXT NOT NULL REFERENCES households(id), month TEXT NOT NULL, entries TEXT NOT NULL,
+    report_id TEXT, created_at TEXT NOT NULL, PRIMARY KEY(household_id, month)
+  );
+  CREATE TABLE IF NOT EXISTS advisor_settings (
+    household_id TEXT PRIMARY KEY REFERENCES households(id), enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0,1)),
+    requested_at TEXT, running_since TEXT, attempted_at TEXT, last_error TEXT, updated_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS advisor_reports (
+    id TEXT PRIMARY KEY, household_id TEXT NOT NULL REFERENCES households(id), kind TEXT NOT NULL CHECK(kind IN ('weekly','monthly')),
+    period TEXT NOT NULL, month TEXT NOT NULL, facts TEXT NOT NULL, advice TEXT NOT NULL, created_at TEXT NOT NULL,
+    UNIQUE(household_id, kind, period)
+  );
+  CREATE TABLE IF NOT EXISTS advisor_category_hints (
+    transaction_id TEXT PRIMARY KEY REFERENCES transactions(id) ON DELETE CASCADE,
+    category_id TEXT NOT NULL REFERENCES categories(id) ON DELETE CASCADE, created_at TEXT NOT NULL
+  );
+`;
+TABLES.push('budget_month_overrides', 'advisor_settings', 'advisor_reports', 'advisor_category_hints');

@@ -6,10 +6,10 @@ import type { DashboardCard, FamilyState } from './types';
 type Props = { data: FamilyState; mutate: <T>(path: string, method: string, body?: unknown) => Promise<T> };
 type Layout = { quickActions: boolean; order: DashboardCard[]; hidden: DashboardCard[] };
 
-const DEFAULT_ORDER: DashboardCard[] = ['income', 'expense', 'balance', 'savings', 'spending', 'home', 'goals', 'recent', 'comparison'];
+const DEFAULT_ORDER: DashboardCard[] = ['income', 'expense', 'balance', 'savings', 'spending', 'advice', 'home', 'goals', 'recent', 'comparison'];
 const groups: { title: string; hint: string; cards: { id: DashboardCard; label: string }[] }[] = [
   { title: 'Indicatori in alto', hint: 'Le cifre del mese, affiancate.', cards: [{ id: 'income', label: 'Entrate del mese' }, { id: 'expense', label: 'Uscite del mese' }, { id: 'balance', label: 'Saldo del mese' }, { id: 'savings', label: 'Risparmi per gli obiettivi' }] },
-  { title: 'Riquadri', hint: 'Disposti due per riga, nell’ordine scelto.', cards: [{ id: 'spending', label: 'Dove vanno le nostre uscite' }, { id: 'home', label: 'La vita di casa' }, { id: 'goals', label: 'I nostri prossimi traguardi' }, { id: 'recent', label: 'Gli ultimi movimenti' }, { id: 'comparison', label: 'I mesi a confronto' }] },
+  { title: 'Riquadri', hint: 'Disposti due per riga, nell’ordine scelto.', cards: [{ id: 'spending', label: 'Dove vanno le nostre uscite' }, { id: 'advice', label: 'Consigli del budget (quando attivi)' }, { id: 'home', label: 'La vita di casa' }, { id: 'goals', label: 'I nostri prossimi traguardi' }, { id: 'recent', label: 'Gli ultimi movimenti' }, { id: 'comparison', label: 'I mesi a confronto' }] },
 ];
 
 // Personal choices for the overview: quick buttons, the real balance line, and

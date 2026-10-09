@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Bell, LayoutDashboard, Landmark, PiggyBank, ShieldCheck, Users } from 'lucide-react';
+import { Bell, LayoutDashboard, Landmark, PiggyBank, ShieldCheck, Sparkles, Users } from 'lucide-react';
+import { AdvisorSettings } from './Advisor';
 import Account from './Account';
 import { Bank } from './Bank';
 import { DashboardSettings } from './DashboardSettings';
@@ -11,10 +12,11 @@ import type { User } from './types';
 import type { Page } from './pages';
 
 type Props = WorkflowProps & { user: User; onUser: (user: User) => void; mutate: <T>(path: string, method: string, body?: unknown) => Promise<T>; navigate: (page: Page) => void };
-type Category = 'conti' | 'panoramica' | 'notifiche' | 'famiglia' | 'backup';
+type Category = 'conti' | 'consigli' | 'panoramica' | 'notifiche' | 'famiglia' | 'backup';
 
 const categories: { id: Category; label: string; description: string; icon: typeof Landmark }[] = [
   { id: 'conti', label: 'Conti bancari', description: 'Collegamenti e risparmi', icon: Landmark },
+  { id: 'consigli', label: 'Consigli IA', description: 'Report e privacy', icon: Sparkles },
   { id: 'panoramica', label: 'Panoramica', description: 'Card e pulsanti', icon: LayoutDashboard },
   { id: 'notifiche', label: 'Notifiche', description: 'Cosa e dove', icon: Bell },
   { id: 'famiglia', label: 'Casa e famiglia', description: 'Nome e inviti', icon: Users },
@@ -52,6 +54,7 @@ export function Settings(props: Props) {
           </div>
         </section>
       </>}
+      {category === 'consigli' && <AdvisorSettings data={data} mutate={props.mutate} />}
       {category === 'panoramica' && <DashboardSettings data={data} mutate={props.mutate} />}
       {category === 'notifiche' && <NotificationSettings data={data} mutate={props.mutate} />}
       {category === 'famiglia' && <Account {...props} scope="household" />}

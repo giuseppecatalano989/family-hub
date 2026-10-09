@@ -21,6 +21,7 @@
     "cloud:backup": "node --env-file-if-exists=.env server/cloud-backup-cli.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.132.1",
     "@vercel/functions": "^3.9.11",
     "archiver": "^8.0.0",
     "express": "^5.2.1",

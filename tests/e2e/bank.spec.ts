@@ -49,7 +49,7 @@ test('a member links a bank in read-only mode, sees the family balance and impor
   await page.getByLabel(/Mostra in Panoramica, sotto il saldo del mese/).check(); await expect(page.getByText('Modifiche salvate.')).toBeVisible();
   // Cards can be hidden and reordered; the choice is kept by the server.
   await page.getByLabel('Risparmi per gli obiettivi', { exact: true }).uncheck(); await page.getByRole('button', { name: 'Sposta su Gli ultimi movimenti' }).click();
-  await expect(page.locator('.dashboard-card-list').last().locator('li').nth(2)).toContainText('Gli ultimi movimenti');
+  await expect(page.locator('.dashboard-card-list').last().locator('li').nth(3)).toContainText('Gli ultimi movimenti');
   await page.screenshot({ path: info.outputPath('impostazioni-panoramica.png'), fullPage: true }); expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByLabel('I mesi a confronto', { exact: true }).uncheck(); await expect(page.getByLabel('I mesi a confronto', { exact: true })).not.toBeChecked();
   await page.reload(); await expect(page.getByLabel('Risparmi per gli obiettivi', { exact: true })).not.toBeChecked();

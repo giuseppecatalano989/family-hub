@@ -104,7 +104,10 @@ export function installNotifications(app, { db, one, all, run, atomic, fail, exc
       const income = Number((await one(`SELECT COALESCE(SUM(t.amount), 0) AS total FROM transactions t JOIN recurring_occurrences o ON o.transaction_id = t.id
         WHERE t.household_id = ? AND t.kind = 'income' AND substr(t.date, 1, 7) = ?`, householdId, month)).total);
       if (income > 0) {
-        const categories = await all('SELECT id, name, percentage FROM categories WHERE household_id = ? ORDER BY position', householdId);
+        // A split suggested for this month only replaces the usual one.
+        const override = await one('SELECT entries FROM budget_month_overrides WHERE household_id = ? AND month = ?', householdId, month);
+        const split = override ? JSON.parse(override.entries) : {};
+        const categories = (await all('SELECT id, name, percentage FROM categories WHERE household_id = ? ORDER BY position', householdId)).map(c => ({ ...c, percentage: split[c.id] ?? c.percentage }));
         const limits = allocateBudget(income, categories);
         const spent = new Map((await all(`SELECT category_id, SUM(amount) AS total FROM transactions WHERE household_id = ? AND kind = 'expense' AND substr(date, 1, 7) = ? AND category_id IS NOT NULL GROUP BY category_id`, householdId, month)).map(r => [r.category_id, Number(r.total)]));
         for (const category of categories) {
@@ -236,6 +239,14 @@ export function installNotifications(app, { db, one, all, run, atomic, fail, exc
         catch (error) { console.error('Notifiche della sera non inviate:', error.message); }
       }
       await run('DELETE FROM notification_log WHERE created_at < ?', new Date(clock() - 60 * 86400000).toISOString());
+    },
+    deliver,
+    // A new budget report reaches who wants budget notices, once per report.
+    async reportReady(householdId, { kind, period, title, body }) {
+      const messages = [];
+      for (const userId of await recipients(householdId, 'budget')) if (await claim(userId, `advisor:${kind}:${period}`))
+        messages.push({ userId, title, body, url: '#overview', tag: `advisor-${kind}` });
+      return messages;
     },
     // Background deliveries still running (tests and graceful shutdown).
     async idle() { while (pending.size) await Promise.all([...pending]); },
