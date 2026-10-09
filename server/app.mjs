@@ -56,7 +56,11 @@ function dashboardPreferences(row) {
     try { saved = row ? JSON.parse(row.cards) : {}; } catch { saved = {}; }
     const known = list => (Array.isArray(list) ? list : []).filter(id => DASHBOARD_CARDS.includes(id));
     const order = known(saved.order);
-    return { quickActions: !!row?.quick_actions, dashboard: { order: [...order, ...DASHBOARD_CARDS.filter(id => !order.includes(id))], hidden: known(saved.hidden) } };
+    // The budget reports open from the overview's report button; their card is
+    // off until the account turns it on (choices saved earlier included).
+    const hidden = known(saved.hidden);
+    if (!saved.adviceChosen && !hidden.includes('advice')) hidden.push('advice');
+    return { quickActions: !!row?.quick_actions, dashboard: { order: [...order, ...DASHBOARD_CARDS.filter(id => !order.includes(id))], hidden } };
 }
 function passwordHash(password) {
     const salt = randomBytes(16).toString('hex');
@@ -315,7 +319,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         };
         const order = cards(req.body.order); const hidden = cards(req.body.hidden);
         await run(`INSERT INTO dashboard_preferences VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET quick_actions = excluded.quick_actions, cards = excluded.cards`,
-            req.user.id, boolean(req.body.quickActions), JSON.stringify({ order, hidden }));
+            req.user.id, boolean(req.body.quickActions), JSON.stringify({ order, hidden, adviceChosen: true }));
         res.json({ ok: true });
     });
     app.put('/api/household', async (req, res) => {

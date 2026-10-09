@@ -90,7 +90,7 @@ async function register(email, extra = {}) {
 }
 const state = async (session, month = '2026-10') => (await request(`/state?month=${month}&week=2026-10-12`, { session })).json();
 
-test('reports are prepared on request and on schedule, and a suggested split holds for one month', async () => {
+test('reports are prepared by themselves, read per account, and a suggested split holds for one month', async () => {
   let time = Date.parse('2026-10-14T10:00:00Z');
   const calls = [];
   const model = { model: 'test', async advise({ input }) {
@@ -99,7 +99,7 @@ test('reports are prepared on request and on schedule, and a suggested split hol
     const ids = facts.categorie.map(c => c.id);
     return { headline: `Report ${facts.tipo_report}`, summary: 'Svago è oltre il massimale.', tips: [{ kind: 'avoid', title: 'Rivedete gli abbonamenti', detail: 'Netflix è aumentato.' }],
       adjustment: { propose: true, month: facts.mese_corrente, reason: 'Rientrare in Svago', percentages: [35, 15, 10, 5, 5, 30].map((percent, i) => ({ category_id: ids[i], percent })) },
-      categories: facts.uscite_da_classificare.map(u => ({ transaction_id: u.id, category_id: ids[3] })) };
+      categories: facts.uscite_da_classificare.map(u => ({ transaction_id: u.id, category_id: u.descrizione === 'Versamento' ? ids[5] : ids[3] })) };
   } };
   await start({ advisorModel: model, clock: () => time });
   const alice = await register('alice@example.it');
@@ -110,26 +110,46 @@ test('reports are prepared on request and on schedule, and a suggested split hol
   for (const [date, amount, categoryId, description] of [['2026-10-03', 25000, cats[4].id, 'Ristorante'], ['2026-10-09', 12000, cats[4].id, 'Concerto'], ['2026-09-20', 5000, cats[1].id, 'Spesa']])
     assert.equal((await request('/transactions', { method: 'POST', session: alice, body: { kind: 'expense', amount, categoryId, description, date } })).status, 201);
   const uncategorized = await (await request('/transactions', { method: 'POST', session: alice, body: { kind: 'expense', amount: 2500, categoryId: cats[1].id, description: 'Farmacia', date: '2026-10-12' } })).json();
-  instance.db.prepare('UPDATE transactions SET category_id = NULL WHERE id = ?').run(uncategorized.id);
+  const transfer = await (await request('/transactions', { method: 'POST', session: alice, body: { kind: 'expense', amount: 10000, categoryId: cats[1].id, description: 'Versamento', date: '2026-10-11' } })).json();
+  for (const id of [uncategorized.id, transfer.id]) instance.db.prepare('UPDATE transactions SET category_id = NULL WHERE id = ?').run(id);
   const secret = await (await request('/transactions', { method: 'POST', session: bob, body: { kind: 'expense', amount: 9000, categoryId: cats[4].id, description: 'Regalo segreto', date: '2026-10-10' } })).json();
   instance.db.prepare('INSERT INTO private_transactions VALUES (?, ?)').run(secret.id, bob.user.id);
 
   let current = await state(alice);
   assert.deepEqual([current.advisor.configured, current.advisor.enabled, current.advisor.weekly], [true, false, null]);
-  assert.equal((await request('/advisor/reports', { method: 'POST', session: alice, body: { kind: 'weekly' } })).status, 409, 'off by default');
   assert.equal((await request('/advisor/settings', { method: 'PUT', session: bob, body: { enabled: true } })).status, 403, 'only the administrator enables it');
   assert.equal((await request('/advisor/settings', { method: 'PUT', session: alice, body: { enabled: true } })).status, 200);
-  assert.equal((await request('/advisor/reports', { method: 'POST', session: bob, body: { kind: 'weekly' } })).status, 202);
-  assert.equal((await request('/advisor/reports', { method: 'POST', session: bob, body: { kind: 'weekly' } })).status, 429, 'one request every ten minutes');
+  assert.equal((await request('/advisor/reports', { method: 'POST', session: alice, body: { kind: 'weekly' } })).status, 404, 'no report by hand');
+  // Turning it on prepares the missing reports at once: the closed month, then the week.
   await instance.advisor.idle();
-  assert.equal(calls.length, 1);
-  assert.doesNotMatch(calls[0], /Regalo segreto|alice|bob|Casa Rossi/, 'no private descriptions, names or household');
+  assert.deepEqual(calls.map(c => JSON.parse(c).tipo_report), ['mensile', 'settimanale']);
+  assert.doesNotMatch(calls.join(' '), /Regalo segreto|alice|bob|Casa Rossi/, 'no private descriptions, names or household');
   current = await state(bob);
+  assert.equal(current.advisor.monthly.month, '2026-09');
+  assert.equal(current.advisor.unread, true);
   const weekly = current.advisor.weekly;
   assert.equal(weekly.headline, 'Report settimanale');
   assert.equal(weekly.alerts[0].categoryId, cats[4].id, 'the figures come from the server');
   assert.equal(weekly.alerts[0].spent, 25000 + 12000 + 9000);
-  assert.deepEqual(current.advisor.hints, { [uncategorized.id]: cats[3].id });
+  assert.deepEqual(current.advisor.hints, { [uncategorized.id]: cats[3].id, [transfer.id]: cats[5].id });
+  assert.equal(current.advisor.automatic, false, 'categories are suggested by default');
+
+  // Automatic assignment, chosen by the administrator, applies the pending
+  // suggestions; a savings transfer stays to be confirmed.
+  assert.equal((await request('/advisor/assignment', { method: 'PUT', session: bob, body: { automatic: true } })).status, 403);
+  assert.equal((await request('/advisor/assignment', { method: 'PUT', session: alice, body: { automatic: 'yes' } })).status, 400);
+  assert.equal((await request('/advisor/assignment', { method: 'PUT', session: alice, body: { automatic: true } })).status, 200);
+  current = await state(bob);
+  assert.equal(current.advisor.automatic, true);
+  assert.equal(current.transactions.find(t => t.id === uncategorized.id).category_id, cats[3].id);
+  assert.equal(current.transactions.find(t => t.id === transfer.id).category_id, null);
+  assert.deepEqual(current.advisor.hints, { [transfer.id]: cats[5].id });
+
+  // Opening the reports clears the highlight for that account only.
+  assert.equal((await request('/advisor/read', { method: 'POST', session: alice, body: { seen: 'ieri' } })).status, 400);
+  assert.equal((await request('/advisor/read', { method: 'POST', session: alice, body: { seen: weekly.createdAt } })).status, 200);
+  assert.equal((await state(alice)).advisor.unread, false);
+  assert.equal((await state(bob)).advisor.unread, true);
 
   // The split applies to October only; November returns to the usual one.
   assert.equal((await request(`/advisor/reports/${weekly.id}/apply`, { method: 'POST', session: bob })).status, 200);
@@ -148,25 +168,32 @@ test('reports are prepared on request and on schedule, and a suggested split hol
   assert.equal(current.advisor.override, null);
   assert.equal(current.budgetSplit[cats[1].id], 2000);
 
-  // The schedule adds the monthly report once; the weekly one of this week exists.
-  await instance.advisor.scheduled();
-  assert.equal(calls.length, 2);
-  assert.equal(JSON.parse(calls[1]).tipo_report, 'mensile');
-  assert.equal((await state(alice)).advisor.monthly.month, '2026-09');
   await instance.advisor.scheduled();
   assert.equal(calls.length, 2, 'each report once per period');
   time = Date.parse('2026-10-19T18:00:00Z');
   await instance.advisor.scheduled();
   assert.equal(calls.length, 3, 'a new week, a new report');
+  current = await state(alice);
+  assert.deepEqual([current.advisor.weekly.period, current.advisor.unread], ['2026-10-19', true], 'the new week replaces the previous one');
+
+  // The monthly report of October starts November: last week's report goes,
+  // and no weekly report is written for a Monday of the closed month.
+  time = Date.parse('2026-11-01T18:00:00Z');
+  await instance.advisor.scheduled();
+  assert.deepEqual(calls.slice(3).map(c => JSON.parse(c).tipo_report), ['mensile']);
+  current = await state(alice, '2026-11');
+  assert.deepEqual([current.advisor.monthly.month, current.advisor.weekly], ['2026-10', null]);
 
   // Applying is refused once the month is closed.
   time = Date.parse('2026-11-02T10:00:00Z');
   assert.equal((await request(`/advisor/reports/${weekly.id}/apply`, { method: 'POST', session: alice })).status, 400);
+  await instance.advisor.scheduled();
+  assert.equal((await state(alice, '2026-11')).advisor.weekly.period, '2026-11-02', 'the first week of November is shown with the monthly report');
 
   // The family ZIP keeps reports and settings.
   const zip = unzipSync(new Uint8Array(await (await request('/backups/export', { session: alice })).arrayBuffer()));
   const payload = JSON.parse(new TextDecoder().decode(zip['casa.json']));
-  assert.equal(payload.data.advisor_reports.length, 3);
+  assert.equal(payload.data.advisor_reports.length, 5);
   assert.equal(payload.data.advisor_settings[0].enabled, 1);
 
   // Turning it off hides reports and hints.

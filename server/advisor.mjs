@@ -12,7 +12,7 @@ import { mondayOf } from './workflows.mjs';
 // and descriptions lose IBANs and long codes before leaving the server.
 
 export const DEFAULT_ADVISOR_MODEL = 'claude-opus-5-5';
-const REQUEST_GAP = 10 * 60000; const RUNNING_LIMIT = 10 * 60000; const RETRY_GAP = 6 * 3600000;
+const SAVINGS_POSITION = 5; const RUNNING_LIMIT = 10 * 60000; const RETRY_GAP = 6 * 3600000;
 const MONTHS = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
 export const monthName = month => `${MONTHS[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
 export function shiftMonth(month, delta) {
@@ -270,6 +270,18 @@ export function installAdvisor(app, { db, one, all, run, atomic, fail, exclusive
     return analyze({ kind, today, month, categories: shares, limits: allocateBudget(base, shares), base, rows: scoped, deadlines, handled, goals });
   }
 
+  // Automatic assignment: pending suggestions become the expense's category.
+  // Savings transfers stay suggestions, since confirming one also feeds the goals.
+  async function assignHints(hid) {
+    const savings = (await all('SELECT id FROM categories WHERE household_id = ? ORDER BY position', hid))[SAVINGS_POSITION]?.id;
+    const pending = await all(`SELECT h.transaction_id, h.category_id FROM advisor_category_hints h JOIN transactions t ON t.id = h.transaction_id
+      WHERE t.household_id = ? AND t.category_id IS NULL AND NOT EXISTS (SELECT 1 FROM private_transactions p WHERE p.transaction_id = t.id)`, hid);
+    for (const hint of pending.filter(h => h.category_id !== savings)) {
+      await run('UPDATE transactions SET category_id = ? WHERE id = ? AND household_id = ? AND category_id IS NULL', hint.category_id, hint.transaction_id, hid);
+      await run('DELETE FROM advisor_category_hints WHERE transaction_id = ?', hint.transaction_id);
+    }
+  }
+
   // Figures are read inside the request queue, Claude is called outside it,
   // and the report is stored in one transaction with its category hints.
   async function generate(hid, kind, { queued = false } = {}) {
@@ -287,7 +299,7 @@ export function installAdvisor(app, { db, one, all, run, atomic, fail, exclusive
     let advice;
     try { advice = sanitizeAdvice(await model.advise({ system: SYSTEM_PROMPT, input: modelInput(facts, { current, months }), schema: ADVICE_SCHEMA }), facts, { months }); }
     catch (error) {
-      await serial(() => run('UPDATE advisor_settings SET running_since = NULL, last_error = ? WHERE household_id = ?', 'Il report non è stato preparato. Riprova più tardi.', hid));
+      await serial(() => run('UPDATE advisor_settings SET running_since = NULL, last_error = ? WHERE household_id = ?', 'L’ultimo report non è stato preparato: l’app riprova da sola tra qualche ora.', hid));
       throw Object.assign(new Error(`${error.code || error.status || 'errore'}`), { cause: error });
     }
     const period = periodOf(kind, today);
@@ -299,10 +311,24 @@ export function installAdvisor(app, { db, one, all, run, atomic, fail, exclusive
       // Hints only for expenses that are still without a category.
       for (const hint of hints) await run(`INSERT INTO advisor_category_hints SELECT t.id, CAST(? AS TEXT), CAST(? AS TEXT) FROM transactions t WHERE t.id = ? AND t.household_id = ? AND t.category_id IS NULL
         ON CONFLICT(transaction_id) DO UPDATE SET category_id = excluded.category_id, created_at = excluded.created_at`, hint.categoryId, now(), hint.transactionId, hid);
+      if ((await one('SELECT automatic FROM advisor_assignment WHERE household_id = ?', hid))?.automatic) await assignHints(hid);
       await run('UPDATE advisor_settings SET running_since = NULL, last_error = NULL WHERE household_id = ?', hid);
       return notifications.reportReady(hid, { kind, period, title: kind === 'weekly' ? 'Report settimanale del budget' : `Il budget di ${monthName(facts.month)}`, body: advice.headline });
     }));
     await notifications.deliver(messages);
+  }
+
+  // Missing reports of one family: the monthly first, so that a weekly report
+  // of the new month is the most recent one.
+  async function catchUp(hid, attemptedAt) {
+    const today = romeToday(clock());
+    if (attemptedAt && clock() - Date.parse(attemptedAt) < RETRY_GAP && !(await one('SELECT id FROM advisor_reports WHERE household_id = ? AND created_at >= ?', hid, attemptedAt))) return;
+    for (const kind of ['monthly', 'weekly']) {
+      // The days before the month's first Monday belong to the monthly report.
+      if (kind === 'weekly' && periodOf(kind, today) < `${today.slice(0, 7)}-01`) continue;
+      if (await one('SELECT id FROM advisor_reports WHERE household_id = ? AND kind = ? AND period = ?', hid, kind, periodOf(kind, today))) continue;
+      try { await generate(hid, kind); } catch (error) { console.error('Report del budget non preparato:', error.message); }
+    }
   }
 
   return {
@@ -310,14 +336,7 @@ export function installAdvisor(app, { db, one, all, run, atomic, fail, exclusive
     // wait six hours, so the local timer does not call the API every 15 minutes.
     async scheduled() {
       if (!model) return;
-      const today = romeToday(clock());
-      for (const row of await all('SELECT household_id, attempted_at FROM advisor_settings WHERE enabled = 1')) {
-        if (row.attempted_at && clock() - Date.parse(row.attempted_at) < RETRY_GAP && !(await one('SELECT id FROM advisor_reports WHERE household_id = ? AND created_at >= ?', row.household_id, row.attempted_at))) continue;
-        for (const kind of ['weekly', 'monthly']) {
-          if (await one('SELECT id FROM advisor_reports WHERE household_id = ? AND kind = ? AND period = ?', row.household_id, kind, periodOf(kind, today))) continue;
-          try { await generate(row.household_id, kind); } catch (error) { console.error('Report del budget non preparato:', error.message); }
-        }
-      }
+      for (const row of await all('SELECT household_id, attempted_at FROM advisor_settings WHERE enabled = 1')) await catchUp(row.household_id, row.attempted_at);
     },
     runLater() { return later(() => this.scheduled()); },
     async idle() { while (pending.size) await Promise.all([...pending]); },
@@ -327,14 +346,22 @@ export function installAdvisor(app, { db, one, all, run, atomic, fail, exclusive
       const overrides = await all('SELECT month, report_id FROM budget_month_overrides WHERE household_id = ?', user.household_id);
       const latest = kind => one('SELECT * FROM advisor_reports WHERE household_id = ? AND kind = ? ORDER BY period DESC LIMIT 1', user.household_id, kind);
       const enabled = !!row?.enabled;
+      const monthly = enabled ? await latest('monthly') : null;
+      // A new month starts with its monthly report: the weekly report of a week
+      // that began in the closed month is no longer shown.
+      const weeklyRow = enabled ? await latest('weekly') : null;
+      const weekly = weeklyRow && (!monthly || weeklyRow.period > `${monthly.month}-31`) ? weeklyRow : null;
+      const newest = [weekly, monthly].filter(Boolean).map(r => r.created_at).sort().at(-1) || null;
+      const read = newest && await one('SELECT read_at FROM advisor_reads WHERE user_id = ?', user.id);
       const hints = enabled ? await all(`SELECT h.transaction_id, h.category_id FROM advisor_category_hints h JOIN transactions t ON t.id = h.transaction_id
         WHERE t.household_id = ? AND t.category_id IS NULL AND NOT EXISTS (SELECT 1 FROM private_transactions p WHERE p.transaction_id = t.id)`, user.household_id) : [];
       const override = overrides.find(o => o.month === month);
       return {
         configured: !!model, enabled, canManage: user.role === 'admin',
+        automatic: !!(await one('SELECT automatic FROM advisor_assignment WHERE household_id = ?', user.household_id))?.automatic,
         running: !!row?.running_since && clock() - Date.parse(row.running_since) < RUNNING_LIMIT, error: row?.last_error || null,
-        weekly: enabled ? present(await latest('weekly'), { current, overrides }) : null,
-        monthly: enabled ? present(await latest('monthly'), { current, overrides }) : null,
+        weekly: present(weekly, { current, overrides }), monthly: present(monthly, { current, overrides }),
+        unread: !!newest && (!read || read.read_at < newest),
         hints: Object.fromEntries(hints.map(h => [h.transaction_id, h.category_id])),
         override: override ? { month: override.month, fromReport: !!override.report_id } : null,
       };
@@ -350,21 +377,28 @@ export function installAdvisor(app, { db, one, all, run, atomic, fail, exclusive
             ON CONFLICT(household_id) DO UPDATE SET enabled = excluded.enabled, updated_at = excluded.updated_at, last_error = NULL, attempted_at = NULL`, req.user.household_id, req.body.enabled ? 1 : 0, now());
           if (!req.body.enabled) await run('DELETE FROM advisor_category_hints WHERE transaction_id IN (SELECT id FROM transactions WHERE household_id = ?)', req.user.household_id);
         });
+        // Reports are never requested by hand: once on, the missing ones are prepared at once.
+        const hid = req.user.household_id;
+        if (req.body.enabled) res.once('finish', () => { void later(() => catchUp(hid, null)); });
         res.json({ ok: true });
       });
-      // A report on request: prepared after the response, at most once every ten minutes.
-      app.post('/api/advisor/reports', async (req, res) => {
-        const kind = req.body?.kind;
-        if (!['weekly', 'monthly'].includes(kind)) fail('Tipo di report non valido.');
-        const hid = req.user.household_id;
+      // Suggested or automatic categories for the expenses still to classify.
+      app.put('/api/advisor/assignment', async (req, res) => {
+        if (req.user.role !== 'admin') fail('Solo l’amministratore può scegliere come assegnare le categorie.', 403);
+        if (typeof req.body?.automatic !== 'boolean') fail('Valore non valido.');
         await atomic(async () => {
-          const row = await settings(hid);
-          if (!model || !row?.enabled) fail('Attiva prima i consigli del budget in Impostazioni.', 409);
-          if (row.requested_at && clock() - Date.parse(row.requested_at) < REQUEST_GAP) fail('Il report è stato chiesto da poco: riprova tra qualche minuto.', 429);
-          await run('UPDATE advisor_settings SET requested_at = ?, running_since = ? WHERE household_id = ?', now(), now(), hid);
+          await run(`INSERT INTO advisor_assignment VALUES (?, ?, ?) ON CONFLICT(household_id) DO UPDATE SET automatic = excluded.automatic, updated_at = excluded.updated_at`, req.user.household_id, req.body.automatic ? 1 : 0, now());
+          if (req.body.automatic && (await settings(req.user.household_id))?.enabled) await assignHints(req.user.household_id);
         });
-        res.once('finish', () => { void later(() => generate(hid, kind)); });
-        res.status(202).json({ ok: true });
+        res.json({ ok: true });
+      });
+      // Reading is personal: the highlight goes away for whoever opened the reports.
+      app.post('/api/advisor/read', async (req, res) => {
+        const seen = req.body?.seen;
+        if (typeof seen !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(seen) || Number.isNaN(Date.parse(seen))) fail('Report non valido.');
+        const at = seen > now() ? now() : seen;
+        await run(`INSERT INTO advisor_reads VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET read_at = CASE WHEN advisor_reads.read_at > excluded.read_at THEN advisor_reads.read_at ELSE excluded.read_at END`, req.user.id, at);
+        res.json({ ok: true });
       });
       // The suggested split holds for its month only; the next month returns to
       // the usual one by itself.
