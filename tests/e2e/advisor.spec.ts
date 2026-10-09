@@ -25,6 +25,9 @@ test('budget reports arrive by themselves, light up the report button and a sugg
   await go(page, 'Impostazioni'); await page.getByRole('tab', { name: /^Consigli IA/ }).click(); await expect(page).toHaveURL(/#settings\/consigli$/);
   await expect(page.getByText('IBAN, numeri lunghi, email, nomi dei familiari e dati di accesso non vengono inviati.', { exact: false })).toBeVisible();
   await page.getByRole('checkbox', { name: /Prepara ogni settimana/ }).check(); await expect(page.getByRole('checkbox', { name: /Prepara ogni settimana/ })).toBeChecked();
+  await expect(page.getByRole('radio', { name: /^Suggerita/ })).toBeChecked();
+  await page.getByRole('radio', { name: /^Automatica/ }).check(); await expect(page.getByRole('radio', { name: /^Automatica/ })).toBeChecked();
+  await page.reload(); await expect(page.getByRole('radio', { name: /^Automatica/ })).toBeChecked();
   await page.screenshot({ path: info.outputPath('impostazioni-consigli.png'), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 

@@ -74,6 +74,12 @@ export function AdvisorSettings({ data, mutate }: { data: FamilyState; mutate: <
   const [enabled, setEnabled] = useState(advisor.enabled);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  const [automatic, setAutomatic] = useState(advisor.automatic);
+  const [assigning, setAssigning] = useState(false);
+  async function assign(next: boolean) {
+    setAutomatic(next); setAssigning(true); setError('');
+    try { await mutate('/advisor/assignment', 'PUT', { automatic: next }); } catch (e) { setAutomatic(!next); setError((e as Error).message); } finally { setAssigning(false); }
+  }
   async function toggle(next: boolean) {
     setEnabled(next); setPending(true); setError('');
     try { await mutate('/advisor/settings', 'PUT', { enabled: next }); } catch (e) { setEnabled(!next); setError((e as Error).message); } finally { setPending(false); }
@@ -84,12 +90,16 @@ export function AdvisorSettings({ data, mutate }: { data: FamilyState; mutate: <
     {!advisor.canManage && <p className="form-hint">Solo l’amministratore della casa può attivarli o disattivarli.</p>}
     {error && <div className="form-error" role="alert">{error}</div>}
     {advisor.error && enabled && <div className="form-error" role="status">{advisor.error}</div>}
+    <fieldset className="advisor-assignment" disabled={!advisor.canManage || !enabled || assigning}><legend>Categorie delle uscite da classificare</legend>
+      <label className="checkbox-label"><input type="radio" name="assignment" checked={!automatic} onChange={() => void assign(false)} /><span><strong>Suggerita</strong> La categoria proposta compare in Uscite e la applicate voi con un clic.</span></label>
+      <label className="checkbox-label"><input type="radio" name="assignment" checked={automatic} onChange={() => void assign(true)} /><span><strong>Automatica</strong> L’app assegna da sola la categoria proposta. I versamenti verso Risparmio restano da confermare.</span></label>
+    </fieldset>
     <div className="advisor-info">
       <h3>Come funzionano</h3>
       <ul>
         <li>Arrivano da soli: ogni lunedì un report sulla settimana e su come chiudere il mese nel budget, il 1° del mese il riepilogo del mese chiuso. Li aprite dall’icona del foglio accanto al mese in Panoramica, che si illumina quando ne arriva uno nuovo. Il nuovo report settimanale sostituisce il precedente; quello mensile sostituisce il mensile precedente e chiude la settimana del mese passato.</li>
         <li>Volendo, potete mostrarli anche in un riquadro della Panoramica: lo attivate in Impostazioni → Panoramica.</li>
-        <li>Segnalano le categorie che stanno sforando, abbonamenti e piccole spese da rivedere, possibili doppioni e le scadenze in arrivo, e suggeriscono la categoria delle uscite da classificare.</li>
+        <li>Segnalano le categorie che stanno sforando, abbonamenti e piccole spese da rivedere, possibili doppioni e le scadenze in arrivo, e propongono la categoria delle uscite da classificare: suggerita, da applicare voi, oppure assegnata in automatico. Una categoria scelta per un movimento importato dalla banca vale anche per i movimenti successivi dello stesso esercente.</li>
         <li>Quando serve propongono una ripartizione per un solo mese: la applicate con un clic e dal mese successivo torna quella abituale.</li>
       </ul>
       <h3>Privacy</h3>

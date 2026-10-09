@@ -99,7 +99,7 @@ test('reports are prepared by themselves, read per account, and a suggested spli
     const ids = facts.categorie.map(c => c.id);
     return { headline: `Report ${facts.tipo_report}`, summary: 'Svago è oltre il massimale.', tips: [{ kind: 'avoid', title: 'Rivedete gli abbonamenti', detail: 'Netflix è aumentato.' }],
       adjustment: { propose: true, month: facts.mese_corrente, reason: 'Rientrare in Svago', percentages: [35, 15, 10, 5, 5, 30].map((percent, i) => ({ category_id: ids[i], percent })) },
-      categories: facts.uscite_da_classificare.map(u => ({ transaction_id: u.id, category_id: ids[3] })) };
+      categories: facts.uscite_da_classificare.map(u => ({ transaction_id: u.id, category_id: u.descrizione === 'Versamento' ? ids[5] : ids[3] })) };
   } };
   await start({ advisorModel: model, clock: () => time });
   const alice = await register('alice@example.it');
@@ -110,7 +110,8 @@ test('reports are prepared by themselves, read per account, and a suggested spli
   for (const [date, amount, categoryId, description] of [['2026-10-03', 25000, cats[4].id, 'Ristorante'], ['2026-10-09', 12000, cats[4].id, 'Concerto'], ['2026-09-20', 5000, cats[1].id, 'Spesa']])
     assert.equal((await request('/transactions', { method: 'POST', session: alice, body: { kind: 'expense', amount, categoryId, description, date } })).status, 201);
   const uncategorized = await (await request('/transactions', { method: 'POST', session: alice, body: { kind: 'expense', amount: 2500, categoryId: cats[1].id, description: 'Farmacia', date: '2026-10-12' } })).json();
-  instance.db.prepare('UPDATE transactions SET category_id = NULL WHERE id = ?').run(uncategorized.id);
+  const transfer = await (await request('/transactions', { method: 'POST', session: alice, body: { kind: 'expense', amount: 10000, categoryId: cats[1].id, description: 'Versamento', date: '2026-10-11' } })).json();
+  for (const id of [uncategorized.id, transfer.id]) instance.db.prepare('UPDATE transactions SET category_id = NULL WHERE id = ?').run(id);
   const secret = await (await request('/transactions', { method: 'POST', session: bob, body: { kind: 'expense', amount: 9000, categoryId: cats[4].id, description: 'Regalo segreto', date: '2026-10-10' } })).json();
   instance.db.prepare('INSERT INTO private_transactions VALUES (?, ?)').run(secret.id, bob.user.id);
 
@@ -130,7 +131,19 @@ test('reports are prepared by themselves, read per account, and a suggested spli
   assert.equal(weekly.headline, 'Report settimanale');
   assert.equal(weekly.alerts[0].categoryId, cats[4].id, 'the figures come from the server');
   assert.equal(weekly.alerts[0].spent, 25000 + 12000 + 9000);
-  assert.deepEqual(current.advisor.hints, { [uncategorized.id]: cats[3].id });
+  assert.deepEqual(current.advisor.hints, { [uncategorized.id]: cats[3].id, [transfer.id]: cats[5].id });
+  assert.equal(current.advisor.automatic, false, 'categories are suggested by default');
+
+  // Automatic assignment, chosen by the administrator, applies the pending
+  // suggestions; a savings transfer stays to be confirmed.
+  assert.equal((await request('/advisor/assignment', { method: 'PUT', session: bob, body: { automatic: true } })).status, 403);
+  assert.equal((await request('/advisor/assignment', { method: 'PUT', session: alice, body: { automatic: 'yes' } })).status, 400);
+  assert.equal((await request('/advisor/assignment', { method: 'PUT', session: alice, body: { automatic: true } })).status, 200);
+  current = await state(bob);
+  assert.equal(current.advisor.automatic, true);
+  assert.equal(current.transactions.find(t => t.id === uncategorized.id).category_id, cats[3].id);
+  assert.equal(current.transactions.find(t => t.id === transfer.id).category_id, null);
+  assert.deepEqual(current.advisor.hints, { [transfer.id]: cats[5].id });
 
   // Opening the reports clears the highlight for that account only.
   assert.equal((await request('/advisor/read', { method: 'POST', session: alice, body: { seen: 'ieri' } })).status, 400);

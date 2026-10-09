@@ -70,7 +70,7 @@ export interface AdvisorReport {
   week: { from: string; to: string; total: number } | null;
 }
 export interface AdvisorState {
-  configured: boolean; enabled: boolean; canManage: boolean; running: boolean; error: string | null;
+  configured: boolean; enabled: boolean; canManage: boolean; automatic: boolean; running: boolean; error: string | null;
   weekly: AdvisorReport | null; monthly: AdvisorReport | null; unread: boolean;
   hints: Record<string, string>; override: { month: string; fromReport: boolean } | null;
 }

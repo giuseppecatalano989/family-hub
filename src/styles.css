@@ -238,6 +238,15 @@
 .hint-chip{display:inline-flex;align-items:center;gap:5px;margin-top:6px;padding:4px 9px;border-radius:999px;background:var(--mint);color:var(--green);font-size:11.44px;font-weight:550;max-width:100%;text-align:left}
 .hint-chip:hover{background:#dcece2}
 .advisor-info{margin-top:22px;display:grid;gap:8px}
+.advisor-assignment{border:0;padding:0;margin:18px 0 0;display:grid;gap:10px;min-width:0}
+.advisor-assignment legend{font-size:13.73px;font-weight:600;color:#3f4d44;margin-bottom:8px}
+.advisor-assignment .checkbox-label{align-items:flex-start}
+.advisor-assignment .checkbox-label input[type=radio]{margin:3px 0 0;width:auto;padding:0;flex:none;accent-color:var(--green)}
+.advisor-assignment .checkbox-label>span{flex:1;min-width:0}
+.advisor-assignment .checkbox-label+.checkbox-label{margin-top:0}
+.advisor-assignment strong{display:block;font-size:13.16px;color:#2c3831}
+.advisor-assignment span{font-size:12.58px;line-height:1.6;color:#66736a}
+.advisor-assignment:disabled{opacity:.6}
 .advisor-info h3{font-size:14.87px;margin-top:6px}
 .advisor-info ul{margin:0;padding-left:20px;display:grid;gap:6px;font-size:13.15px;line-height:1.65;color:#55625a}
 .settings-body>.checkbox-label+.form-hint{margin-top:10px}

@@ -12,7 +12,7 @@ import { mondayOf } from './workflows.mjs';
 // and descriptions lose IBANs and long codes before leaving the server.
 
 export const DEFAULT_ADVISOR_MODEL = 'claude-opus-5-5';
-const RUNNING_LIMIT = 10 * 60000; const RETRY_GAP = 6 * 3600000;
+const SAVINGS_POSITION = 5; const RUNNING_LIMIT = 10 * 60000; const RETRY_GAP = 6 * 3600000;
 const MONTHS = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
 export const monthName = month => `${MONTHS[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
 export function shiftMonth(month, delta) {
@@ -270,6 +270,18 @@ export function installAdvisor(app, { db, one, all, run, atomic, fail, exclusive
     return analyze({ kind, today, month, categories: shares, limits: allocateBudget(base, shares), base, rows: scoped, deadlines, handled, goals });
   }
 
+  // Automatic assignment: pending suggestions become the expense's category.
+  // Savings transfers stay suggestions, since confirming one also feeds the goals.
+  async function assignHints(hid) {
+    const savings = (await all('SELECT id FROM categories WHERE household_id = ? ORDER BY position', hid))[SAVINGS_POSITION]?.id;
+    const pending = await all(`SELECT h.transaction_id, h.category_id FROM advisor_category_hints h JOIN transactions t ON t.id = h.transaction_id
+      WHERE t.household_id = ? AND t.category_id IS NULL AND NOT EXISTS (SELECT 1 FROM private_transactions p WHERE p.transaction_id = t.id)`, hid);
+    for (const hint of pending.filter(h => h.category_id !== savings)) {
+      await run('UPDATE transactions SET category_id = ? WHERE id = ? AND household_id = ? AND category_id IS NULL', hint.category_id, hint.transaction_id, hid);
+      await run('DELETE FROM advisor_category_hints WHERE transaction_id = ?', hint.transaction_id);
+    }
+  }
+
   // Figures are read inside the request queue, Claude is called outside it,
   // and the report is stored in one transaction with its category hints.
   async function generate(hid, kind, { queued = false } = {}) {
@@ -299,6 +311,7 @@ export function installAdvisor(app, { db, one, all, run, atomic, fail, exclusive
       // Hints only for expenses that are still without a category.
       for (const hint of hints) await run(`INSERT INTO advisor_category_hints SELECT t.id, CAST(? AS TEXT), CAST(? AS TEXT) FROM transactions t WHERE t.id = ? AND t.household_id = ? AND t.category_id IS NULL
         ON CONFLICT(transaction_id) DO UPDATE SET category_id = excluded.category_id, created_at = excluded.created_at`, hint.categoryId, now(), hint.transactionId, hid);
+      if ((await one('SELECT automatic FROM advisor_assignment WHERE household_id = ?', hid))?.automatic) await assignHints(hid);
       await run('UPDATE advisor_settings SET running_since = NULL, last_error = NULL WHERE household_id = ?', hid);
       return notifications.reportReady(hid, { kind, period, title: kind === 'weekly' ? 'Report settimanale del budget' : `Il budget di ${monthName(facts.month)}`, body: advice.headline });
     }));
@@ -345,6 +358,7 @@ export function installAdvisor(app, { db, one, all, run, atomic, fail, exclusive
       const override = overrides.find(o => o.month === month);
       return {
         configured: !!model, enabled, canManage: user.role === 'admin',
+        automatic: !!(await one('SELECT automatic FROM advisor_assignment WHERE household_id = ?', user.household_id))?.automatic,
         running: !!row?.running_since && clock() - Date.parse(row.running_since) < RUNNING_LIMIT, error: row?.last_error || null,
         weekly: present(weekly, { current, overrides }), monthly: present(monthly, { current, overrides }),
         unread: !!newest && (!read || read.read_at < newest),
@@ -366,6 +380,16 @@ export function installAdvisor(app, { db, one, all, run, atomic, fail, exclusive
         // Reports are never requested by hand: once on, the missing ones are prepared at once.
         const hid = req.user.household_id;
         if (req.body.enabled) res.once('finish', () => { void later(() => catchUp(hid, null)); });
+        res.json({ ok: true });
+      });
+      // Suggested or automatic categories for the expenses still to classify.
+      app.put('/api/advisor/assignment', async (req, res) => {
+        if (req.user.role !== 'admin') fail('Solo l’amministratore può scegliere come assegnare le categorie.', 403);
+        if (typeof req.body?.automatic !== 'boolean') fail('Valore non valido.');
+        await atomic(async () => {
+          await run(`INSERT INTO advisor_assignment VALUES (?, ?, ?) ON CONFLICT(household_id) DO UPDATE SET automatic = excluded.automatic, updated_at = excluded.updated_at`, req.user.household_id, req.body.automatic ? 1 : 0, now());
+          if (req.body.automatic && (await settings(req.user.household_id))?.enabled) await assignHints(req.user.household_id);
+        });
         res.json({ ok: true });
       });
       // Reading is personal: the highlight goes away for whoever opened the reports.
