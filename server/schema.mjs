@@ -200,6 +200,10 @@ export const BANK_SCHEMA = `
   CREATE TABLE IF NOT EXISTS bank_exclusion_cleanups (
     exclusion_id TEXT PRIMARY KEY REFERENCES bank_account_exclusions(id) ON DELETE CASCADE, household_id TEXT NOT NULL REFERENCES households(id), done_at TEXT NOT NULL
   );
+  -- Banks that once answered "too many requests" keep the unattended pace.
+  CREATE TABLE IF NOT EXISTS bank_rate_limits (
+    connection_id TEXT PRIMARY KEY REFERENCES bank_connections(id) ON DELETE CASCADE, household_id TEXT NOT NULL REFERENCES households(id), limited_at TEXT NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS user_preferences (
     user_id TEXT PRIMARY KEY REFERENCES users(id), show_bank_balance INTEGER NOT NULL DEFAULT 0 CHECK(show_bank_balance IN (0,1))
   );
@@ -233,7 +237,7 @@ export const BANK_SCHEMA = `
     transaction_id TEXT PRIMARY KEY REFERENCES transactions(id) ON DELETE CASCADE, owner_id TEXT NOT NULL REFERENCES users(id)
   );
 `;
-TABLES.push('user_preferences', 'dashboard_preferences', 'bank_connections', 'bank_accounts', 'bank_account_exclusions', 'bank_exclusion_cleanups', 'bank_movements', 'savings_destinations', 'savings_contributions', 'goal_plans', 'savings_settings', 'savings_allocations', 'salary_payers', 'private_transactions', 'savings_balance_allocations');
+TABLES.push('user_preferences', 'dashboard_preferences', 'bank_connections', 'bank_accounts', 'bank_account_exclusions', 'bank_exclusion_cleanups', 'bank_movements', 'savings_destinations', 'savings_contributions', 'goal_plans', 'savings_settings', 'savings_allocations', 'salary_payers', 'private_transactions', 'savings_balance_allocations', 'bank_rate_limits');
 // Push notifications: per-device subscriptions, per-account choices, a log that
 // sends each notice once, and the VAPID keys when they are not set in the environment.
 export const NOTIFICATION_SCHEMA = `

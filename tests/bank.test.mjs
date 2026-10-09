@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { unzipSync } from 'fflate';
 import { createApp } from '../server/app.mjs';
-import { enableBankingProvider, normalizeTransactions, parseAmount, pickBalance, ruleCategory, splitSavings } from '../server/bank.mjs';
+import { BankError, enableBankingProvider, normalizeTransactions, parseAmount, pickBalance, ruleCategory, splitSavings } from '../server/bank.mjs';
 
 const NOW = Date.parse('2026-10-15T10:00:00Z');
 const IBAN_A = 'IT60X0542811101000000123456';
@@ -585,6 +585,38 @@ test('cards linked before the IBAN rule are removed with their imported records'
   assert.deepEqual(data.bank.accounts.map(a => a.name), ['Conto Alice']);
   assert.equal(data.bank.total, 145055);
   assert.equal(data.transactions.some(t => t.description === 'Ristorante'), false);
+});
+
+test('a bank that limits reads keeps the link active and is read every 6 hours, even with its owner present', async () => {
+  await start({ bankProvider: provider });
+  const { alice } = await family();
+  await link(alice, 'alice', 'shared');
+  const balance = () => instance.db.prepare('SELECT balance FROM bank_accounts').get().balance;
+  assert.equal(balance(), 145055);
+  const reads = () => provider.calls.filter(c => c[0] === 'transactions').length;
+  const setAttempt = value => instance.db.prepare('UPDATE bank_connections SET last_attempt_at = ?').run(value);
+  provider.balances = async () => { throw new BankError('rate', 429); };
+  setAttempt('2026-10-15T09:54:00.000Z');
+  assert.deepEqual(await (await request('/bank/refresh', { method: 'POST', session: alice })).json(), { synced: 0 });
+  const connection = (await state(alice)).bank.connections[0];
+  assert.equal(connection.status, 'active', 'a read limit is not a failing link');
+  assert.match(connection.last_error, /pochi aggiornamenti al giorno/);
+  assert.equal(balance(), 145055, 'the last balance stays');
+
+  const before = reads();
+  provider.balances = async uid => provider.data.balances[uid] || [];
+  setAttempt('2026-10-15T09:54:00.000Z');
+  assert.deepEqual(await (await request('/bank/refresh', { method: 'POST', session: alice })).json(), { synced: 0 });
+  const manual = await request(`/bank/connections/${connection.id}/sync`, { method: 'POST', session: alice });
+  assert.equal(manual.status, 429);
+  assert.match((await manual.json()).error, /pochi aggiornamenti al giorno/);
+  assert.equal(reads(), before, 'no read within 6 hours');
+  setAttempt('2026-10-15T03:59:00.000Z');
+  assert.deepEqual(await (await request('/bank/refresh', { method: 'POST', session: alice })).json(), { synced: 1 });
+  assert.equal(reads(), before + 1);
+  assert.equal((await state(alice)).bank.connections[0].last_error, null);
+  setAttempt('2026-10-15T09:54:00.000Z');
+  assert.deepEqual(await (await request('/bank/refresh', { method: 'POST', session: alice })).json(), { synced: 0 }, 'the slower pace stays after a successful read');
 });
 
 test('new bank expenses to classify are notified to who can see them; a failing link to its owner', async () => {
