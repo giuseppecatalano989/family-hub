@@ -42,7 +42,12 @@ function fakeProvider() {
     async startAuthorization(options) { calls.push(['start', options]); return `https://bank.example/auth?state=${options.state}`; },
     async createSession(code) { calls.push(['session', code]); return { sessionId: `sess-${code}`, validUntil: '2027-04-10T10:00:00Z', accounts: data.sessions[code] || [] }; },
     async balances(uid) { return data.balances[uid] || []; },
-    async transactions(uid, from) { calls.push(['transactions', uid, from]); return data.transactions[uid] || []; },
+    // Banks like this one list pending movements only when asked (pendingOnRequest).
+    async transactions(uid, from, psu, status) {
+      calls.push(['transactions', uid, from, status]);
+      const rows = data.transactions[uid] || [];
+      return status ? rows.filter(t => t.status === status) : rows.filter(t => !data.pendingOnRequest || !['PDNG', 'HOLD'].includes(t.status));
+    },
     async endSession(id) { calls.push(['end', id]); },
   };
 }
@@ -260,7 +265,7 @@ test('renewing a consent keeps the account; background sync respects limits; exp
   assert.equal(instance.db.prepare('SELECT COUNT(*) AS count FROM bank_connections').get().count, 2);
   assert.ok(provider.calls.some(c => c[0] === 'end' && c[1] === 'sess-alice'));
 
-  const transactionCalls = () => provider.calls.filter(c => c[0] === 'transactions').length;
+  const transactionCalls = () => provider.calls.filter(c => c[0] === 'transactions' && !c[3]).length;
   const calls = transactionCalls();
   await instance.bank.synchronizeAll();
   assert.equal(transactionCalls(), calls, 'recent connections are not polled again');
@@ -657,11 +662,21 @@ test('pending movements are imported at once and booking replaces them without d
   assert.equal(data.transactions.find(t => t.description === 'Distributore Eni').id, fuel.id);
   assert.deepEqual(movements().map(m => m.external_id).sort(), ['e:b1', 'e:b2', 'p:e:p4']);
 
+  // Banks that list pending movements and card holds only when asked are asked apart.
+  provider.data.pendingOnRequest = true;
+  provider.data.transactions['uid-a'].push(tx('h1', '7.50', 'DBIT', null, { status: 'HOLD', transaction_date: '2026-10-15', creditor: { name: 'Bar Centrale' } }));
+  await refresh();
+  assert.deepEqual((await state(alice)).transactions.map(t => t.description).sort(), ['Bar Centrale', 'Distributore Eni', 'Negozio Vario', 'Regalo']);
+  assert.deepEqual(provider.calls.filter(c => c[0] === 'transactions').slice(-3).map(c => c[3]), [undefined, 'PDNG', 'HOLD']);
+  provider.data.pendingOnRequest = false;
+  provider.data.transactions['uid-a'].pop();
+  await refresh();
+
   // Reading again never duplicates them; an older pending movement widens the read.
   instance.db.prepare("UPDATE bank_movements SET date = '2026-09-28' WHERE external_id = 'p:e:p4'").run();
   await refresh();
   assert.equal((await state(alice)).transactions.length, 3);
-  assert.equal(provider.calls.filter(c => c[0] === 'transactions').at(-1)[2], '2026-09-28', 'the read covers every stored pending movement');
+  assert.equal(provider.calls.filter(c => c[0] === 'transactions' && !c[3]).at(-1)[2], '2026-09-28', 'the read covers every stored pending movement');
 });
 
 test('new bank expenses to classify are notified to who can see them; a failing link to its owner', async () => {
