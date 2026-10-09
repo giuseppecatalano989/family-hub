@@ -224,12 +224,12 @@ export function anthropicAdvisor({ apiKey = process.env.ANTHROPIC_API_KEY, model
   };
 }
 
-function present(report, { current, overrides }) {
+function present(report, { current, overrides, unread }) {
   if (!report) return null;
   const facts = JSON.parse(report.facts); const advice = JSON.parse(report.advice);
   const applied = advice.adjustment && overrides.find(o => o.month === advice.adjustment.month && o.report_id === report.id);
   return {
-    id: report.id, kind: report.kind, period: report.period, month: report.month, createdAt: report.created_at,
+    id: report.id, kind: report.kind, period: report.period, month: report.month, createdAt: report.created_at, unread: unread(report),
     headline: advice.headline, summary: advice.summary, tips: advice.tips,
     adjustment: advice.adjustment && { ...advice.adjustment, applied: !!applied, applicable: advice.adjustment.month >= current },
     alerts: facts.alerts, subscriptions: facts.subscriptions.slice(0, 5), frequent: facts.frequent.slice(0, 3), duplicates: facts.duplicates.slice(0, 3),
@@ -354,8 +354,10 @@ export function installAdvisor(app, { db, one, all, run, atomic, fail, exclusive
       // that began in the closed month is no longer shown.
       const weeklyRow = enabled ? await latest('weekly') : null;
       const weekly = weeklyRow && (!monthly || weeklyRow.period > `${monthly.month}-31`) ? weeklyRow : null;
-      const newest = [weekly, monthly].filter(Boolean).map(r => r.created_at).sort().at(-1) || null;
-      const read = newest && await one('SELECT read_at FROM advisor_reads WHERE user_id = ?', user.id);
+      // Read per kind; reads saved before the two were separate count for both.
+      const before = (await one('SELECT read_at FROM advisor_reads WHERE user_id = ?', user.id))?.read_at || '';
+      const reads = Object.fromEntries((await all('SELECT kind, read_at FROM advisor_kind_reads WHERE user_id = ?', user.id)).map(r => [r.kind, r.read_at]));
+      const unread = report => !!report && report.created_at > [before, reads[report.kind] || ''].sort().at(-1);
       const hints = enabled ? await all(`SELECT h.transaction_id, h.category_id FROM advisor_category_hints h JOIN transactions t ON t.id = h.transaction_id
         WHERE t.household_id = ? AND t.category_id IS NULL AND NOT EXISTS (SELECT 1 FROM private_transactions p WHERE p.transaction_id = t.id)`, user.household_id) : [];
       const override = overrides.find(o => o.month === month);
@@ -363,8 +365,8 @@ export function installAdvisor(app, { db, one, all, run, atomic, fail, exclusive
         configured: !!model, enabled, canManage: user.role === 'admin',
         automatic: !!(await one('SELECT automatic FROM advisor_assignment WHERE household_id = ?', user.household_id))?.automatic,
         running: !!row?.running_since && clock() - Date.parse(row.running_since) < RUNNING_LIMIT, error: row?.last_error || null,
-        weekly: present(weekly, { current, overrides }), monthly: present(monthly, { current, overrides }),
-        unread: !!newest && (!read || read.read_at < newest),
+        weekly: present(weekly, { current, overrides, unread }), monthly: present(monthly, { current, overrides, unread }),
+        unread: unread(weekly) || unread(monthly),
         hints: Object.fromEntries(hints.map(h => [h.transaction_id, h.category_id])),
         override: override ? { month: override.month, fromReport: !!override.report_id } : null,
       };
@@ -396,11 +398,10 @@ export function installAdvisor(app, { db, one, all, run, atomic, fail, exclusive
         res.json({ ok: true });
       });
       // Reading is personal: the highlight goes away for whoever opened the reports.
-      app.post('/api/advisor/read', async (req, res) => {
-        const seen = req.body?.seen;
-        if (typeof seen !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(seen) || Number.isNaN(Date.parse(seen))) fail('Report non valido.');
-        const at = seen > now() ? now() : seen;
-        await run(`INSERT INTO advisor_reads VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET read_at = CASE WHEN advisor_reads.read_at > excluded.read_at THEN advisor_reads.read_at ELSE excluded.read_at END`, req.user.id, at);
+      app.post('/api/advisor/reports/:id/read', async (req, res) => {
+        const report = await one('SELECT kind, created_at FROM advisor_reports WHERE id = ? AND household_id = ?', req.params.id, req.user.household_id);
+        if (!report) fail('Report non trovato.', 404);
+        await run(`INSERT INTO advisor_kind_reads VALUES (?, ?, ?) ON CONFLICT(user_id, kind) DO UPDATE SET read_at = CASE WHEN advisor_kind_reads.read_at > excluded.read_at THEN advisor_kind_reads.read_at ELSE excluded.read_at END`, req.user.id, report.kind, report.created_at);
         res.json({ ok: true });
       });
       // The suggested split holds for its month only; the next month returns to

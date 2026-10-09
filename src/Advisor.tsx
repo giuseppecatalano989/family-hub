@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertCircle, CalendarClock, CircleCheck, FileText, Info, Repeat, RefreshCw, Scissors, Sparkles, Target } from 'lucide-react';
 import { Empty, Modal, SectionHeading } from './components';
 import { money } from './finance';
@@ -32,19 +32,41 @@ export function AdvisorCard({ data, act, busy }: { data: FamilyState; act: Act; 
 }
 
 // The report button beside the month: it lights up when a report has arrived
-// that this account has not opened yet.
+// that this account has not opened yet, and opens a small menu to pick the
+// weekly or the monthly report.
 export function AdvisorButton({ data, act, busy, mutate }: { data: FamilyState; act: Act; busy: boolean; mutate: <T>(path: string, method: string, body?: unknown) => Promise<T> }) {
   const { advisor } = data;
-  const [open, setOpen] = useState(false);
-  const newest = [advisor.weekly, advisor.monthly].flatMap(r => r ? [r.createdAt] : []).sort().at(-1);
-  function show() {
-    setOpen(true);
-    if (advisor.unread && newest) void mutate('/advisor/read', 'POST', { seen: newest }).catch(() => {});
+  const [menu, setMenu] = useState(false);
+  const [kind, setKind] = useState<'weekly' | 'monthly' | null>(null);
+  const wrap = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menu) return;
+    const outside = (event: MouseEvent) => { if (!wrap.current?.contains(event.target as Node)) setMenu(false); };
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { setMenu(false); wrap.current?.querySelector<HTMLElement>('.report-button')?.focus(); } };
+    document.addEventListener('mousedown', outside); document.addEventListener('keydown', escape);
+    wrap.current?.querySelector<HTMLElement>('[role=menuitem]:not(:disabled)')?.focus();
+    return () => { document.removeEventListener('mousedown', outside); document.removeEventListener('keydown', escape); };
+  }, [menu]);
+  const close = useCallback(() => setKind(null), []);
+  function pick(report: AdvisorReport) {
+    setMenu(false); setKind(report.kind);
+    if (report.unread) void mutate(`/advisor/reports/${report.id}/read`, 'POST').catch(() => {});
   }
-  return <>
-    <button type="button" className={`icon-button report-button ${advisor.unread ? 'has-new' : ''}`} aria-label={advisor.unread ? 'Report del budget: nuovo report da leggere' : 'Report del budget'} title="Report del budget" onClick={show}><FileText size={19} />{advisor.unread && <span className="report-dot" aria-hidden="true" />}</button>
-    {open && <Modal title="Report del budget" subtitle="L’ultimo report della settimana e quello del mese." onClose={() => setOpen(false)}><AdvisorReports data={data} act={act} busy={busy} /></Modal>}
-  </>;
+  const items = [
+    { report: advisor.weekly, label: 'Report settimanale', detail: advisor.weekly?.week ? `Dal ${shortDay(advisor.weekly.week.from)} al ${shortDay(advisor.weekly.week.to)}` : 'Il prossimo arriva lunedì' },
+    { report: advisor.monthly, label: 'Report mensile', detail: advisor.monthly ? monthName(advisor.monthly.month).replace(/^./, c => c.toUpperCase()) : 'Il prossimo arriva il 1° del mese' },
+  ];
+  const shown = kind && advisor[kind];
+  return <div className="report-menu-wrap" ref={wrap}>
+    <button type="button" className={`icon-button report-button ${advisor.unread ? 'has-new' : ''}`} aria-label={advisor.unread ? 'Report del budget: nuovo report da leggere' : 'Report del budget'} title="Report del budget" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu(!menu)}><FileText size={19} />{advisor.unread && <span className="report-dot" aria-hidden="true" />}</button>
+    {menu && <div className="report-menu" role="menu" aria-label="Report del budget">
+      {advisor.running && <p className="report-menu-note"><RefreshCw className="spin" size={13} />Nuovo report in preparazione</p>}
+      {items.map(({ report, label, detail }) => <button key={label} type="button" role="menuitem" disabled={!report} onClick={() => report && pick(report)}>
+        <span className="report-menu-icon"><FileText size={16} /></span><span><strong>{label}</strong><small>{detail}</small></span>{report?.unread && <i className="report-menu-new">Nuovo</i>}
+      </button>)}
+    </div>}
+    {shown && <Modal title={shown.kind === 'weekly' ? 'Report settimanale' : 'Report mensile'} onClose={close}><div className="advice-reports"><Report report={shown} data={data} act={act} busy={busy} /><p className="advice-note"><Sparkles size={15} />Preparato con Claude. Le cifre sono calcolate dall’app sui vostri movimenti.</p></div></Modal>}
+  </div>;
 }
 
 function Report({ report, data, act, busy }: { report: AdvisorReport; data: FamilyState; act: Act; busy: boolean }) {

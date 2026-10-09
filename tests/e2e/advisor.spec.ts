@@ -43,8 +43,17 @@ test('budget reports arrive by themselves, light up the report button and a sugg
   await page.screenshot({ path: info.outputPath('panoramica-icona-report.png'), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
+  // The button opens a small menu with the weekly and the monthly report; new ones are marked.
   await button.click();
-  const reports = page.getByRole('dialog', { name: 'Report del budget' });
+  const menu = page.getByRole('menu', { name: 'Report del budget' });
+  await expect(menu.getByRole('menuitem')).toHaveCount(2);
+  await page.screenshot({ path: info.outputPath('menu-report.png') });
+  const fresh = menu.getByRole('menuitem').filter({ hasText: 'Nuovo' });
+  const freshCount = await fresh.count();
+  expect(freshCount).toBeGreaterThan(0);
+  await fresh.first().click();
+  await expect(menu).toHaveCount(0);
+  const reports = page.getByRole('dialog', { name: /^Report (settimanale|mensile)$/ });
   await expect(reports.getByRole('heading', { name: 'Svago corre più veloce del previsto' }).first()).toBeVisible();
   await expect(reports.getByText('Rivedete le cene fuori').first()).toBeVisible();
   // A refresh of the state while reading keeps the dialog where it was.
@@ -59,6 +68,8 @@ test('budget reports arrive by themselves, light up the report button and a sugg
   await expect(reports.getByText(`Applicata a ${month}`).first()).toBeVisible();
   await page.screenshot({ path: info.outputPath('report-del-budget.png') });
   await reports.getByRole('button', { name: 'Chiudi finestra' }).click();
+  // Early in the month both reports may be new: the other one is read too.
+  if (freshCount > 1) { await button.click(); await fresh.first().click(); await reports.getByRole('button', { name: 'Chiudi finestra' }).click(); }
   // Read: the highlight goes away, also after reloading.
   await expect(page.getByRole('button', { name: 'Report del budget', exact: true })).toBeVisible();
   await page.reload();
