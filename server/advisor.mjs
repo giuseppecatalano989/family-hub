@@ -12,7 +12,7 @@ import { mondayOf } from './workflows.mjs';
 // and descriptions lose IBANs and long codes before leaving the server.
 
 export const DEFAULT_ADVISOR_MODEL = 'claude-opus-5-5';
-const SAVINGS_POSITION = 5; const MONTHLY_DAYS = 7; const RUNNING_LIMIT = 10 * 60000; const RETRY_GAP = 6 * 3600000;
+const SAVINGS_POSITION = 5; const MONTHLY_DAYS = 7; const LUMP_AMOUNT = 15000; const RUNNING_LIMIT = 10 * 60000; const RETRY_GAP = 6 * 3600000;
 const MONTHS = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
 export const monthName = month => `${MONTHS[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
 export function shiftMonth(month, delta) {
@@ -21,6 +21,8 @@ export function shiftMonth(month, delta) {
 }
 const daysIn = month => new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5)), 0)).getUTCDate();
 const sum = list => list.reduce((total, row) => total + Number(row.amount), 0);
+// Housing, utilities, instalments and insurance: paid once a month or less, never day by day.
+const FIXED_WORDS = /\b(affitt\w*|canone|locazione|condomin\w*|mutuo|rata|bollett\w*|utenz\w*|assicurazion\w*|tari|imu|sdd|addebito diretto|domiciliazione|enel|plenitude|a2a|hera|iren|acea|edison|sorgenia|tim|vodafone|windtre|fastweb|iliad)\b/i;
 const median = values => { const sorted = [...values].sort((a, b) => a - b); return sorted[Math.floor((sorted.length - 1) / 2)]; };
 
 // Removes what identifies accounts or people's documents: IBANs, card and
@@ -57,21 +59,40 @@ export function analyze({ kind, today, month, categories, limits, base, rows, de
     }
   }
   upcoming.sort((a, b) => a.date.localeCompare(b.date));
+  // Payments to the same payee in two months or more, about once a month with
+  // similar amounts: rent, bills and subscriptions paid without a rule.
+  const repeated = new Set();
+  const byPayee = new Map();
+  for (const row of expenses) { const key = merchantKey(row.description); if (key) byPayee.set(key, [...(byPayee.get(key) || []), row]); }
+  for (const [key, list] of byPayee) {
+    const months = new Set(list.map(r => r.date.slice(0, 7))).size; const amounts = list.map(r => Number(r.amount));
+    if (months >= 2 && list.length <= months * 1.5 && Math.max(...amounts) <= Math.min(...amounts) * 1.5) repeated.add(key);
+  }
+  // Fixed or one-off payments are counted once, for what they are: recurring
+  // rules, paid deadlines, future dates, rent and bills, monthly payees and any
+  // single payment from 150 euros. Only everyday spending follows the pace of the days.
+  const steady = r => !!(Number(r.recurring) || Number(r.scheduled) || r.date > today || Number(r.amount) >= LUMP_AMOUNT
+    || FIXED_WORDS.test(String(r.description)) || repeated.has(merchantKey(r.description)));
   const byCategory = categories.map((c, index) => {
     const list = inMonth.filter(r => r.category_id === c.id);
     const spent = sum(list);
-    const fixed = sum(list.filter(r => Number(r.recurring) || Number(r.scheduled) || r.date > today));
-    const due = open ? sum(upcoming.filter(u => u.categoryId === c.id && u.date.startsWith(month))) : 0;
-    // Variable spending continues at the pace of the elapsed days; recurring
-    // costs and deadlines count once, for what they are.
+    const fixedRows = list.filter(steady);
+    const fixed = sum(fixedRows);
+    // A deadline already paid by an imported payment of about the same amount is not due again.
+    const paid = [...fixedRows];
+    const due = open ? sum(upcoming.filter(u => u.categoryId === c.id && u.date.startsWith(month)).filter(u => {
+      const match = paid.findIndex(r => Math.abs(Number(r.amount) - u.amount) <= u.amount * 0.2);
+      if (match < 0) return true;
+      paid.splice(match, 1); return false;
+    })) : 0;
     const projected = open && elapsed < days ? fixed + due + Math.round((spent - fixed) * days / Math.max(elapsed, 1)) : spent;
     const previous = [1, 2, 3].map(step => sum(expenses.filter(r => r.category_id === c.id && r.date.startsWith(shiftMonth(month, -step)))));
-    return { id: c.id, name: c.name, percentage: c.percentage, savings: index === 5, limit: limits[c.id] ?? 0, spent, fixed, projected, previous };
+    return { id: c.id, name: c.name, percentage: c.percentage, savings: index === 5, limit: limits[c.id] ?? 0, spent, fixed, due, projected, previous };
   });
   const daysLeft = open ? days - elapsed + 1 : 0;
   const alerts = byCategory.filter(c => !c.savings && base > 0 && (c.spent > c.limit || (open && c.projected > c.limit)))
     .map(c => ({ categoryId: c.id, name: c.name, spent: c.spent, limit: c.limit, projected: c.projected, status: c.spent > c.limit ? 'over' : 'risk',
-      perDay: c.spent < c.limit && daysLeft ? Math.floor((c.limit - c.spent) / daysLeft) : 0 }))
+      perDay: c.spent + c.due < c.limit && daysLeft ? Math.floor((c.limit - c.spent - c.due) / daysLeft) : 0 }))
     .sort((a, b) => (b.projected - b.limit) - (a.projected - a.limit));
 
   // Repeated payments to the same service: three months or more, about once a
@@ -114,8 +135,10 @@ export function analyze({ kind, today, month, categories, limits, base, rows, de
   const week = kind === 'weekly' ? (() => {
     const from = addDays(today, -7); const to = addDays(today, -1);
     const list = expenses.filter(r => r.date >= from && r.date <= to);
-    return { from, to, total: sum(list), categories: Object.fromEntries(categories.map(c => [c.id, sum(list.filter(r => r.category_id === c.id))])),
-      largest: list.filter(r => !Number(r.private)).sort((a, b) => b.amount - a.amount).slice(0, 8).map(r => ({ name: scrub(r.description), amount: Number(r.amount), date: r.date, categoryId: r.category_id })) };
+    const everyday = list.filter(r => !steady(r));
+    return { from, to, total: sum(list), everyday: sum(everyday), categories: Object.fromEntries(categories.map(c => [c.id, sum(list.filter(r => r.category_id === c.id))])),
+      everydayCategories: Object.fromEntries(categories.map(c => [c.id, sum(everyday.filter(r => r.category_id === c.id))])),
+      largest: list.filter(r => !Number(r.private)).sort((a, b) => b.amount - a.amount).slice(0, 8).map(r => ({ name: scrub(r.description), amount: Number(r.amount), date: r.date, categoryId: r.category_id, fixed: steady(r) })) };
   })() : null;
 
   const uncategorized = shared.filter(r => !r.category_id && r.date >= addDays(today, -45)).slice(-40).map(r => ({ id: r.id, name: scrub(r.description), amount: Number(r.amount), date: r.date }));
@@ -144,7 +167,9 @@ export function modelInput(facts, { current, months }) {
     entrate_ricorrenti_da_ripartire: euros(facts.base), entrate_del_mese: euros(facts.income), uscite_del_mese: euros(facts.expense),
     categorie: facts.categories.map(c => ({ id: c.id, nome: c.name, percentuale: c.percentage / 100, risparmio: c.savings, massimale: euros(c.limit), speso: euros(c.spent), di_cui_fisso: euros(c.fixed), proiezione_fine_mese: euros(c.projected), mesi_precedenti: c.previous.map(euros) })),
     sforamenti: facts.alerts.map(a => ({ categoria: a.name, stato: a.status === 'over' ? 'superato' : 'a rischio', speso: euros(a.spent), massimale: euros(a.limit), proiezione: euros(a.projected), al_giorno_per_rientrare: euros(a.perDay) })),
-    settimana: facts.week && { dal: facts.week.from, al: facts.week.to, totale: euros(facts.week.total), per_categoria: Object.fromEntries(Object.entries(facts.week.categories).map(([id, v]) => [name(id) || id, euros(v)])), spese_maggiori: facts.week.largest.map(r => ({ descrizione: r.name, importo: euros(r.amount), data: r.date, categoria: name(r.categoryId) })) },
+    settimana: facts.week && { dal: facts.week.from, al: facts.week.to, totale: euros(facts.week.total), di_cui_spese_quotidiane: euros(facts.week.everyday),
+      per_categoria: Object.fromEntries(Object.entries(facts.week.categories).map(([id, v]) => [name(id) || id, { totale: euros(v), di_cui_quotidiane: euros(facts.week.everydayCategories[id]) }])),
+      spese_maggiori: facts.week.largest.map(r => ({ descrizione: r.name, importo: euros(r.amount), data: r.date, categoria: name(r.categoryId), fissa_o_una_tantum: r.fixed })) },
     abbonamenti_e_pagamenti_ripetuti: facts.subscriptions.map(s => ({ descrizione: s.name, al_mese: euros(s.monthly), all_anno: euros(s.yearly), ultimo: euros(s.last), dal: s.since, aumentato: s.increased })),
     piccole_spese_frequenti: facts.frequent.map(f => ({ descrizione: f.name, volte: f.count, totale: euros(f.total), media_mesi_precedenti: euros(f.previousAverage) })),
     possibili_doppioni: facts.duplicates.map(d => ({ descrizione: d.name, importo: euros(d.amount), date: d.dates })),
@@ -158,6 +183,7 @@ export const SYSTEM_PROMPT = `Sei il consulente del budget di una famiglia itali
 
 Come lavorare:
 - Usa solo i numeri forniti: non ricalcolare totali e non inventare movimenti, negozi o importi. Se citi una cifra, deve comparire nei dati.
+- Spese fisse e una tantum: affitto, bollette, rate, assicurazioni, abbonamenti e i pagamenti singoli importanti ("di_cui_fisso", "fissa_o_una_tantum": true) si pagano una volta e pesano tutti insieme sulla settimana o sul giorno in cui arrivano. Non giudicarle sul ritmo giornaliero o settimanale e non dire di aver speso troppo in una settimana per colpa loro: confrontale con il massimale del mese. Il ritmo di spesa riguarda solo le spese quotidiane ("di_cui_quotidiane", "di_cui_spese_quotidiane"); la proiezione di fine mese conta già le spese fisse una volta sola.
 - Report settimanale: com'è andata la settimana e come rientrare nel budget entro fine mese. Report mensile: com'è andato il mese chiuso e cosa preparare per il mese corrente.
 - Consigli ("tips"): da 2 a 5, ciascuno con un'azione precisa. Usa "avoid" per spese da evitare o rivedere (abbonamenti, piccole spese frequenti, doppioni, aumenti), "adjust" per aggiustamenti del periodo, "goal" per gli obiettivi, "info" per il resto. La categoria con "risparmio": true non è una spesa da tagliare.
 - Ripartizione ("adjustment"): proponila ("propose": true) solo se una scadenza in arrivo, un mese pesante o uno sforamento la giustificano; altrimenti "propose": false con "percentages" vuoto. Vale per un solo mese, scelto tra quelli ammessi, e il mese dopo torna la ripartizione abituale. Indica una percentuale intera per ogni categoria, con gli stessi id, e la somma deve fare 100. Spiega il motivo in una frase.

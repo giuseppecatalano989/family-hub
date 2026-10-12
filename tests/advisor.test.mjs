@@ -35,7 +35,8 @@ test('the analysis projects variable spending, counts fixed costs once and finds
     deadlines: [{ id: 'ins', name: 'Assicurazione auto', start_date: '2026-11-20', due_day: 20, frequency: 'yearly', amount: 62000, category_id: 'car' }], handled: [], goals: [] });
   const fun = facts.categories.find(c => c.id === 'fun');
   assert.equal(fun.spent, 6000 + 9000 + 1799 + 30000, 'private records count in the totals');
-  assert.equal(fun.projected, Math.round(46799 * 31 / 14), 'variable spending follows the pace of the elapsed days');
+  assert.equal(fun.fixed, 1799 + 30000, 'a monthly payee and a large single payment are counted once');
+  assert.equal(fun.projected, 31799 + Math.round(15000 * 31 / 14), 'everyday spending follows the pace of the elapsed days');
   const home = facts.categories.find(c => c.id === 'home');
   assert.equal(home.projected, 80000, 'the rent is counted once, not projected');
   const alert = facts.alerts.find(a => a.categoryId === 'fun');
@@ -47,6 +48,31 @@ test('the analysis projects variable spending, counts fixed costs once and finds
   assert.deepEqual(facts.uncategorized, [{ id: 'u1', name: 'Farmacia [IBAN]', amount: 2500, date: '2026-10-12' }]);
   const input = modelInput(facts, { current: '2026-10', months: ['2026-10', '2026-11'] });
   assert.doesNotMatch(input, /Regalo privato|IT60X054/, 'private descriptions and IBANs never reach the model');
+});
+
+test('rent and bills paid without a rule are not judged on the pace of the days', () => {
+  const rows = [
+    row('r1', '2026-10-02', 75000, 'home', 'Bonifico a favore di Rossi Mario'),
+    row('r0', '2026-09-02', 75000, 'home', 'Bonifico a favore di Rossi Mario'),
+    row('e1', '2026-10-05', 9200, 'home', 'Addebito SDD Enel Energia'),
+    row('w1', '2026-10-06', 4800, 'home', 'Bolletta acqua'),
+    row('g1', '2026-10-03', 3000, 'food', 'Supermercato Sole'), row('g2', '2026-10-06', 2000, 'food', 'Forno'),
+  ];
+  const limits = { home: 105000, food: 45000, car: 30000, health: 15000, fun: 30000, save: 75000 };
+  const facts = analyze({ kind: 'weekly', today: '2026-10-07', month: '2026-10', categories, limits, base: 300000, rows,
+    deadlines: [{ id: 'luce', name: 'Bolletta luce', start_date: '2026-10-05', due_day: 5, frequency: 'monthly', amount: 9000, category_id: 'home' }], handled: [], goals: [] });
+  const home = facts.categories.find(c => c.id === 'home');
+  assert.equal(home.fixed, 75000 + 9200 + 4800);
+  assert.equal(home.projected, 89000, 'the rent and the bills count once, and the bill paid by the bank is not due again');
+  assert.equal(facts.alerts.find(a => a.categoryId === 'home'), undefined, 'a week with the rent is not overspending');
+  assert.equal(facts.categories.find(c => c.id === 'food').projected, Math.round(5000 * 31 / 7));
+  assert.equal(facts.week.total, 75000 + 9200 + 4800 + 5000);
+  assert.equal(facts.week.everyday, 5000);
+  assert.deepEqual(facts.week.everydayCategories.home, 0);
+  assert.equal(facts.week.largest.find(r => r.amount === 75000).fixed, true);
+  const input = JSON.parse(modelInput(facts, { current: '2026-10', months: ['2026-10', '2026-11'] }));
+  assert.deepEqual(input.settimana.per_categoria.Casa, { totale: 890, di_cui_quotidiane: 0 });
+  assert.equal(input.settimana.di_cui_spese_quotidiane, 50);
 });
 
 test('the model answer is bounded: valid splits only, hints only for the family’s records', () => {
