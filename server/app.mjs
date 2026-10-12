@@ -83,6 +83,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
     const run = (sql, ...args) => db.prepare(sql).run(...args);
     const one = (sql, ...args) => db.prepare(sql).get(...args);
     const all = (sql, ...args) => db.prepare(sql).all(...args);
+    const snapshot = database?.read ? callback => database.read(callback) : callback => callback();
     const atomic = database ? callback => database.atomic(callback) : async (callback) => {
         db.exec('BEGIN IMMEDIATE');
         try {
@@ -414,30 +415,33 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
         if (typeof month !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || month < '1900-01' || month > '2199-12')
             fail('Mese non valido.');
         const hid = req.user.household_id;
-        await planning.materialize(hid, month);
-        const notes = await all('SELECT n.*, u.name AS author FROM notes n JOIN users u ON u.id = n.author_id WHERE n.household_id = ? ORDER BY pinned DESC, updated_at DESC', hid);
-        const attachments = await all('SELECT a.* FROM attachments a JOIN notes n ON n.id = a.note_id WHERE n.household_id = ?', hid);
-        res.json({
-            deadlines: await deadlines.state(req.user, month),
-            waste: await waste.state(hid),
-            ...await planning.state(req.user, month),
-            ...await workflows.state(req.user, month, req.query.week),
-            backups: req.user.role === 'admin' ? await backups.status() : null,
-            bank: await bank.state(req.user),
-            notifications: await notifications.state(req.user),
-            preferences: { showBankBalance: !!(await one('SELECT show_bank_balance FROM user_preferences WHERE user_id = ?', req.user.id))?.show_bank_balance, ...dashboardPreferences(await one('SELECT quick_actions, cards FROM dashboard_preferences WHERE user_id = ?', req.user.id)) },
-            household: await one('SELECT id, name FROM households WHERE id = ?', hid),
-            members: await all('SELECT id, name, role FROM users WHERE household_id = ? ORDER BY role, name', hid),
-            categories: await all('SELECT * FROM categories WHERE household_id = ? ORDER BY position', hid),
-            transactions: presentTransactions(await all(`SELECT t.*, u.name AS author, o.rule_id AS recurring_id, p.owner_id AS private_owner, (SELECT a.name FROM bank_movements m JOIN bank_accounts a ON a.id = m.account_id WHERE m.transaction_id = t.id) AS bank_account FROM transactions t JOIN users u ON u.id = t.author_id LEFT JOIN recurring_occurrences o ON o.transaction_id = t.id LEFT JOIN private_transactions p ON p.transaction_id = t.id WHERE t.household_id = ? AND substr(t.date, 1, 7) = ? ORDER BY t.date DESC, t.created_at DESC`, hid, month), req.user.id),
-            history: await monthlyHistory(hid, month),
-            budgetFallback: await budgetFallback(hid, month),
-            budgetSplit: await planning.splitFor(hid, month),
-            advisor: await advisor.state(req.user, month),
-            ...await savings.state(hid),
-            shopping: await all('SELECT s.*, u.name AS author FROM shopping s JOIN users u ON u.id = s.author_id WHERE s.household_id = ? ORDER BY s.checked, s.created_at DESC', hid),
-            notes: notes.map(note => ({ ...note, attachments: attachments.filter(a => a.note_id === note.id).map(({ storage_name, ...a }) => a) })),
-        });
+        // One connection for the whole snapshot instead of a transaction per query.
+        res.json(await snapshot(async () => {
+            await planning.materialize(hid, month);
+            const notes = await all('SELECT n.*, u.name AS author FROM notes n JOIN users u ON u.id = n.author_id WHERE n.household_id = ? ORDER BY pinned DESC, updated_at DESC', hid);
+            const attachments = await all('SELECT a.* FROM attachments a JOIN notes n ON n.id = a.note_id WHERE n.household_id = ?', hid);
+            return {
+                deadlines: await deadlines.state(req.user, month),
+                waste: await waste.state(hid),
+                ...await planning.state(req.user, month),
+                ...await workflows.state(req.user, month, req.query.week),
+                backups: req.user.role === 'admin' ? await backups.status() : null,
+                bank: await bank.state(req.user),
+                notifications: await notifications.state(req.user),
+                preferences: { showBankBalance: !!(await one('SELECT show_bank_balance FROM user_preferences WHERE user_id = ?', req.user.id))?.show_bank_balance, ...dashboardPreferences(await one('SELECT quick_actions, cards FROM dashboard_preferences WHERE user_id = ?', req.user.id)) },
+                household: await one('SELECT id, name FROM households WHERE id = ?', hid),
+                members: await all('SELECT id, name, role FROM users WHERE household_id = ? ORDER BY role, name', hid),
+                categories: await all('SELECT * FROM categories WHERE household_id = ? ORDER BY position', hid),
+                transactions: presentTransactions(await all(`SELECT t.*, u.name AS author, o.rule_id AS recurring_id, p.owner_id AS private_owner, (SELECT a.name FROM bank_movements m JOIN bank_accounts a ON a.id = m.account_id WHERE m.transaction_id = t.id) AS bank_account FROM transactions t JOIN users u ON u.id = t.author_id LEFT JOIN recurring_occurrences o ON o.transaction_id = t.id LEFT JOIN private_transactions p ON p.transaction_id = t.id WHERE t.household_id = ? AND substr(t.date, 1, 7) = ? ORDER BY t.date DESC, t.created_at DESC`, hid, month), req.user.id),
+                history: await monthlyHistory(hid, month),
+                budgetFallback: await budgetFallback(hid, month),
+                budgetSplit: await planning.splitFor(hid, month),
+                advisor: await advisor.state(req.user, month),
+                ...await savings.state(hid),
+                shopping: await all('SELECT s.*, u.name AS author FROM shopping s JOIN users u ON u.id = s.author_id WHERE s.household_id = ? ORDER BY s.checked, s.created_at DESC', hid),
+                notes: notes.map(note => ({ ...note, attachments: attachments.filter(a => a.note_id === note.id).map(({ storage_name, ...a }) => a) })),
+            };
+        }));
     });
     async function owned(table, id, user) {
         const record = await one(`SELECT * FROM ${table} WHERE id = ? AND household_id = ?`, id, user.household_id);
