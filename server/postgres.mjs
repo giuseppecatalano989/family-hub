@@ -20,15 +20,16 @@ export async function openPostgres(connectionString, { local = false, requireEmp
   for (const key of ['sslmode', 'sslcert', 'sslkey', 'sslrootcert', 'uselibpqcompat']) url.searchParams.delete(key);
   const pool = new Pool({ connectionString: url.toString(), max: 3, connectionTimeoutMillis: 15000, idleTimeoutMillis: 10000, allowExitOnIdle: true, ssl: local ? false : { rejectUnauthorized: true } });
   const context = new AsyncLocalStorage();
-  async function atomic(callback) {
-    if (context.getStore()) return callback();
+  // One round trip opens the transaction: every query costs a trip to the database.
+  const BEGIN = 'BEGIN; SET LOCAL search_path TO casa, public';
+  const LOCKED = `BEGIN; SELECT pg_advisory_xact_lock(${LOCK}); SET LOCAL search_path TO casa, public`;
+  const reads = sql => /^\s*SELECT\b/i.test(sql) && !/;\s*\S/.test(sql);
+  async function transaction(locked, callback) {
     const client = await pool.connect();
+    const store = { client, locked };
     try {
-      await client.query('BEGIN');
-      // Serializes compound writes and snapshots across serverless instances.
-      await client.query('SELECT pg_advisory_xact_lock($1)', [LOCK]);
-      await client.query('SET LOCAL search_path TO casa, public');
-      const result = await context.run(client, callback);
+      await client.query(locked ? LOCKED : BEGIN);
+      const result = await context.run(store, callback);
       await client.query('COMMIT');
       return result;
     } catch (error) {
@@ -37,13 +38,32 @@ export async function openPostgres(connectionString, { local = false, requireEmp
       throw error;
     } finally { client.release(); }
   }
+  // Serializes compound writes and snapshots across serverless instances. A read
+  // that turns into a write takes the lock before its first change.
+  async function lock(store) {
+    if (store.locked) return;
+    await store.client.query('SELECT pg_advisory_xact_lock($1)', [LOCK]);
+    store.locked = true;
+  }
+  async function atomic(callback) {
+    const store = context.getStore();
+    if (!store) return transaction(true, callback);
+    await lock(store);
+    return callback();
+  }
+  // Many reads on one connection, without waiting for the shared lock.
+  async function read(callback) {
+    if (context.getStore()) return callback();
+    return transaction(false, callback);
+  }
   async function query(sql, args = []) {
-    const client = context.getStore();
-    if (client) return client.query(placeholders(sql), args);
-    return atomic(() => query(sql, args));
+    const store = context.getStore();
+    if (!store) return reads(sql) ? read(() => query(sql, args)) : atomic(() => query(sql, args));
+    if (!reads(sql)) await lock(store);
+    return store.client.query(placeholders(sql), args);
   }
   const db = {
-    cloud: true, atomic, query,
+    cloud: true, atomic, read, query,
     prepare(sql) { return {
       async run(...args) { const result = await query(sql, args); return { changes: result.rowCount }; },
       async get(...args) { return (await query(sql, args)).rows[0]; },

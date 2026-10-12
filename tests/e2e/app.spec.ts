@@ -70,6 +70,18 @@ test('a family can manage money, goals, shopping and pinned files on desktop and
   await expect(page.locator('.shopping-row')).toContainText('Pasta fresca');
   await page.getByRole('checkbox', { name: 'Segna acquistato: Pasta fresca' }).click();
   await expect(page.getByRole('checkbox', { name: 'Da acquistare: Pasta fresca' })).toHaveAttribute('aria-checked', 'true');
+  // Quick taps are shown at once and saved in order.
+  await page.getByLabel('Prodotto', { exact: true }).fill('Latte');
+  await page.getByRole('button', { name: 'Aggiungi', exact: true }).click();
+  await page.getByRole('checkbox', { name: 'Segna acquistato: Latte' }).click();
+  await page.getByRole('checkbox', { name: 'Da acquistare: Pasta fresca' }).click();
+  await page.getByRole('checkbox', { name: 'Da acquistare: Latte' }).click();
+  await page.getByRole('checkbox', { name: 'Segna acquistato: Latte' }).click();
+  await expect(page.getByRole('checkbox', { name: 'Da acquistare: Latte' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByRole('checkbox', { name: 'Segna acquistato: Pasta fresca' })).toHaveAttribute('aria-checked', 'false');
+  await expect.poll(async () => (await (await page.request.get('/api/state?month=2026-10&week=2026-10-05')).json()).shopping.map((s: { name: string; checked: number }) => `${s.name}:${s.checked}`).sort()).toEqual(['Latte:1', 'Pasta fresca:0']);
+  await page.getByRole('checkbox', { name: 'Segna acquistato: Pasta fresca' }).click();
+  await expect(page.getByRole('checkbox', { name: 'Da acquistare: Pasta fresca' })).toHaveAttribute('aria-checked', 'true');
   await go(page, 'Lavagna');
   await page.getByRole('button', { name: 'Nuovo appunto' }).click();
   dialog = page.getByRole('dialog');
