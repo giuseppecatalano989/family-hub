@@ -1,10 +1,11 @@
 import { test, expect, type Page } from '@playwright/test';
-async function go(page: Page) {
+async function goTo(page: Page, name: string) {
   await page.getByRole('navigation').waitFor({state:'attached'});
   if(await page.getByRole('button',{name:'Apri menu'}).isVisible())await page.getByRole('button',{name:'Apri menu'}).click();
-  await page.getByRole('navigation').getByRole('button',{name:'Conferimento rifiuti',exact:true}).click();
+  await page.getByRole('navigation').getByRole('button',{name,exact:true}).click();
 }
-test('a family configures waste days, hours and instructions on desktop and mobile',async({page},info)=>{
+const go = (page: Page) => goTo(page, 'Conferimento rifiuti');
+test('a family configures waste days and plans shared calendar events on desktop and mobile',async({page},info)=>{
   const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await page.goto('/');
   await page.getByLabel('Il tuo nome').fill('Giuseppe');await page.getByLabel('Email',{exact:true}).fill(`waste-${info.project.name}-${Date.now()}@example.test`);await page.getByLabel('Password',{exact:true}).fill('test-password-123');await page.getByLabel('Nome del vostro spazio').fill('Famiglia rifiuti');await page.getByRole('button',{name:'Entra a casa'}).click();
   await go(page);await expect(page.getByRole('heading',{name:'Ogni rifiuto, nel giorno giusto.'})).toBeVisible();
@@ -16,5 +17,22 @@ test('a family configures waste days, hours and instructions on desktop and mobi
   for(const day of ['Lunedì','Martedì','Giovedì','Venerdì','Sabato','Domenica'])await dialog.getByRole('checkbox',{name:day,exact:true}).uncheck();
   await dialog.getByLabel('Indicazioni').fill('Piegare i cartoni');await dialog.getByRole('button',{name:'Salva conferimento'}).click();await expect(page.locator('.waste-type')).toContainText('Mercoledì');await expect(page.locator('.waste-day-item')).toHaveCount(1);
   await page.reload();await expect(page.locator('.waste-type')).toContainText('Piegare i cartoni');expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:info.outputPath('calendario-rifiuti.png'),fullPage:true});
-  page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'Elimina conferimento Carta e cartone'}).click();await expect(page.locator('.waste-type')).toHaveCount(0);await expect(page.getByRole('heading',{name:'Prepariamo il calendario di casa'})).toBeVisible();expect(errors).toEqual([]);
+  page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'Elimina conferimento Carta e cartone'}).click();await expect(page.locator('.waste-type')).toHaveCount(0);await expect(page.getByRole('heading',{name:'Prepariamo il calendario di casa'})).toBeVisible();
+  // The same family plans shared events in the calendar (one account keeps the suite under the sign-in limit).
+  await goTo(page,'Calendario');await expect(page.getByRole('heading',{name:'Il calendario di famiglia.'})).toBeVisible();await expect(page.getByRole('heading',{name:'Il calendario di casa'})).toBeVisible();
+  await page.getByRole('button',{name:'Nuovo evento'}).click();dialog=page.getByRole('dialog');
+  await dialog.getByLabel('Titolo').fill('Pediatra');await expect(dialog.getByRole('radio',{name:'Famiglia'})).toBeChecked();await dialog.getByRole('radio',{name:'Personale'}).check();await dialog.getByRole('checkbox',{name:'Tutto il giorno'}).uncheck();await dialog.getByLabel('Ora di inizio').fill('17:30');await dialog.getByLabel('Ora di fine').fill('18:15');
+  await dialog.getByLabel('Luogo').fill('Studio Bianchi');await dialog.getByLabel('Note').fill('Portare il libretto');await dialog.getByRole('button',{name:'Aggiungi evento'}).click();
+  const agenda=page.getByRole('region',{name:'Programma del giorno'});
+  await expect(agenda).toContainText('Pediatra');await expect(agenda).toContainText('17:30–18:15');await expect(agenda).toContainText('Studio Bianchi');await expect(agenda).toContainText('Aggiunto da Giuseppe');await expect(agenda).toContainText('Personale · Giuseppe');await expect(page.getByLabel('Colori del calendario')).toContainText('Giuseppe');
+  await expect(page.getByRole('region',{name:'Prossimi eventi'})).toContainText('Pediatra');
+  await page.getByRole('button',{name:'Aggiungi un evento in questo giorno'}).click();dialog=page.getByRole('dialog');
+  await dialog.getByLabel('Titolo').fill('Calcetto');await dialog.getByLabel('Ripetizione').selectOption('weekly');await dialog.getByRole('button',{name:'Aggiungi evento'}).click();
+  await expect(agenda).toContainText('Ogni settimana');await expect(agenda.locator('.calendar-event')).toHaveCount(2);
+  await page.getByRole('button',{name:'Modifica evento Pediatra'}).click();dialog=page.getByRole('dialog');await dialog.getByLabel('Titolo').fill('Visita dal pediatra');await dialog.getByRole('button',{name:'Salva evento'}).click();
+  await expect(agenda).toContainText('Visita dal pediatra');
+  await page.reload();await expect(page.getByRole('region',{name:'Programma del giorno'})).toContainText('Visita dal pediatra');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:info.outputPath('calendario.png'),fullPage:true});
+  await page.getByRole('button',{name:'Elimina evento Calcetto'}).click();await page.getByRole('dialog').getByRole('button',{name:'Solo questo evento'}).click();await expect(page.getByRole('region',{name:'Programma del giorno'}).locator('.calendar-event')).toHaveCount(1);await expect(page.getByRole('region',{name:'Prossimi eventi'})).toContainText('Calcetto');
+  await goTo(page,'Panoramica');await expect(page.getByRole('main').getByRole('button',{name:'Calendario',exact:true})).toContainText('Oggi: Visita dal pediatra');expect(errors).toEqual([]);
 });

@@ -126,6 +126,30 @@ export const WASTE_SCHEMA = `
   );
 `;
 TABLES.push('waste_schedules');
+// The family calendar: shared events, all-day or timed, one-off or repeating.
+export const CALENDAR_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS calendar_events (
+    id TEXT PRIMARY KEY, household_id TEXT NOT NULL REFERENCES households(id), title TEXT NOT NULL,
+    start_date TEXT NOT NULL, end_date TEXT NOT NULL, start_time TEXT NOT NULL, end_time TEXT NOT NULL,
+    location TEXT NOT NULL, notes TEXT NOT NULL, color TEXT NOT NULL,
+    recurrence TEXT NOT NULL CHECK(recurrence IN ('none','weekly','monthly','yearly')), recurrence_until TEXT,
+    author_id TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+    CHECK(end_date >= start_date)
+  );
+  CREATE INDEX IF NOT EXISTS calendar_events_household ON calendar_events(household_id, start_date);
+  CREATE TABLE IF NOT EXISTS calendar_owners (
+    event_id TEXT PRIMARY KEY REFERENCES calendar_events(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id)
+  );
+  CREATE TABLE IF NOT EXISTS calendar_skips (
+    event_id TEXT NOT NULL REFERENCES calendar_events(id) ON DELETE CASCADE, start_date TEXT NOT NULL, PRIMARY KEY(event_id, start_date)
+  );
+  CREATE TABLE IF NOT EXISTS member_colors (
+    user_id TEXT PRIMARY KEY REFERENCES users(id), color TEXT NOT NULL
+  );
+`;
+// Personal events belong to one member (otherwise they are the family's); skipped
+// dates remove single occurrences of a repeating event.
+TABLES.push('calendar_events', 'calendar_owners', 'calendar_skips', 'member_colors');
 
 export const DEADLINE_SCHEMA = `
   CREATE TABLE IF NOT EXISTS deadlines (

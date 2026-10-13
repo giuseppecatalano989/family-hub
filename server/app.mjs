@@ -5,6 +5,7 @@ import { randomBytes, randomUUID, createHash, scryptSync, timingSafeEqual } from
 import { mkdirSync, existsSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { installWaste } from './waste.mjs';
+import { installCalendar } from './calendar.mjs';
 import { installNotifications } from './notifications.mjs';
 import { installPlanning } from './planning.mjs';
 import { installDeadlines } from './deadlines.mjs';
@@ -362,6 +363,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
     const deadlines = installDeadlines(app, { db, one, all, run, atomic, owned, fail, text, cents, date, now });
     const planning = installPlanning(app, { db, one, all, run, atomic, owned, fail, text, cents, now, ...(clock ? { clock } : {}) });
     const waste = installWaste(app, { db, all, run, owned, fail, text });
+    const calendar = installCalendar(app, { db, one, all, run, atomic, owned, fail, text, date, now });
     const advisor = installAdvisor(app, { db, one, all, run, atomic, fail, exclusive, splitFor: planning.splitFor, budgetBase, notifications }, { model: advisorModel, schedule: scheduleBackground, ...(clock ? { clock } : {}) });
     advisor.routes();
     const savings = installGoalSavings(app, { one, all, run, atomic, owned, fail, cents, now, reconcile: bank.reconcileSavings });
@@ -423,6 +425,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             return {
                 deadlines: await deadlines.state(req.user, month),
                 waste: await waste.state(hid),
+                ...await calendar.state(hid),
                 ...await planning.state(req.user, month),
                 ...await workflows.state(req.user, month, req.query.week),
                 backups: req.user.role === 'admin' ? await backups.status() : null,

@@ -149,7 +149,7 @@ test('a family can manage money, goals, shopping and pinned files on desktop and
   expect((await csvPromise).suggestedFilename()).toBe('movimenti-casa.csv');
   await go(page, 'Panoramica');
   await expect(page.locator('.stat-card').first()).toContainText('3.200,00');
-  await expect(page.locator('.daily-panel .daily-row strong')).toHaveText(['Lista della spesa', 'Menu settimanale', 'Conferimento rifiuti', 'Scadenze', 'Lavagna di famiglia']);
+  await expect(page.locator('.daily-panel .daily-row strong')).toHaveText(['Lista della spesa', 'Menu settimanale', 'Calendario', 'Conferimento rifiuti', 'Scadenze', 'Lavagna di famiglia']);
   await expect(page.locator('.daily-panel .daily-row').last()).toHaveText('Lavagna di famiglia');
   await expect(page.locator('.daily-divider, .note-peek')).toHaveCount(0);
   await expect(page.locator('.overview-bottom .section-heading h2')).toHaveText(['I nostri prossimi traguardi', 'Gli ultimi movimenti', 'I mesi a confronto']);
