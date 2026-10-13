@@ -100,7 +100,7 @@ export default function PantryDialog({ data, week, onClose, mutate }: { data: Fa
       <p className="pantry-hint">{pending === 'photos' ? 'Preparo le foto…' : `Fino a ${MAX_PHOTOS} foto, ad esempio frigo, freezer e dispensa.`}</p>
       <label className="pantry-field">Porzioni per ricetta<input type="number" min={1} max={20} step={1} value={servings} onChange={e => setServings(Math.min(20, Math.max(1, Math.round(Number(e.target.value)) || 1)))} required /></label>
       <div className="pantry-field"><label htmlFor="pantry-note">Preferenze <span className="pantry-optional">(facoltativo)</span></label><textarea id="pantry-note" rows={2} maxLength={500} value={note} onChange={e => setNote(e.target.value)} placeholder="Ad esempio: niente carne, cene veloci, un bambino piccolo" /></div>
-      <p className="pantry-hint">Le foto vengono inviate a Claude solo per questa analisi e non vengono salvate. Analisi rimaste oggi per la famiglia: {data.pantry.remaining}.</p></div>
+      <p className="pantry-hint">Le foto vengono inviate a un servizio esterno di intelligenza artificiale solo per questa analisi e non vengono salvate. Analisi rimaste oggi per la famiglia: {data.pantry.remaining}.</p></div>
       {error && <div className="form-error" role="alert">{error}</div>}
       <div className="modal-footer"><button type="button" className="button secondary" onClick={onClose}>Annulla</button><button type="button" className="button primary" disabled={!photos.length || !!pending || !data.pantry.remaining} onClick={() => void analyse()}><Sparkles size={16} />Analizza le foto</button></div>
     </>}
