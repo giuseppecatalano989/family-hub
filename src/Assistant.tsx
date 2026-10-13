@@ -18,9 +18,7 @@ const recurrences = { none: '', weekly: 'ogni settimana', monthly: 'ogni mese', 
 const storageKey = (user: User) => `casa-assistente-${user.id}`;
 export const SUGGESTIONS = ['Come stiamo andando con il budget questo mese?', 'Quanto abbiamo speso in spesa alimentare negli ultimi tre mesi?', 'Cosa abbiamo in programma questa settimana?', 'Aggiungi latte e pane alla lista della spesa'];
 
-function read(user: User): ChatMessage[] {
-  try { const saved = JSON.parse(sessionStorage.getItem(storageKey(user)) || '[]'); return Array.isArray(saved) ? saved : []; } catch { return []; }
-}
+// Earlier versions kept the conversation in the tab: drop what they left.
 export function forgetChat(user: User | null) { if (user) try { sessionStorage.removeItem(storageKey(user)); } catch { /* storage unavailable */ } }
 
 // One short line per proposal, so that the next answer knows what was confirmed.
@@ -39,16 +37,15 @@ function history(messages: ChatMessage[]) {
   return turns.slice(-MAX_HISTORY);
 }
 
-// The conversation lives in this tab for this account: the overview and the
-// section share it, and it is cleared on sign-out.
+// The conversation lives only in memory for this account: the overview and the
+// section share it while moving around the app, and a reload or sign-out starts afresh.
 export function useAssistant(user: User | null): AssistantChat {
-  const [messages, setMessages] = useState<ChatMessage[]>(() => user ? read(user) : []);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const [remaining, setRemaining] = useState<number | null>(null);
   const current = useRef(messages); current.current = messages;
-  useEffect(() => { setMessages(user ? read(user) : []); setError(''); }, [user?.id]);
-  useEffect(() => { if (user) try { sessionStorage.setItem(storageKey(user), JSON.stringify(messages.slice(-40))); } catch { /* storage unavailable */ } }, [messages, user?.id]);
+  useEffect(() => { forgetChat(user); setMessages([]); setError(''); }, [user?.id]);
   const send = useCallback(async (raw: string) => {
     const text = raw.trim().slice(0, MAX_TEXT);
     if (!text || pending) return;

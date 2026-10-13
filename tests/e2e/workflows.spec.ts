@@ -166,6 +166,10 @@ test('deadlines have optional payments, weekly meals and pantry photos update sh
   await go(page, 'Lista della spesa');
   await expect(page.locator('.shopping-row')).toHaveCount(5);
   await expect(page.locator('.shopping-row').filter({ hasText: 'Caffè' })).toHaveCount(1);
+  // The conversation survives moving around the app, not a reload.
+  await go(page, 'Assistente'); await expect(page.locator('.assistant-panel .assistant-message.from-user')).toHaveCount(2);
+  await page.reload(); await expect(page.getByRole('heading', { name: 'Chiedi all’assistente.' })).toBeVisible();
+  await expect(page.locator('.assistant-panel .assistant-message')).toHaveCount(0);
 
   await go(page, 'Lavagna');
   await page.getByRole('button', { name: 'Nuovo appunto' }).click();
