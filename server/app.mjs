@@ -20,6 +20,7 @@ import { detachMember } from './member-removal.mjs';
 import { installBank, enableBankingProvider, presentTransactions } from './bank.mjs';
 import { installAdvisor, anthropicAdvisor } from './advisor.mjs';
 import { installPantry, anthropicPantry } from './pantry.mjs';
+import { installAssistant, anthropicAssistant } from './assistant.mjs';
 const MAX_CENTS = 1000000000;
 const COLORS = ['mint', 'amber', 'blue', 'rose', 'neutral'];
 const SESSION_MS = 14 * 86400000;
@@ -51,8 +52,8 @@ function boolean(value) {
         fail('Valore non valido.');
     return value ? 1 : 0;
 }
-// Overview cards in their default order: four figures, then five panels.
-const DASHBOARD_CARDS = ['income', 'expense', 'balance', 'savings', 'spending', 'advice', 'home', 'goals', 'recent', 'comparison'];
+// Overview cards in their default order: four figures, then the panels.
+const DASHBOARD_CARDS = ['income', 'expense', 'balance', 'savings', 'assistant', 'spending', 'advice', 'home', 'goals', 'recent', 'comparison'];
 function dashboardPreferences(row) {
     let saved = {};
     try { saved = row ? JSON.parse(row.cards) : {}; } catch { saved = {}; }
@@ -73,7 +74,7 @@ function passwordMatches(password, stored) {
     const candidate = scryptSync(password, salt, 64);
     return timingSafeEqual(candidate, Buffer.from(key, 'hex'));
 }
-export function createApp({ dataDir, production = false, trustProxy = false, distDir, automaticBackups = false, backupDir, database, cloudBackups, cronSecret, resetMailer = resetEmailSender(), appUrl = DEFAULT_APP_URL, scheduleResetDelivery, bankProvider = enableBankingProvider(), bankRedirectUrl = process.env.ENABLE_BANKING_REDIRECT_URL || `${appUrl}/api/bank/callback`, clock, pushSender, scheduleBackground, advisorModel = anthropicAdvisor(), pantryModel = anthropicPantry() } = {}) {
+export function createApp({ dataDir, production = false, trustProxy = false, distDir, automaticBackups = false, backupDir, database, cloudBackups, cronSecret, resetMailer = resetEmailSender(), appUrl = DEFAULT_APP_URL, scheduleResetDelivery, bankProvider = enableBankingProvider(), bankRedirectUrl = process.env.ENABLE_BANKING_REDIRECT_URL || `${appUrl}/api/bank/callback`, clock, pushSender, scheduleBackground, advisorModel = anthropicAdvisor(), pantryModel = anthropicPantry(), assistantModel = anthropicAssistant() } = {}) {
     if (!dataDir)
         throw new Error('dataDir is required');
     mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -370,6 +371,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
     const advisor = installAdvisor(app, { db, one, all, run, atomic, fail, exclusive, splitFor: planning.splitFor, budgetBase, notifications }, { model: advisorModel, schedule: scheduleBackground, ...(clock ? { clock } : {}) });
     advisor.routes();
     const pantry = installPantry(app, { db, one, run, atomic, fail, exclusive }, { model: pantryModel, ...(clock ? { clock } : {}) });
+    const assistant = installAssistant(app, { db, one, all, run, atomic, fail, exclusive, splitFor: planning.splitFor, budgetBase }, { model: assistantModel, ...(clock ? { clock } : {}) });
     const savings = installGoalSavings(app, { one, all, run, atomic, owned, fail, cents, now, reconcile: bank.reconcileSavings });
     bank.routes();
     const backups = cloudBackups || createBackupManager({ db, dataDir, backupDir, enabled: automaticBackups });
@@ -445,6 +447,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
                 budgetSplit: await planning.splitFor(hid, month),
                 advisor: await advisor.state(req.user, month),
                 pantry: await pantry.state(req.user),
+                assistant: await assistant.state(req.user),
                 ...await savings.state(hid),
                 shopping: await all('SELECT s.*, u.name AS author FROM shopping s JOIN users u ON u.id = s.author_id WHERE s.household_id = ? ORDER BY s.checked, s.created_at DESC', hid),
                 notes: notes.map(note => ({ ...note, attachments: attachments.filter(a => a.note_id === note.id).map(({ storage_name, ...a }) => a) })),

@@ -18,7 +18,7 @@ export interface FamilyState {
   household: { id: string; name: string };
   members: { id: string; name: string; role: string }[];
   recurring: RecurringRule[]; budgetTemplates: BudgetTemplate[]; activeTemplateId: string | null;
-  categories: Category[]; transactions: Transaction[]; history: MonthSummary[]; budgetFallback: { month: string; amount: number } | null; budgetSplit: Record<string, number> | null; advisor: AdvisorState; pantry: { available: boolean; remaining: number }; goals: Goal[]; contributions: Contribution[]; shopping: ShoppingItem[]; notes: Note[];
+  categories: Category[]; transactions: Transaction[]; history: MonthSummary[]; budgetFallback: { month: string; amount: number } | null; budgetSplit: Record<string, number> | null; advisor: AdvisorState; pantry: { available: boolean; remaining: number }; assistant: { available: boolean; remaining: number }; goals: Goal[]; contributions: Contribution[]; shopping: ShoppingItem[]; notes: Note[];
   deadlines: Deadline[]; waste: WasteSchedule[]; calendar: CalendarEvent[]; calendarColors: Record<string, string>; bills: Bill[]; meals: Meal[]; week: string; backups: BackupStatus | null;
   bank: BankState;
   notifications: { publicKey: string; types: Record<NotificationType, boolean>; devices: number };
@@ -54,7 +54,7 @@ export interface BankAccount {
 }
 export interface BankConnection { id: string; bank: string; country: string; status: 'active' | 'expired' | 'error'; valid_until: string; last_error: string | null }
 export interface BankState { configured: boolean; total: number; savingsTotal: number; accounts: BankAccount[]; connections: BankConnection[]; savingsStrategy: 'primary' | 'proportional'; savingsUnassigned: number }
-export type DashboardCard = 'income' | 'expense' | 'balance' | 'savings' | 'spending' | 'advice' | 'home' | 'goals' | 'recent' | 'comparison';
+export type DashboardCard = 'income' | 'expense' | 'balance' | 'savings' | 'assistant' | 'spending' | 'advice' | 'home' | 'goals' | 'recent' | 'comparison';
 export type NotificationType = 'notes' | 'shopping' | 'meals' | 'deadlines' | 'budget' | 'waste' | 'calendar' | 'bank';
 
 // Totals of a past month for the comparison; categories maps category id ('' for unclassified) to cents.
@@ -81,3 +81,14 @@ export interface AdvisorState {
 export interface PantryIngredient { name: string; quantity: string; section: string; available: boolean }
 export interface PantryRecipe { title: string; servings: number; minutes: number | null; summary: string; notes: string; ingredients: PantryIngredient[] }
 export interface PantryAnalysis { notice: string; found: { name: string; amount: string }[]; shopping: { name: string; quantity: string; section: string; reason: string }[]; recipes: PantryRecipe[]; remaining: number }
+
+// Changes the assistant proposes: each one is applied through the app's own
+// routes only when a member confirms it.
+type ProposedItem = { name: string; quantity: string; section: string };
+export type AssistantProposal = { id: string } & (
+  | { type: 'shopping'; items: ProposedItem[] }
+  | { type: 'event'; event: { title: string; startDate: string; endDate: string; startTime: string; endTime: string; location: string; notes: string; recurrence: CalendarEvent['recurrence']; recurrenceUntil: string | null; personal: boolean } }
+  | { type: 'meal'; meal: { date: string; slot: 'lunch' | 'dinner'; title: string; servings: number; ingredients: ProposedItem[]; notes: string } }
+  | { type: 'note'; note: { title: string; content: string; color: string; pinned: boolean } }
+  | { type: 'transaction'; transaction: { kind: 'income' | 'expense'; amount: number; categoryId: string | null; description: string; date: string } }
+);

@@ -2,13 +2,14 @@ import { Fragment, useState, type CSSProperties, type MouseEvent, type ReactNode
 import { ArrowDownLeft, ArrowUpRight, Wallet, PiggyBank, Target, ShoppingBasket, StickyNote, Plus, Pencil, Trash2, Pin, Paperclip, Check, Search, Download, ChevronRight, CircleCheck, TrendingUp, AlertCircle, Recycle, Utensils, CalendarClock, CalendarDays, LayoutDashboard, Sparkles, Camera } from 'lucide-react';
 import { Empty, Modal, Progress, SectionHeading } from './components';
 import { AdvisorCard } from './Advisor';
+import { AssistantCard, type AssistantChat } from './Assistant';
 import { calendarCaption } from './Calendar';
 import { allocateBudget, budgetBase, budgetIncome, monthCategories, localDate, money, readableDate, totals } from './finance';
 import type { DashboardCard, FamilyState, MonthSummary, Transaction, Goal, Note, Meal, RecurringRule, WasteSchedule, Deadline, CalendarEvent } from './types';
 
-export type Page = 'settings' | 'waste' | 'calendar' | 'incomes' | 'expenses' | 'account' | 'overview' | 'budget' | 'goals' | 'shopping' | 'notes' | 'bills' | 'meals';
+export type Page = 'assistant' | 'settings' | 'waste' | 'calendar' | 'incomes' | 'expenses' | 'account' | 'overview' | 'budget' | 'goals' | 'shopping' | 'notes' | 'bills' | 'meals';
 export type Dialog = { type: 'deadline'; deadline?: Deadline } | { type: 'manage'; deadline: Deadline } | { type: 'waste'; schedule?: WasteSchedule; name?: string; color?: string } | { type: 'event'; event?: CalendarEvent; date?: string } | { type: 'recurring'; rule?: RecurringRule; kind?: 'income' | 'expense'; name?: string; categoryId?: string } | { type: 'transaction'; transaction?: Transaction; kind?: 'income' | 'expense' } | { type: 'budget' } | { type: 'goal'; goal?: Goal } | { type: 'contribution'; goal: Goal } | { type: 'note'; note?: Note } | { type: 'viewNote'; note: Note } | { type: 'meal'; meal?: Meal; date?: string; slot?: 'lunch' | 'dinner' } | { type: 'pantry' } | null;
-type Props = { data: FamilyState; open: (dialog: Dialog) => void; navigate: (page: Page) => void; act: (path: string, method: string, body?: unknown) => Promise<void>; busy: boolean; toggleShopping?: (id: string, checked: boolean) => void };
+type Props = { data: FamilyState; open: (dialog: Dialog) => void; navigate: (page: Page) => void; act: (path: string, method: string, body?: unknown) => Promise<void>; busy: boolean; toggleShopping?: (id: string, checked: boolean) => void; chat?: AssistantChat; mutate?: <T>(path: string, method: string, body?: unknown) => Promise<T> };
 const STAT_CARDS: DashboardCard[] = ['income', 'expense', 'balance', 'savings'];
 const horizons = { short: 'Breve termine', medium: 'Medio termine', long: 'Lungo termine' };
 const spentByCategory = (data: FamilyState, id: string) => data.transactions.filter(t => t.kind === 'expense' && t.category_id === id).reduce((sum, t) => sum + t.amount, 0);
@@ -49,7 +50,7 @@ function DashboardPanel({ title, page, action, navigate, className = '', childre
   }}><SectionHeading title={<a className="dashboard-panel-link" href={`#${page}`} onClick={event => { event.preventDefault(); navigate(page); }}>{title}</a>} action={action} onAction={() => navigate(page)} />{children}</section>;
 }
 
-export function Overview({ data, open, navigate, act, busy }: Props) {
+export function Overview({ data, open, navigate, act, busy, chat, mutate }: Props) {
   const { income, expense, balance } = totals(data.transactions);
   const base = budgetBase(data);
   const budgets = allocateBudget(base, monthCategories(data));
@@ -84,16 +85,18 @@ export function Overview({ data, open, navigate, act, busy }: Props) {
     goals: <DashboardPanel title="I nostri prossimi traguardi" page="goals" action="Vedi obiettivi" navigate={navigate}>{data.goals.length ? <div className="compact-goals">{(activeGoals.length ? activeGoals : data.goals).slice(0, 2).map(g => <GoalCard key={g.id} goal={g} open={open} compact />)}</div> : <Empty icon={<Target size={26} />} title="Qualcosa di bello da progettare" description="Un viaggio, un fondo di sicurezza, una casa. Date un nome al prossimo obiettivo." action="Crea un obiettivo" onAction={() => open({ type: 'goal' })} />}</DashboardPanel>,
     comparison: <MonthComparison data={data} mode="overview" />,
     advice: <AdvisorCard data={data} act={act} busy={busy} />,
+    assistant: chat && mutate ? <AssistantCard data={data} chat={chat} mutate={mutate} onOpen={() => navigate('assistant')} /> : null,
     recent: <DashboardPanel title="Gli ultimi movimenti" page="expenses" action="Vedi tutti" navigate={navigate}>{data.transactions.length ? data.transactions.slice(0, 4).map(t => <TransactionRow transaction={t} data={data} key={t.id} />) : <Empty icon={<Wallet size={26} />} title="Facciamo il punto sul mese" description="Registra la prima entrata o uscita. Il resto prende forma da qui." action="Aggiungi un’entrata" onAction={() => open({ type: 'transaction', kind: 'income' })} />}</DashboardPanel>,
   };
   // Cards follow the account's choice: figures on top, then panels two by two.
   // The advice card appears once the family has turned the reports on.
-  const visible = data.preferences.dashboard.order.filter(id => !data.preferences.dashboard.hidden.includes(id) && (id !== 'advice' || data.advisor.enabled));
+  // The assistant's bar spans the page, under the figures, when the server offers it.
+  const visible = data.preferences.dashboard.order.filter(id => !data.preferences.dashboard.hidden.includes(id) && (id !== 'advice' || data.advisor.enabled) && (id !== 'assistant' || (data.assistant.available && !!chat)));
   const stats = visible.filter(id => STAT_CARDS.includes(id));
-  const panels = visible.filter(id => !STAT_CARDS.includes(id));
+  const panels = visible.filter(id => !STAT_CARDS.includes(id) && id !== 'assistant');
   const rows = panels.map((_, i) => panels.slice(i, i + 2)).filter((_, i) => i % 2 === 0);
   if (!visible.length) return <section className="panel"><Empty icon={<LayoutDashboard size={26} />} title="La Panoramica è vuota" description="Hai nascosto tutte le card. Scegli quali vedere e in che ordine dalle impostazioni." action="Personalizza la Panoramica" onAction={() => { window.location.hash = 'settings/panoramica'; }} /></section>;
-  return <>{stats.length > 0 && <div className="stats-grid" style={{ '--stat-columns': stats.length } as CSSProperties}>{stats.map(id => <Fragment key={id}>{cards[id]}</Fragment>)}</div>}{exceeded.length > 0 && <div className="budget-alert"><AlertCircle size={19} /><span>{exceeded.length === 1 ? `${exceeded[0].name} ha superato il budget del mese.` : `${exceeded.length} categorie hanno superato il budget del mese.`}{base === 0 ? ' Imposta le entrate ricorrenti, come gli stipendi, per definire gli importi disponibili.' : ' Dai un’occhiata alla ripartizione.'}</span><button className="text-button" onClick={() => navigate('budget')}>Vedi budget<ChevronRight size={16} /></button></div>}{rows.map((row, i) => <div key={row.join()} className={`${i ? 'overview-bottom' : 'overview-main'}${row.length === 1 ? ' overview-single' : ''}`}>{row.map(id => <Fragment key={id}>{cards[id]}</Fragment>)}</div>)}</>;
+  return <>{stats.length > 0 && <div className="stats-grid" style={{ '--stat-columns': stats.length } as CSSProperties}>{stats.map(id => <Fragment key={id}>{cards[id]}</Fragment>)}</div>}{visible.includes('assistant') && cards.assistant}{exceeded.length > 0 && <div className="budget-alert"><AlertCircle size={19} /><span>{exceeded.length === 1 ? `${exceeded[0].name} ha superato il budget del mese.` : `${exceeded.length} categorie hanno superato il budget del mese.`}{base === 0 ? ' Imposta le entrate ricorrenti, come gli stipendi, per definire gli importi disponibili.' : ' Dai un’occhiata alla ripartizione.'}</span><button className="text-button" onClick={() => navigate('budget')}>Vedi budget<ChevronRight size={16} /></button></div>}{rows.map((row, i) => <div key={row.join()} className={`${i ? 'overview-bottom' : 'overview-main'}${row.length === 1 ? ' overview-single' : ''}`}>{row.map(id => <Fragment key={id}>{cards[id]}</Fragment>)}</div>)}</>;
 }
 
 export function Budget({ data, open, act, busy }: Props) {
