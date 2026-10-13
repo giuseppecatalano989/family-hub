@@ -22,7 +22,7 @@ function AdvisorReports({ data, act, busy }: { data: FamilyState; act: Act; busy
     <section aria-label="Report settimanale">
       {advisor.weekly ? <Report report={advisor.weekly} data={data} act={act} busy={busy} /> : <p className="advice-waiting"><span className="eyebrow">SETTIMANA</span>È iniziato un nuovo mese: il primo report settimanale arriva lunedì.</p>}</section>
     {advisor.monthly && <section aria-label="Report mensile"><Report report={advisor.monthly} data={data} act={act} busy={busy} /></section>}
-    <p className="advice-note"><Sparkles size={15} />Preparati con Claude. Le cifre sono calcolate dall’app sui vostri movimenti.</p>
+    <p className="advice-note"><Sparkles size={15} />Preparati con l’intelligenza artificiale. Le cifre sono calcolate dall’app sui vostri movimenti.</p>
   </div>;
 }
 
@@ -65,7 +65,7 @@ export function AdvisorButton({ data, act, busy, mutate }: { data: FamilyState; 
         <span className="report-menu-icon"><FileText size={16} /></span><span><strong>{label}</strong><small>{detail}</small></span>{report?.unread && <i className="report-menu-new">Nuovo</i>}
       </button>)}
     </div>}
-    {shown && <Modal title={shown.kind === 'weekly' ? 'Report settimanale' : 'Report mensile'} onClose={close}><div className="advice-reports"><Report report={shown} data={data} act={act} busy={busy} /><p className="advice-note"><Sparkles size={15} />Preparato con Claude. Le cifre sono calcolate dall’app sui vostri movimenti.</p></div></Modal>}
+    {shown && <Modal title={shown.kind === 'weekly' ? 'Report settimanale' : 'Report mensile'} onClose={close}><div className="advice-reports"><Report report={shown} data={data} act={act} busy={busy} /><p className="advice-note"><Sparkles size={15} />Preparato con l’intelligenza artificiale. Le cifre sono calcolate dall’app sui vostri movimenti.</p></div></Modal>}
   </div>;
 }
 
@@ -126,7 +126,7 @@ export function AdvisorSettings({ data, mutate }: { data: FamilyState; mutate: <
       </ul>
       <h3>Privacy</h3>
       <ul>
-        <li>Per scrivere i consigli l’app invia a Claude, il modello di Anthropic, importi, date, categorie e descrizioni dei movimenti degli ultimi sei mesi. IBAN, numeri lunghi, email, nomi dei familiari e dati di accesso non vengono inviati.</li>
+        <li>Per scrivere i consigli l’app invia a un servizio esterno di intelligenza artificiale importi, date, categorie e descrizioni dei movimenti degli ultimi sei mesi. IBAN, numeri lunghi, email, nomi dei familiari e dati di accesso non vengono inviati.</li>
         <li>Le registrazioni dei conti personali di ciascuno arrivano solo come totali per categoria.</li>
         <li>Anthropic per impostazione predefinita non usa i dati inviati tramite API per addestrare i modelli. Ogni report costa pochi centesimi.</li>
       </ul>
