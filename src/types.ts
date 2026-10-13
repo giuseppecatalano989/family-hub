@@ -18,7 +18,7 @@ export interface FamilyState {
   household: { id: string; name: string };
   members: { id: string; name: string; role: string }[];
   recurring: RecurringRule[]; budgetTemplates: BudgetTemplate[]; activeTemplateId: string | null;
-  categories: Category[]; transactions: Transaction[]; history: MonthSummary[]; budgetFallback: { month: string; amount: number } | null; budgetSplit: Record<string, number> | null; advisor: AdvisorState; goals: Goal[]; contributions: Contribution[]; shopping: ShoppingItem[]; notes: Note[];
+  categories: Category[]; transactions: Transaction[]; history: MonthSummary[]; budgetFallback: { month: string; amount: number } | null; budgetSplit: Record<string, number> | null; advisor: AdvisorState; pantry: { available: boolean; remaining: number }; goals: Goal[]; contributions: Contribution[]; shopping: ShoppingItem[]; notes: Note[];
   deadlines: Deadline[]; waste: WasteSchedule[]; calendar: CalendarEvent[]; calendarColors: Record<string, string>; bills: Bill[]; meals: Meal[]; week: string; backups: BackupStatus | null;
   bank: BankState;
   notifications: { publicKey: string; types: Record<NotificationType, boolean>; devices: number };
@@ -78,3 +78,6 @@ export interface AdvisorState {
   weekly: AdvisorReport | null; monthly: AdvisorReport | null; unread: boolean;
   hints: Record<string, string>; override: { month: string; fromReport: boolean } | null;
 }
+export interface PantryIngredient { name: string; quantity: string; section: string; available: boolean }
+export interface PantryRecipe { title: string; servings: number; minutes: number | null; summary: string; notes: string; ingredients: PantryIngredient[] }
+export interface PantryAnalysis { notice: string; found: { name: string; amount: string }[]; shopping: { name: string; quantity: string; section: string; reason: string }[]; recipes: PantryRecipe[]; remaining: number }

@@ -4,7 +4,7 @@ export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) { super(message); this.status = status; }
 }
-export async function api<T>(url: string, method = 'GET', body?: unknown): Promise<T> {
+export async function api<T>(url: string, method = 'GET', body?: unknown, type?: string): Promise<T> {
   const form = body instanceof FormData;
   if (form && method === 'POST' && url.endsWith('/attachments')) {
     const file = body.get('file');
@@ -21,7 +21,7 @@ export async function api<T>(url: string, method = 'GET', body?: unknown): Promi
   const response = await fetch(`/api${url}`, {
     method,
     credentials: 'same-origin',
-    headers: { ...(body && !form ? { 'Content-Type': binary ? 'application/octet-stream' : 'application/json' } : {}), ...(method !== 'GET' ? { 'X-Requested-With': 'Casa', 'X-CSRF-Token': csrf } : {}) },
+    headers: { ...(body && !form ? { 'Content-Type': type || (binary ? 'application/octet-stream' : 'application/json') } : {}), ...(method !== 'GET' ? { 'X-Requested-With': 'Casa', 'X-CSRF-Token': csrf } : {}) },
     body: body ? (form || binary ? body : JSON.stringify(body)) as BodyInit : undefined,
   });
   const data = await response.json().catch(() => ({ error: 'Risposta del server non valida.' }));
