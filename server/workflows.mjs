@@ -95,6 +95,7 @@ export function installWorkflows(app, { db, one, all, run, atomic, owned, fail, 
         await run('DELETE FROM transactions WHERE id = ? AND household_id = ?', payment.transaction_id, req.user.household_id);
         res.json({ ok: true });
     });
+    const readable = value => new Intl.DateTimeFormat('it-IT', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(`${value}T12:00:00Z`));
     const sections = ['Frutta e verdura', 'Dispensa', 'Frigo e freschi', 'Casa e igiene', 'Altro'];
     async function mealInput(body, user, previous) {
         const mealDate = date(body.date);
@@ -136,6 +137,53 @@ export function installWorkflows(app, { db, one, all, run, atomic, owned, fail, 
             }
         });
         res.json({ ok: true });
+    });
+    // Confirmed proposals of the pantry analysis: every meal, its ingredients to
+    // buy (linked like "Aggiungi alla spesa") and the other products in one transaction.
+    app.post('/api/meals/batch', async (req, res) => {
+        const { meals = [], shopping = [] } = req.body || {};
+        if (!Array.isArray(meals) || !Array.isArray(shopping) || meals.length > 14 || shopping.length > 40 || !meals.length && !shopping.length)
+            fail('Scegli da 1 a 14 pasti o qualche prodotto da comprare.');
+        const slots = new Set();
+        const planned = [];
+        for (const body of meals) {
+            if (!body || typeof body !== 'object' || !Array.isArray(body.ingredients))
+                fail('Pasto non valido.');
+            const input = await mealInput(body, req.user).catch(error => {
+                if (error.status === 409)
+                    fail(`${readable(body.date)}: ${body.slot === 'lunch' ? 'il pranzo è già pianificato' : 'la cena è già pianificata'}. Scegli un altro momento.`, 409);
+                throw error;
+            });
+            const key = `${input[0]} ${input[1]}`;
+            if (slots.has(key))
+                fail('Hai scelto due ricette per lo stesso pasto.');
+            slots.add(key);
+            // mealInput keeps the order of the ingredients it receives.
+            const buy = new Set(body.ingredients.flatMap((ingredient, index) => ingredient.buy === true ? [JSON.parse(input[4])[index].id] : []));
+            planned.push({ id: randomUUID(), input, buy });
+        }
+        const extra = shopping.map(item => {
+            if (!item || typeof item !== 'object' || !sections.includes(item.section))
+                fail('Prodotto non valido.');
+            return [text(item.name, 'Prodotto', 120), text(item.quantity, 'Quantità', 40, true), item.section];
+        });
+        let added = 0;
+        await atomic(async () => {
+            const addItem = async (name, quantity, section) => {
+                const id = randomUUID();
+                await run('INSERT INTO shopping VALUES (?, ?, ?, ?, ?, 0, ?, ?)', id, req.user.household_id, name, quantity, section, req.user.id, now());
+                added++;
+                return id;
+            };
+            for (const meal of planned) {
+                await run('INSERT INTO meals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', meal.id, req.user.household_id, ...meal.input, req.user.id);
+                for (const ingredient of JSON.parse(meal.input[4]).filter(i => meal.buy.has(i.id)))
+                    await run('INSERT INTO meal_shopping VALUES (?, ?, ?)', meal.id, ingredient.id, await addItem(ingredient.name, ingredient.quantity, ingredient.section));
+            }
+            for (const item of extra)
+                await addItem(...item);
+        });
+        res.status(201).json({ meals: planned.length, added });
     });
     app.delete('/api/meals/:id', async (req, res) => {
         await owned('meals', req.params.id, req.user);

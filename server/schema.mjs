@@ -288,3 +288,10 @@ export const ADVISOR_SCHEMA = `
   );
 `;
 TABLES.push('budget_month_overrides', 'advisor_settings', 'advisor_reports', 'advisor_category_hints', 'advisor_reads', 'advisor_assignment', 'advisor_kind_reads');
+// Daily usage of the pantry analysis, only to bound the calls to Claude: not
+// family data, so it stays out of backups like the sign-in attempts.
+export const PANTRY_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS pantry_usage (
+    household_id TEXT PRIMARY KEY, day TEXT NOT NULL, count INTEGER NOT NULL
+  );
+`;

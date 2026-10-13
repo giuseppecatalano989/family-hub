@@ -163,6 +163,7 @@ Le voci sono condivise e modificabili dai membri della stessa famiglia; altre fa
 - **Budget:** quattro schemi fissi (Conservativa, Prudente, Equilibrata, Svago) e lo schema **Pers.**, l’unico modificabile, con totale obbligatorio del 100%. Gli importi sono calcolati sulle sole **entrate ricorrenti** del mese (stipendi e ogni entrata impostata come ricorrente); le entrate occasionali, come vendite, rimborsi o regali, restano in Entrate e nel saldo del mese ma non aumentano il budget delle categorie. Vedi [Entrate, uscite e ripartizione budget](#entrate-uscite-e-ripartizione-budget).
 - **Scadenze:** impegni singoli, mensili, trimestrali, semestrali o annuali, con promemoria, modifica e archivio. Il pagamento è facoltativo: segnare una scadenza come gestita crea una sola uscita se previsto, anche con richieste contemporanee. Annullare la gestione rimuove l’uscita collegata. Gli addebiti automatici vanno nelle Uscite ricorrenti. Le vecchie bollette e i loro pagamenti sono conservati come scadenze.
 - **Menu settimanale:** pranzo e cena per ogni giorno, porzioni, ingredienti e note di preparazione. Trasferimento degli ingredienti nella spesa senza duplicati dello stesso pasto; gli ingredienti già collegati e ancora da acquistare seguono le modifiche del menu.
+- **Analisi provviste:** dal Menu settimanale, fino a 4 foto di frigo e dispensa (ridotte e ricodificate nel browser) vanno a Claude, che riconosce gli alimenti, suggerisce cosa comprare e propone ricette. Le foto non vengono salvate; ricette e prodotti entrano nel menu e nella spesa solo dopo la conferma, in un’unica transazione (`POST /api/meals/batch`). Al massimo 20 analisi al giorno per famiglia.
 - **Impostazioni:** per categorie: conti bancari e ripartizione dei risparmi, preferenze personali, casa e famiglia (nome e inviti), backup e dati: copie automatiche dell’app ogni 24 ore (ultime sette conservate), esportazione ZIP della propria famiglia e strumenti di verifica e ripristino in una nuova directory.
 - **Obiettivi:** breve, medio e lungo termine, importo da raggiungere, scadenza facoltativa, risparmio iniziale, accantonamenti successivi correggibili ed eliminabili, modifica ed eliminazione.
 - **Spesa:** prodotti, quantità, reparti, prodotti acquistati e pulizia della lista.
@@ -194,7 +195,7 @@ Il server legge facoltativamente `.env`. Per configurarlo, copia `.env.example` 
 | `AUTO_BACKUPS` | attivo | Impostare `0` per disattivare la pianificazione automatica. |
 | `TRUST_PROXY` | disattivato | Impostare `1` solo dietro un reverse proxy HTTPS fidato a un singolo hop. |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | create e salvate nel database | Chiavi facoltative delle notifiche push; la privata resta sul backend, senza prefisso `VITE_`. |
-| `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | non impostata, `claude-opus-5-5` | Consigli del budget con Claude; la chiave resta sul backend, senza prefisso `VITE_`. |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | non impostata, `claude-opus-5-5` | Consigli del budget e analisi provviste con Claude; la chiave resta sul backend, senza prefisso `VITE_`. |
 
 ## Build e avvio
 

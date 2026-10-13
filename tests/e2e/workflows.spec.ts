@@ -8,7 +8,7 @@ async function go(page: Page, label: string) {
   await page.getByRole('navigation').getByRole('button', { name: label, exact: true }).click();
 }
 
-test('deadlines have optional payments, weekly meals update shopping and family backup downloads safely', async ({ page }, testInfo) => {
+test('deadlines have optional payments, weekly meals and pantry photos update shopping and family backup downloads safely', async ({ page }, testInfo) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto('/');
   await page.getByLabel('Il tuo nome').fill('Anna');
@@ -114,6 +114,29 @@ test('deadlines have optional payments, weekly meals update shopping and family 
   await expect(page.locator('.shopping-row')).toHaveCount(2);
   await expect(page.locator('.shopping-row').filter({ hasText: 'Pomodori' })).toContainText('800 g');
 
+  // Pantry analysis: recipes and products are proposals until confirmed.
+  await go(page, 'Menu settimanale');
+  await page.getByRole('button', { name: 'Analizza frigo e dispensa' }).click();
+  dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('button', { name: 'Analizza le foto' })).toBeDisabled();
+  await dialog.getByLabel('Scegli le foto').setInputFiles({ name: 'frigo.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64') });
+  await expect(dialog.getByRole('img', { name: 'Foto 1' })).toBeVisible();
+  await dialog.getByLabel('Preferenze').fill('Cene veloci');
+  await dialog.getByRole('button', { name: 'Analizza le foto' }).click();
+  await expect(dialog.getByRole('heading', { name: 'Ecco cosa ho trovato' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Conferma: 2 prodotti in lista' })).toBeVisible();
+  await dialog.getByRole('checkbox', { name: /Frittata di zucchine/ }).check();
+  await dialog.getByLabel('Giorno per Frittata di zucchine').fill(today);
+  await dialog.getByLabel('Pasto per Frittata di zucchine').selectOption('lunch');
+  // Parmigiano is bought with the recipe and not added twice.
+  await expect(dialog.getByText('Con la ricetta scelta')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Conferma: 1 pasto e 2 prodotti in lista' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator('.meal-card-title').filter({ hasText: 'Frittata di zucchine' })).toBeVisible();
+  await go(page, 'Lista della spesa');
+  await expect(page.locator('.shopping-row')).toHaveCount(4);
+  for (const name of ['Parmigiano', 'Latte']) await expect(page.locator('.shopping-row').filter({ hasText: name })).toHaveCount(1);
+
   await go(page, 'Lavagna');
   await page.getByRole('button', { name: 'Nuovo appunto' }).click();
   dialog = page.getByRole('dialog');
@@ -131,10 +154,10 @@ test('deadlines have optional payments, weekly meals update shopping and family 
   const zip = unzipSync(readFileSync((await download.path())!));
   const contents = new TextDecoder().decode(zip['casa.json']); const payload = JSON.parse(contents);
   expect(payload.household.name).toBe('Casa delle piccole cose');
-  expect(payload.data.deadlines).toHaveLength(4); expect(payload.data.deadlines.map((d: { frequency: string }) => d.frequency).sort()).toEqual(['once', 'once', 'quarterly', 'semiannual']); expect(payload.data.deadline_receipts).toHaveLength(2); expect(payload.data.meals).toHaveLength(1); expect(payload.data.transactions).toHaveLength(1);
-  expect(payload.data.shopping).toHaveLength(2); expect(payload.data.attachments).toHaveLength(1);
+  expect(payload.data.deadlines).toHaveLength(4); expect(payload.data.deadlines.map((d: { frequency: string }) => d.frequency).sort()).toEqual(['once', 'once', 'quarterly', 'semiannual']); expect(payload.data.deadline_receipts).toHaveLength(2); expect(payload.data.meals).toHaveLength(2); expect(payload.data.transactions).toHaveLength(1);
+  expect(payload.data.shopping).toHaveLength(4); expect(payload.data.attachments).toHaveLength(1);
   expect(new TextDecoder().decode(zip[payload.data.attachments[0].file])).toBe('Allegato da conservare');
-  expect(contents).not.toContain('password_hash'); expect(contents).not.toContain('token_hash');
+  expect(contents).not.toContain('password_hash'); expect(contents).not.toContain('token_hash'); expect(contents).not.toContain('pantry_usage');
   await page.screenshot({ path: testInfo.outputPath('backup.png'), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect(errors).toEqual([]);

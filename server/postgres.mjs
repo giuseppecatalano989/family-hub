@@ -1,7 +1,7 @@
 import { Pool, types } from 'pg';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { RECOVERY_SCHEMA } from './recovery.mjs';
-import { BASE_SCHEMA, WORKFLOW_SCHEMA, UPLOAD_SCHEMA, PLANNING_SCHEMA, WASTE_SCHEMA, DEADLINE_SCHEMA, BANK_SCHEMA, NOTIFICATION_SCHEMA, ADVISOR_SCHEMA } from './schema.mjs';
+import { BASE_SCHEMA, WORKFLOW_SCHEMA, UPLOAD_SCHEMA, PLANNING_SCHEMA, WASTE_SCHEMA, DEADLINE_SCHEMA, BANK_SCHEMA, NOTIFICATION_SCHEMA, ADVISOR_SCHEMA, PANTRY_SCHEMA } from './schema.mjs';
 
 // Epoch milliseconds and COUNT(*) fit safely in the application's integer range.
 types.setTypeParser(20, value => {
@@ -87,6 +87,7 @@ export async function openPostgres(connectionString, { local = false, requireEmp
       await query(BANK_SCHEMA);
       await query(NOTIFICATION_SCHEMA);
       await query(ADVISOR_SCHEMA);
+      await query(PANTRY_SCHEMA);
       await query(UPLOAD_SCHEMA.replaceAll(' BLOB ', ' BYTEA '));
       await query(`CREATE TABLE IF NOT EXISTS files (name TEXT PRIMARY KEY, data BYTEA NOT NULL, created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS backup_archives (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, data BYTEA NOT NULL);

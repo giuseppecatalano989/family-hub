@@ -52,7 +52,19 @@ function advisor(req, res) {
   req.on('data', chunk => { body += chunk; });
   req.on('end', () => {
     if (req.headers['x-api-key'] !== 'e2e-anthropic-key') return json(res, 401, { type: 'error', error: { type: 'authentication_error', message: 'invalid key' } });
-    const facts = JSON.parse(JSON.parse(body).messages[0].content);
+    const content = JSON.parse(body).messages[0].content;
+    // Pantry analysis: photos arrive as image blocks before the request text.
+    if (Array.isArray(content)) {
+      if (!content.some(block => block.type === 'image' && block.source?.media_type === 'image/jpeg')) return json(res, 400, { type: 'error', error: { type: 'invalid_request_error', message: 'no image' } });
+      const pantry = { notice: '', found: [{ name: 'Uova', amount: '6' }, { name: 'Zucchine', amount: '2' }, { name: 'Pasta', amount: '1 confezione' }],
+        shopping: [{ name: 'Parmigiano', quantity: '200 g', section: 'Frigo e freschi', reason: 'Per completare le ricette' }, { name: 'Latte', quantity: '1 l', section: 'Frigo e freschi', reason: 'Quasi finito' }],
+        recipes: [
+          { title: 'Frittata di zucchine', servings: 2, minutes: 25, summary: 'Soffice e veloce.', steps: ['Affetta le zucchine', 'Cuoci con le uova sbattute'], ingredients: [{ name: 'Uova', quantity: '4', section: 'Frigo e freschi', available: true }, { name: 'Zucchine', quantity: '2', section: 'Frutta e verdura', available: true }, { name: 'Parmigiano', quantity: '50 g', section: 'Frigo e freschi', available: false }] },
+          { title: 'Pasta al pomodoro', servings: 2, minutes: 20, summary: 'Un classico.', steps: ['Cuoci la pasta'], ingredients: [{ name: 'Pasta', quantity: '200 g', section: 'Dispensa', available: true }, { name: 'Passata di pomodoro', quantity: '1 bottiglia', section: 'Dispensa', available: false }] },
+        ] };
+      return json(res, 200, { id: 'msg_e2e', type: 'message', role: 'assistant', model: JSON.parse(body).model, content: [{ type: 'text', text: JSON.stringify(pantry) }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 } });
+    }
+    const facts = JSON.parse(content);
     const ids = facts.categorie.map(c => c.id);
     const answer = { headline: 'Svago corre più veloce del previsto', summary: 'A metà mese avete già usato buona parte del tempo libero. Rallentate le uscite serali per chiudere nel budget.',
       tips: [{ kind: 'avoid', title: 'Rivedete le cene fuori', detail: 'Due cene a settimana in meno vi riportano nel massimale.' }, { kind: 'adjust', title: 'Ripartizione per questo mese', detail: 'Spostate il 5% da Tempo libero a Risparmio solo per questo mese.' }],
