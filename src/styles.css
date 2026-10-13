@@ -309,6 +309,7 @@
 .assistant-avatar{display:inline-flex;align-items:center;justify-content:center;flex:none;width:30px;height:30px;border-radius:50%;background:var(--mint);color:var(--green)}
 .assistant-avatar.large{width:48px;height:48px}
 .assistant-card{padding:18px 20px;margin-bottom:22px;display:flex;flex-direction:column;gap:12px}
+.overview-bottom+.assistant-card{margin-top:22px}@media(max-width:760px){.overview-bottom+.assistant-card{margin-top:17px}}
 .assistant-card-heading{display:flex;align-items:center;gap:10px}
 .assistant-card-heading h2{flex:1;font-size:14.87px;color:#495540;font-weight:550}
 .assistant-composer{display:flex;gap:8px;align-items:flex-end}

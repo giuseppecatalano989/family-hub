@@ -53,7 +53,7 @@ function boolean(value) {
     return value ? 1 : 0;
 }
 // Overview cards in their default order: four figures, then the panels.
-const DASHBOARD_CARDS = ['income', 'expense', 'balance', 'savings', 'assistant', 'spending', 'advice', 'home', 'goals', 'recent', 'comparison'];
+const DASHBOARD_CARDS = ['income', 'expense', 'balance', 'savings', 'spending', 'advice', 'home', 'goals', 'recent', 'comparison', 'assistant'];
 function dashboardPreferences(row) {
     let saved = {};
     try { saved = row ? JSON.parse(row.cards) : {}; } catch { saved = {}; }
