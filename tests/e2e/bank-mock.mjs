@@ -62,6 +62,10 @@ function advisor(req, res) {
         const ids = [...JSON.stringify(request.system).matchAll(/([0-9a-f-]{36}): /g)].map(m => m[1]);
         return message([{ type: 'tool_use', id: 'toolu_split', name: 'proponi_ripartizione', input: { percentuali: [30, 20, 10, 5, 5, 30].map((percentuale, i) => ({ categoria_id: ids[i], percentuale })), motivo: 'Più spazio al risparmio.' } }]);
       }
+      // Rules: the mock remembers a rule, and says it knows it once it is saved.
+      if (typeof last === 'string' && last.includes('Ricorda')) return message([{ type: 'tool_use', id: 'toolu_rule', name: 'proponi_regola', input: { testo: 'I bar vanno in Svago' } }]);
+      if (typeof last === 'string' && last.includes('regole')) return message([{ type: 'text', text: JSON.stringify(request.system).includes('I bar vanno in Svago') ? 'Ricordo che i bar vanno in Svago.' : 'Non ricordo nessuna regola.' }]);
+      if (Array.isArray(last) && last[0].tool_use_id === 'toolu_rule') return message([{ type: 'text', text: 'Confermala e me la ricorderò.' }]);
       if (Array.isArray(last) && last[0].tool_use_id === 'toolu_split') return message([{ type: 'text', text: 'Ecco la proposta: confermala se ti convince.' }]);
       if (typeof last === 'string') {
         const month = JSON.stringify(request.system).match(/(\d{4}-\d{2})-\d{2} \(ora italiana\)/)[1];

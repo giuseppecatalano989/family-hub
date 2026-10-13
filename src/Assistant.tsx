@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
-import { CalendarDays, ChartPie, Check, ChevronRight, MessageCircle, RefreshCw, RotateCcw, Send, ShoppingBasket, Sparkles, StickyNote, Tags, Utensils, Wallet, X } from 'lucide-react';
+import { BookmarkMinus, BookmarkPlus, CalendarDays, ChartPie, Check, ChevronRight, MessageCircle, RefreshCw, RotateCcw, Send, ShoppingBasket, Sparkles, StickyNote, Tags, Utensils, Wallet, X } from 'lucide-react';
 import { Empty } from './components';
 import { api } from './api';
 import { money, readableDate } from './finance';
@@ -28,6 +28,8 @@ function describe(p: AssistantProposal) {
   if (p.type === 'meal') return `${p.meal.slot === 'lunch' ? 'pranzo' : 'cena'} del ${p.meal.date}: ${p.meal.title}`;
   if (p.type === 'note') return `appunto "${p.note.title}"`;
   if (p.type === 'categories') return `nuova categoria per ${p.changes.map(c => `"${c.description}"`).join(', ')}`;
+  if (p.type === 'rule') return `ricordare la regola "${p.text}"`;
+  if (p.type === 'forget') return `dimenticare ${p.rules.map(r => `"${r.text}"`).join(', ')}`;
   if (p.type === 'budget') return `nuova ripartizione ${p.split.map(c => `${c.name} ${c.to / 100}%`).join(', ')}`;
   return `${p.transaction.kind === 'income' ? 'entrata' : 'uscita'} "${p.transaction.description}" del ${p.transaction.date}`;
 }
@@ -100,6 +102,8 @@ function Proposal({ proposal: p, data, mutate, settle }: { proposal: AssistantPr
       else if (p.type === 'categories') for (const c of p.changes) await mutate(`/transactions/${c.id}`, 'PUT', { kind: 'expense', amount: c.amount, categoryId: c.to, description: c.description, date: c.date });
       // The custom split keeps the names the categories have now.
       else if (p.type === 'budget') await mutate('/budget', 'PUT', { categories: data.categories.map(c => ({ id: c.id, name: c.name, percentage: p.split.find(s => s.id === c.id)?.to ?? -1 })) });
+      else if (p.type === 'rule') await mutate('/assistant/rules', 'POST', { text: p.text });
+      else if (p.type === 'forget') for (const r of p.rules) await mutate(`/assistant/rules/${r.id}`, 'DELETE');
       else await mutate('/transactions', 'POST', p.transaction);
       settle(p.id, 'done');
     } catch (e) { setError((e as Error).message); } finally { setSaving(false); }
@@ -109,6 +113,8 @@ function Proposal({ proposal: p, data, mutate, settle }: { proposal: AssistantPr
     : p.type === 'meal' ? { icon: Utensils, title: 'Nuovo pasto nel menu', body: <><strong>{p.meal.title}</strong><p>{p.meal.slot === 'lunch' ? 'Pranzo' : 'Cena'} di {readableDate(p.meal.date)} · {p.meal.servings} {p.meal.servings === 1 ? 'porzione' : 'porzioni'}</p>{!!p.meal.ingredients.length && <p>{p.meal.ingredients.map(i => `${i.name}${i.quantity ? ` (${i.quantity})` : ''}`).join(', ')}</p>}</> }
     : p.type === 'categories' ? { icon: Tags, title: p.changes.length === 1 ? 'Cambiare la categoria di un’uscita' : `Cambiare la categoria di ${p.changes.length} uscite`, body: <ul>{p.changes.map(c => <li key={c.id}>{c.description} · {money(c.amount)}<small>{readableDate(c.date)}</small><br /><span className="assistant-change">{categoryName(c.from)} → <b>{categoryName(c.to)}</b></span></li>)}</ul> }
     : p.type === 'budget' ? { icon: ChartPie, title: 'Nuova ripartizione Pers. dal mese corrente', body: <>{p.reason && <p>{p.reason}</p>}<ul>{p.split.map(c => <li key={c.id}>{data.categories.find(x => x.id === c.id)?.name || c.name}: <span className="assistant-change">{c.from / 100}% → <b>{c.to / 100}%</b></span></li>)}</ul></> }
+    : p.type === 'rule' ? { icon: BookmarkPlus, title: 'Ricordare per le prossime volte', body: <p className="assistant-rule">{p.text}</p> }
+    : p.type === 'forget' ? { icon: BookmarkMinus, title: p.rules.length === 1 ? 'Dimenticare una regola' : `Dimenticare ${p.rules.length} regole`, body: <ul>{p.rules.map(r => <li key={r.id}>{r.text}</li>)}</ul> }
     : p.type === 'note' ? { icon: StickyNote, title: 'Nuovo appunto in lavagna', body: <><strong>{p.note.title}</strong>{p.note.content && <p className="assistant-note-preview">{p.note.content}</p>}</> }
     : { icon: Wallet, title: p.transaction.kind === 'income' ? 'Nuova entrata' : 'Nuova uscita', body: <><strong>{p.transaction.description} · {money(p.transaction.amount)}</strong><p>{readableDate(p.transaction.date)}{p.transaction.categoryId && ` · ${data.categories.find(c => c.id === p.transaction.categoryId)?.name || 'Categoria'}`}</p></> };
   return <div className={`assistant-proposal is-${p.status}`}>

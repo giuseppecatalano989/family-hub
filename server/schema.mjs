@@ -325,4 +325,10 @@ export const ASSISTANT_SCHEMA = `
   CREATE TABLE IF NOT EXISTS assistant_usage (
     household_id TEXT PRIMARY KEY, day TEXT NOT NULL, count INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS assistant_rules (
+    id TEXT PRIMARY KEY, household_id TEXT NOT NULL REFERENCES households(id), text TEXT NOT NULL, created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS assistant_rules_household ON assistant_rules(household_id, created_at);
 `;
+// What the family asked the assistant to remember; the daily counter stays out of backups.
+TABLES.push('assistant_rules');
