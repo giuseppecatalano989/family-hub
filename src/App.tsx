@@ -22,7 +22,6 @@ import type { FamilyState, User } from './types';
 
 const navigation = [
   { id: 'overview', label: 'Panoramica', icon: LayoutDashboard },
-  { id: 'assistant', label: 'Assistente', icon: Sparkles },
   { id: 'budget', label: 'Ripartizione budget', icon: ChartPie },
   { id: 'incomes', label: 'Entrate', icon: Wallet },
   { id: 'expenses', label: 'Uscite', icon: ArrowLeftRight },
@@ -33,6 +32,7 @@ const navigation = [
   { id: 'meals', label: 'Menu settimanale', icon: Utensils },
   { id: 'waste', label: 'Conferimento rifiuti', icon: Recycle },
   { id: 'notes', label: 'Lavagna', icon: StickyNote },
+  { id: 'assistant', label: 'Assistente', icon: Sparkles },
   { id: 'settings', label: 'Impostazioni', icon: SettingsIcon },
 ] as const;
 const pageCopy = {
