@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { unzipSync } from 'fflate';
 import { createApp } from '../server/app.mjs';
-import { proposal, conversation, ASSISTANT_DAILY_LIMIT } from '../server/assistant.mjs';
+import { proposal, conversation, ASSISTANT_DAILY_LIMIT, MAX_RULES } from '../server/assistant.mjs';
 
 const categories = [{ id: 'c1', name: 'Casa', percentage: 6000 }, { id: 'c2', name: 'Alimentari', percentage: 4000 }];
 const invalid = (name, input) => assert.throws(() => proposal(name, input, { categories }), error => error.tool === true, `${name} ${JSON.stringify(input)}`);
@@ -41,6 +42,19 @@ test('category changes name the family\'s expenses and budget splits cover every
     { type: 'budget', split: [{ id: 'c1', name: 'Casa', from: 6000, to: 5000 }, { id: 'c2', name: 'Alimentari', from: 4000, to: 5000 }], reason: 'Più spesa' });
   for (const percentuali of [[{ categoria_id: 'c1', percentuale: 60 }, { categoria_id: 'c2', percentuale: 40 }], [{ categoria_id: 'c1', percentuale: 70 }, { categoria_id: 'c2', percentuale: 40 }], [{ categoria_id: 'c1', percentuale: 100 }], [{ categoria_id: 'c1', percentuale: 50.5 }, { categoria_id: 'c2', percentuale: 49.5 }], [{ categoria_id: 'c1', percentuale: 50 }, { categoria_id: 'c1', percentuale: 50 }]])
     invalid('proponi_ripartizione', { percentuali, motivo: '' });
+});
+
+test('rules to remember are short, new and known when forgotten', () => {
+  const rules = [{ id: 'r1', text: 'I bar vanno in Svago' }];
+  assert.deepEqual(proposal('proponi_regola', { testo: '  Le pizzerie   vanno in Svago ' }, { categories, rules }), { type: 'rule', text: 'Le pizzerie vanno in Svago' });
+  const reject = (name, input, list = rules) => assert.throws(() => proposal(name, input, { categories, rules: list }), error => error.tool === true);
+  reject('proponi_regola', { testo: 'i bar vanno in svago' });
+  reject('proponi_regola', { testo: 'x'.repeat(301) });
+  reject('proponi_regola', { testo: '' });
+  reject('proponi_regola', { testo: 'Nuova' }, Array.from({ length: MAX_RULES }, (_, i) => ({ id: `r${i}`, text: `Regola ${i}` })));
+  assert.deepEqual(proposal('proponi_rimozione_regola', { id: ['r1', 'r1'] }, { categories, rules }), { type: 'forget', rules: [{ id: 'r1', text: 'I bar vanno in Svago' }] });
+  reject('proponi_rimozione_regola', { id: ['altra'] });
+  reject('proponi_rimozione_regola', { id: [] });
 });
 
 test('the conversation from the browser is plain alternating text ending with a question', () => {
@@ -165,4 +179,40 @@ test('the model reads the family through tools and only proposes changes', async
   instance.db.prepare('UPDATE assistant_usage SET count = ?').run(ASSISTANT_DAILY_LIMIT);
   assert.equal((await ask(alice, 'x')).status, 429);
   assert.equal((await state(outsider)).assistant.remaining, ASSISTANT_DAILY_LIMIT, 'the limit is per family');
+});
+
+test('rules are kept per family and reach the model in every conversation', async () => {
+  const seen = []; let script = [];
+  await start({ assistantModel: { model: 'test', async step(input) { seen.push(structuredClone(input)); return script.shift(); } } });
+  const alice = await register('alice@example.it');
+  const outsider = await register('eve@example.it', { householdName: 'Altra casa' });
+  const save = (session, text) => request('/assistant/rules', { method: 'POST', session, body: { text } });
+  assert.equal((await save(alice, 'x'.repeat(301))).status, 400);
+  const saved = await save(alice, 'Pizzerie e bar vanno in Svago, non in Alimentari');
+  assert.equal(saved.status, 201);
+  const { id } = await saved.json();
+  assert.equal((await save(alice, 'pizzerie e bar vanno in svago, non in alimentari')).status, 200, 'the same rule is not saved twice');
+  assert.equal(instance.db.prepare('SELECT COUNT(*) AS n FROM assistant_rules').get().n, 1);
+  assert.ok(!JSON.stringify(await state(alice)).includes('Pizzerie'), 'the app does not show the rules');
+
+  const use = (tid, name, input) => ({ type: 'tool_use', id: tid, name, input });
+  script = [{ stop_reason: 'tool_use', content: [use('r1', 'proponi_regola', { testo: 'I sushi vanno in Svago' }), use('r2', 'proponi_rimozione_regola', { id: [id] }), use('r3', 'proponi_regola', { testo: 'Pizzerie e bar vanno in Svago, non in Alimentari' })] }, { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Ok' }] }];
+  const result = await (await ask(alice, 'Ricorda anche il sushi')).json();
+  assert.match(JSON.stringify(seen[0].system), /Pizzerie e bar vanno in Svago/);
+  assert.match(JSON.stringify(seen[0].system), new RegExp(id));
+  assert.deepEqual(result.proposals.map(p => p.type), ['rule', 'forget']);
+  assert.equal(seen[1].messages.at(-1).content[2].is_error, true, 'a rule already kept is not proposed again');
+
+  // Another family neither sees nor forgets them.
+  script = [{ stop_reason: 'end_turn', content: [{ type: 'text', text: 'Ok' }] }];
+  await ask(outsider, 'Che regole ricordi?');
+  assert.ok(!JSON.stringify(seen.at(-1).system).includes('Pizzerie'));
+  await request(`/assistant/rules/${id}`, { method: 'DELETE', session: outsider });
+  assert.equal(instance.db.prepare('SELECT COUNT(*) AS n FROM assistant_rules').get().n, 1);
+
+  // The family ZIP keeps them; forgetting removes them.
+  const zip = unzipSync(new Uint8Array(await (await request('/backups/export', { session: alice })).arrayBuffer()));
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(zip['casa.json'])).data.assistant_rules.map(r => r.text), ['Pizzerie e bar vanno in Svago, non in Alimentari']);
+  assert.equal((await request(`/assistant/rules/${id}`, { method: 'DELETE', session: alice })).status, 200);
+  assert.equal(instance.db.prepare('SELECT COUNT(*) AS n FROM assistant_rules').get().n, 0);
 });

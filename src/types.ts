@@ -94,4 +94,6 @@ export type AssistantProposal = { id: string } & (
   | { type: 'transaction'; transaction: { kind: 'income' | 'expense'; amount: number; categoryId: string | null; description: string; date: string } }
   | { type: 'categories'; changes: { id: string; description: string; amount: number; date: string; from: string | null; to: string }[] }
   | { type: 'budget'; split: { id: string; name: string; from: number; to: number }[]; reason: string }
+  | { type: 'rule'; text: string }
+  | { type: 'forget'; rules: { id: string; text: string }[] }
 );

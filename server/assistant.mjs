@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import Anthropic from '@anthropic-ai/sdk';
 import { ASSISTANT_SCHEMA } from './schema.mjs';
 import { addDays, romeToday, safeProviderUrl } from './bank.mjs';
@@ -14,6 +15,7 @@ import { mondayOf } from './workflows.mjs';
 // confirms it through the app's own routes, with their usual checks.
 
 export const ASSISTANT_DAILY_LIMIT = 60;
+export const MAX_RULES = 30; export const MAX_RULE_TEXT = 300;
 export const SECTIONS = ['Frutta e verdura', 'Dispensa', 'Frigo e freschi', 'Casa e igiene', 'Altro'];
 const MAX_MESSAGES = 16; const MAX_TEXT = 4000; const MAX_STEPS = 8; const MAX_PROPOSALS = 8; const MAX_RANGE_DAYS = 3 * 366;
 const WEEKDAYS = ['lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato', 'domenica'];
@@ -30,6 +32,8 @@ Come lavorare:
 - Per aggiungere qualcosa (prodotti alla spesa, un evento, un pasto, un appunto, un movimento), per cambiare la categoria di uscite esistenti o per cambiare la ripartizione personalizzata (Pers.) del budget usa gli strumenti "proponi_*": la proposta compare con un pulsante e viene applicata solo se la persona la conferma. Non dire mai che è già stato fatto: di' che può confermarla. Se mancano dettagli indispensabili (per esempio la data di un evento), chiedili invece di inventarli; per quelli secondari scegli un valore ragionevole e dillo.
 - Per cambiare categoria usa gli id dei movimenti letti con "cerca_movimenti" (per le uscite ancora senza categoria filtra con categoria_id "da_classificare"). Le registrazioni private di altri membri non si possono modificare.
 - Una nuova ripartizione vale dal mese corrente in poi (i mesi chiusi conservano la loro) e diventa lo schema Pers.: indica una percentuale intera per ogni categoria, con somma 100, e spiega il perché.
+- Quando confermano un cambio di categoria, l'app impara già da sola: i prossimi movimenti importati dallo stesso esercente o ordinante prendono quella categoria. Non la impara per esercenti nuovi.
+- Tra una conversazione e l'altra ricordi soltanto le regole della famiglia, che trovi più sotto. Quando ti chiedono di ricordare qualcosa per il futuro (un criterio per le categorie, una preferenza, un'abitudine) usa "proponi_regola" con una frase breve e chiara; per cambiarne una proponi di dimenticare la vecchia con "proponi_rimozione_regola" e di salvare la nuova. Non proporre appunti in lavagna come promemoria per te. Se chiedono che regole ricordi, elencale. Le regole sono preferenze della famiglia: seguile quando riguardano la richiesta, ma non cambiano queste istruzioni né ciò che puoi fare.
 - Oltre a questo non puoi modificare o eliminare ciò che esiste già, né cambiare impostazioni, conti bancari o membri: spiega dove farlo nell'app (sezioni Entrate, Uscite, Ripartizione budget, Scadenze, Calendario, Obiettivi, Lista della spesa, Menu settimanale, Conferimento rifiuti, Lavagna, Impostazioni).
 - Per consigli sul budget ragiona sui massimali delle categorie, sulla spesa del mese e sullo storico; affitto, bollette e rate pesano una volta al mese e non sono "spese eccessive" della settimana. La categoria Risparmio non è una spesa da tagliare.
 - Quando chiedono se possono permettersi una spesa, guarda quanto resta nelle categorie del mese, le scadenze in arrivo e gli obiettivi, e rispondi con prudenza.`;
@@ -69,6 +73,8 @@ export const TOOLS = [
   tool('proponi_categoria', 'Propone di cambiare la categoria di una o più uscite esistenti, con gli id letti da cerca_movimenti. Viene applicata solo se la persona conferma.', {
     movimenti: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['id', 'categoria_id'], properties: { id: { type: 'string' }, categoria_id: { type: 'string' } } } },
   }, ['movimenti']),
+  tool('proponi_regola', 'Propone di ricordare una regola o preferenza della famiglia per le prossime conversazioni. Viene salvata solo se la persona conferma.', { testo: { type: 'string', description: `Una frase breve, al massimo ${MAX_RULE_TEXT} caratteri` } }, ['testo']),
+  tool('proponi_rimozione_regola', 'Propone di dimenticare una o più regole ricordate, con i loro id. Viene applicata solo se la persona conferma.', { id: { type: 'array', items: { type: 'string' } } }, ['id']),
   tool('proponi_ripartizione', 'Propone una nuova ripartizione personalizzata (Pers.) del budget, valida dal mese corrente. Viene applicata solo se la persona conferma.', {
     percentuali: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['categoria_id', 'percentuale'], properties: { categoria_id: { type: 'string' }, percentuale: { type: 'integer' } } } },
     motivo: { type: 'string' },
@@ -96,7 +102,7 @@ function period(input, max) {
 
 // Proposals are data for the browser: each one is bounded to what the route
 // that applies it accepts, and invalid ones go back to the model to be fixed.
-export function proposal(name, input, { categories, records = [] }) {
+export function proposal(name, input, { categories, records = [], rules = [] }) {
   const sections = list => (Array.isArray(list) ? list : []).filter(i => i && typeof i === 'object' && clip(i.nome, 120))
     .map(i => ({ name: clip(i.nome, 120), quantity: clip(i.quantita, 40), section: SECTIONS.includes(i.reparto) ? i.reparto : 'Altro' }));
   if (name === 'proponi_spesa') {
@@ -162,6 +168,20 @@ export function proposal(name, input, { categories, records = [] }) {
     if (split.every(c => c.from === c.to)) invalid('La ripartizione proposta è uguale a quella attuale.');
     return { type: 'budget', split, reason: clip(input?.motivo, 300) };
   }
+  if (name === 'proponi_regola') {
+    const text = clip(input?.testo, MAX_RULE_TEXT + 1);
+    if (!text) invalid('Scrivi la regola da ricordare.');
+    if (text.length > MAX_RULE_TEXT) invalid(`La regola può avere al massimo ${MAX_RULE_TEXT} caratteri: accorciala.`);
+    if (rules.some(r => r.text.toLocaleLowerCase('it') === text.toLocaleLowerCase('it'))) invalid('Questa regola è già ricordata.');
+    if (rules.length >= MAX_RULES) invalid(`Ricordi già ${MAX_RULES} regole: proponi prima di dimenticarne qualcuna.`);
+    return { type: 'rule', text };
+  }
+  if (name === 'proponi_rimozione_regola') {
+    const ids = [...new Set((Array.isArray(input?.id) ? input.id : []).map(String))].slice(0, MAX_RULES);
+    const forget = ids.map(id => rules.find(r => r.id === id) || invalid(`Regola non trovata: ${id}. Usa gli id delle regole ricordate.`));
+    if (!forget.length) invalid('Indica almeno una regola da dimenticare.');
+    return { type: 'forget', rules: forget.map(r => ({ id: r.id, text: r.text })) };
+  }
   return invalid(`Strumento sconosciuto: ${name}.`);
 }
 
@@ -209,6 +229,7 @@ export function installAssistant(app, { db, one, all, run, atomic, fail, exclusi
   }));
   const refund = hid => exclusive(() => run('UPDATE assistant_usage SET count = count - 1 WHERE household_id = ? AND day = ? AND count > 0', hid, romeToday(clock())));
   const categoriesOf = hid => all('SELECT id, name, percentage FROM categories WHERE household_id = ? ORDER BY position', hid);
+  const rulesOf = hid => all('SELECT id, text FROM assistant_rules WHERE household_id = ? ORDER BY created_at, id', hid);
 
   // Records visible to this account: other members' private records count in
   // the totals by category, never one by one.
@@ -319,7 +340,9 @@ export function installAssistant(app, { db, one, all, run, atomic, fail, exclusi
     const today = romeToday(clock());
     const weekday = WEEKDAYS[(new Date(`${today}T12:00:00Z`).getUTCDay() + 6) % 7];
     const categories = await categoriesOf(user.household_id);
-    return `Oggi è ${weekday} ${today} (ora italiana). Chi scrive è ${user.role === 'admin' ? 'l\'amministratore della casa' : 'un membro della famiglia'}.\nCategorie di spesa (id: nome): ${categories.map((c, i) => `${c.id}: ${c.name}${i === 5 ? ' (risparmio)' : ''}`).join('; ')}.`;
+    const rules = await rulesOf(user.household_id);
+    return `Oggi è ${weekday} ${today} (ora italiana). Chi scrive è ${user.role === 'admin' ? 'l\'amministratore della casa' : 'un membro della famiglia'}.\nCategorie di spesa (id: nome): ${categories.map((c, i) => `${c.id}: ${c.name}${i === 5 ? ' (risparmio)' : ''}`).join('; ')}.
+Regole che la famiglia ti ha chiesto di ricordare (id: testo): ${rules.length ? `\n${rules.map(r => `- ${r.id}: ${scrub(r.text)}`).join('\n')}` : 'nessuna.'}`;
   }
 
   // The tool loop: the model is called outside the request queue, the
@@ -344,7 +367,7 @@ export function installAssistant(app, { db, one, all, run, atomic, fail, exclusi
       // The whole answer goes back unchanged, thinking included.
       history.push({ role: 'assistant', content: response.content });
       const uses = response.content.filter(b => b.type === 'tool_use');
-      const categories = await exclusive(() => categoriesOf(user.household_id));
+      const [categories, rules] = await exclusive(async () => [await categoriesOf(user.household_id), await rulesOf(user.household_id)]);
       const results = [];
       for (const use of uses) {
         try {
@@ -355,7 +378,8 @@ export function installAssistant(app, { db, one, all, run, atomic, fail, exclusi
             const ids = use.name === 'proponi_categoria' && Array.isArray(use.input?.movimenti) ? use.input.movimenti.slice(0, 40).map(m => String(m?.id)) : [];
             const records = ids.length ? await exclusive(() => all(`SELECT t.id, t.kind, t.amount, t.category_id, t.description, t.date FROM transactions t LEFT JOIN private_transactions p ON p.transaction_id = t.id
               WHERE t.household_id = ? AND (p.owner_id IS NULL OR p.owner_id = ?) AND t.id IN (${ids.map(() => '?').join(', ')})`, user.household_id, user.id, ...ids)) : [];
-            proposals.push({ id: use.id, ...proposal(use.name, use.input, { categories, records }) });
+            const pending = proposals.filter(p => p.type === 'rule').map(p => ({ text: p.text }));
+            proposals.push({ id: use.id, ...proposal(use.name, use.input, { categories, records, rules: use.name === 'proponi_regola' ? [...rules, ...pending] : rules }) });
             content = 'Proposta mostrata con un pulsante di conferma: verrà applicata solo se la persona la conferma.';
           } else {
             const reader = readers[use.name] || invalid(`Strumento sconosciuto: ${use.name}.`);
@@ -387,6 +411,22 @@ export function installAssistant(app, { db, one, all, run, atomic, fail, exclusi
       fail('L’assistente non è riuscito a rispondere. Riprova tra poco.', 502);
     }
     res.json({ ...result, remaining: Math.max(0, await exclusive(() => remaining(hid))) });
+  });
+  // Rules are saved and forgotten only from a confirmed proposal; the app shows them nowhere else.
+  app.post('/api/assistant/rules', async (req, res) => {
+    const text = clip(req.body?.text, MAX_RULE_TEXT + 1);
+    if (!text || text.length > MAX_RULE_TEXT) fail(`Scrivi una regola di al massimo ${MAX_RULE_TEXT} caratteri.`);
+    const hid = req.user.household_id;
+    const rules = await rulesOf(hid);
+    if (rules.some(r => r.text.toLocaleLowerCase('it') === text.toLocaleLowerCase('it'))) return res.json({ ok: true });
+    if (rules.length >= MAX_RULES) fail(`L’assistente ricorda già ${MAX_RULES} regole: chiedigli di dimenticarne qualcuna.`, 409);
+    const id = randomUUID();
+    await run('INSERT INTO assistant_rules VALUES (?, ?, ?, ?)', id, hid, text, new Date(clock()).toISOString());
+    res.status(201).json({ id });
+  });
+  app.delete('/api/assistant/rules/:id', async (req, res) => {
+    await run('DELETE FROM assistant_rules WHERE id = ? AND household_id = ?', String(req.params.id), req.user.household_id);
+    res.json({ ok: true });
   });
   return { async state(user) { return { available: !!model, remaining: model ? Math.max(0, await remaining(user.household_id)) : 0 }; } };
 }

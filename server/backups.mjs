@@ -138,6 +138,8 @@ export function streamFamilyBackup(db, dataDir, householdId, response, next) {
     const query = (sql, ...args) => db.prepare(sql).all(...args);
     const own = table => query(`SELECT * FROM ${table} WHERE household_id = ?`, householdId);
     const data = Object.fromEntries(['categories', 'transactions', 'goals', 'shopping', 'notes', 'bills', 'meals', 'recurring_rules', 'budget_templates', 'budget_settings', 'budget_versions', 'waste_schedules', 'calendar_events', 'deadlines', 'budget_month_overrides', 'advisor_settings', 'advisor_reports', 'advisor_assignment'].map(table => [table, own(table)]));
+    // Older databases may predate the assistant's rules.
+    if (db.prepare("SELECT name FROM sqlite_master WHERE name = 'assistant_rules'").get()) data.assistant_rules = query('SELECT id, text, created_at FROM assistant_rules WHERE household_id = ? ORDER BY created_at', householdId);
     data.contributions = query('SELECT c.* FROM contributions c JOIN goals g ON g.id = c.goal_id WHERE g.household_id = ?', householdId);
     data.recurring_versions = query('SELECT v.* FROM recurring_versions v JOIN recurring_rules r ON r.id = v.rule_id WHERE r.household_id = ?', householdId);
     data.recurring_occurrences = query('SELECT o.* FROM recurring_occurrences o JOIN recurring_rules r ON r.id = o.rule_id WHERE r.household_id = ?', householdId);

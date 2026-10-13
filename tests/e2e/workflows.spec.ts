@@ -170,6 +170,12 @@ test('deadlines have optional payments, weekly meals and pantry photos update sh
   await go(page, 'Assistente'); await expect(page.locator('.assistant-panel .assistant-message.from-user')).toHaveCount(2);
   await page.reload(); await expect(page.getByRole('heading', { name: 'Chiedi all’assistente.' })).toBeVisible();
   await expect(page.locator('.assistant-panel .assistant-message')).toHaveCount(0);
+  // A rule to remember is saved only on confirmation and reaches later conversations.
+  await page.getByLabel('Scrivi all’assistente').fill('Ricorda che i bar vanno in Svago'); await page.getByRole('button', { name: 'Invia' }).click();
+  const rule = page.locator('.assistant-panel .assistant-proposal').last(); await expect(rule).toContainText('Ricordare per le prossime volte');
+  await rule.getByRole('button', { name: 'Conferma' }).click(); await expect(rule).toContainText('Fatto');
+  await page.reload(); await page.getByLabel('Scrivi all’assistente').fill('Che regole ricordi?'); await page.getByRole('button', { name: 'Invia' }).click();
+  await expect(page.locator('.assistant-panel .assistant-message.from-assistant').last()).toContainText('Ricordo che i bar vanno in Svago.');
 
   await go(page, 'Lavagna');
   await page.getByRole('button', { name: 'Nuovo appunto' }).click();
@@ -191,7 +197,7 @@ test('deadlines have optional payments, weekly meals and pantry photos update sh
   expect(payload.data.deadlines).toHaveLength(4); expect(payload.data.deadlines.map((d: { frequency: string }) => d.frequency).sort()).toEqual(['once', 'once', 'quarterly', 'semiannual']); expect(payload.data.deadline_receipts).toHaveLength(2); expect(payload.data.meals).toHaveLength(2); expect(payload.data.transactions).toHaveLength(1);
   expect(payload.data.shopping).toHaveLength(5); expect(payload.data.attachments).toHaveLength(1);
   expect(new TextDecoder().decode(zip[payload.data.attachments[0].file])).toBe('Allegato da conservare');
-  expect(contents).not.toContain('password_hash'); expect(contents).not.toContain('token_hash'); expect(contents).not.toContain('pantry_usage'); expect(contents).not.toContain('assistant_usage');
+  expect(contents).not.toContain('password_hash'); expect(contents).not.toContain('token_hash'); expect(contents).not.toContain('pantry_usage'); expect(contents).not.toContain('assistant_usage'); expect(contents).toContain('I bar vanno in Svago');
   await page.screenshot({ path: testInfo.outputPath('backup.png'), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect(errors).toEqual([]);
