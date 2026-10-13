@@ -45,14 +45,32 @@ http.createServer((req, res) => {
   });
 }).listen(port, '127.0.0.1');
 
-// Anthropic Messages API double for the budget reports: a fixed answer built
+// Anthropic Messages API double for the budget reports, the pantry and the assistant: a fixed answer built
 // from the figures the server sends, so no data leaves the test.
 function advisor(req, res) {
   let body = '';
   req.on('data', chunk => { body += chunk; });
   req.on('end', () => {
     if (req.headers['x-api-key'] !== 'e2e-anthropic-key') return json(res, 401, { type: 'error', error: { type: 'authentication_error', message: 'invalid key' } });
-    const content = JSON.parse(body).messages[0].content;
+    const request = JSON.parse(body);
+    // Assistant: first it reads the month and proposes a product, then it answers
+    // with the figure the server computed.
+    if (request.tools) {
+      const last = request.messages.at(-1).content;
+      const message = content => json(res, 200, { id: 'msg_e2e', type: 'message', role: 'assistant', model: request.model, content, stop_reason: content.some(b => b.type === 'tool_use') ? 'tool_use' : 'end_turn', stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 } });
+      if (typeof last === 'string' && last.includes('ripartizione')) {
+        const ids = [...JSON.stringify(request.system).matchAll(/([0-9a-f-]{36}): /g)].map(m => m[1]);
+        return message([{ type: 'tool_use', id: 'toolu_split', name: 'proponi_ripartizione', input: { percentuali: [30, 20, 10, 5, 5, 30].map((percentuale, i) => ({ categoria_id: ids[i], percentuale })), motivo: 'Più spazio al risparmio.' } }]);
+      }
+      if (Array.isArray(last) && last[0].tool_use_id === 'toolu_split') return message([{ type: 'text', text: 'Ecco la proposta: confermala se ti convince.' }]);
+      if (typeof last === 'string') {
+        const month = JSON.stringify(request.system).match(/(\d{4}-\d{2})-\d{2} \(ora italiana\)/)[1];
+        return message([{ type: 'tool_use', id: 'toolu_budget', name: 'budget_mese', input: { mese: month } }, { type: 'tool_use', id: 'toolu_spesa', name: 'proponi_spesa', input: { prodotti: [{ nome: 'Caffè', quantita: '2 confezioni', reparto: 'Dispensa' }] } }]);
+      }
+      const budget = JSON.parse(last.find(b => b.tool_use_id === 'toolu_budget').content);
+      return message([{ type: 'text', text: `Questo mese avete speso **${String(budget.uscite.toFixed(2)).replace('.', ',')} €**.\n- Ti propongo di aggiungere il caffè: confermalo qui sotto.` }]);
+    }
+    const content = request.messages[0].content;
     // Pantry analysis: photos arrive as image blocks before the request text.
     if (Array.isArray(content)) {
       if (!content.some(block => block.type === 'image' && block.source?.media_type === 'image/jpeg')) return json(res, 400, { type: 'error', error: { type: 'invalid_request_error', message: 'no image' } });

@@ -319,3 +319,10 @@ export const PANTRY_SCHEMA = `
     household_id TEXT PRIMARY KEY, day TEXT NOT NULL, count INTEGER NOT NULL
   );
 `;
+// Daily questions to the assistant, only to bound the calls to the model: not
+// family data, so it stays out of backups like the pantry analyses.
+export const ASSISTANT_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS assistant_usage (
+    household_id TEXT PRIMARY KEY, day TEXT NOT NULL, count INTEGER NOT NULL
+  );
+`;

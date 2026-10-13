@@ -140,6 +140,33 @@ test('deadlines have optional payments, weekly meals and pantry photos update sh
   await expect(page.locator('.shopping-row')).toHaveCount(4);
   for (const name of ['Parmigiano', 'Latte']) await expect(page.locator('.shopping-row').filter({ hasText: name })).toHaveCount(1);
 
+  // The assistant reads the family's figures and proposes; the list changes only on confirmation.
+  await go(page, 'Panoramica');
+  const bar = page.getByRole('region', { name: 'Chiedi all’assistente' });
+  await bar.getByLabel('Scrivi all’assistente').fill('Aggiungi il caffè alla spesa e dimmi come va il budget');
+  await bar.getByLabel('Scrivi all’assistente').press('Enter');
+  await expect(bar.locator('.assistant-proposal')).toContainText('Caffè');
+  await expect(bar.locator('.assistant-text strong')).toHaveText(/^\d+,\d{2} €$/);
+  await bar.getByRole('button', { name: 'Conferma' }).click();
+  await expect(bar.locator('.assistant-proposal')).toContainText('Fatto');
+  await page.screenshot({ path: testInfo.outputPath('assistente-panoramica.png'), fullPage: true });
+  await bar.getByRole('button', { name: 'Apri la conversazione' }).click();
+  await expect(page.getByRole('heading', { name: 'Chiedi all’assistente.' })).toBeVisible();
+  await expect(page.locator('.assistant-panel .assistant-message.from-user')).toContainText('Aggiungi il caffè');
+  await expect(page.locator('.assistant-panel .assistant-proposal')).toContainText('Fatto');
+  await page.getByLabel('Scrivi all’assistente').fill('Proponi una ripartizione con più risparmio');
+  await page.getByRole('button', { name: 'Invia' }).click();
+  const split = page.locator('.assistant-panel .assistant-proposal').last();
+  await expect(split).toContainText('Nuova ripartizione Pers.'); await expect(split).toContainText('25% → 30%');
+  await split.getByRole('button', { name: 'Conferma' }).click(); await expect(split).toContainText('Fatto');
+  await page.screenshot({ path: testInfo.outputPath('assistente.png'), fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await go(page, 'Ripartizione budget');
+  await expect(page.locator('.budget-category').filter({ hasText: 'Risparmio' }).locator('.percentage-badge')).toHaveText('30%');
+  await go(page, 'Lista della spesa');
+  await expect(page.locator('.shopping-row')).toHaveCount(5);
+  await expect(page.locator('.shopping-row').filter({ hasText: 'Caffè' })).toHaveCount(1);
+
   await go(page, 'Lavagna');
   await page.getByRole('button', { name: 'Nuovo appunto' }).click();
   dialog = page.getByRole('dialog');
@@ -158,9 +185,9 @@ test('deadlines have optional payments, weekly meals and pantry photos update sh
   const contents = new TextDecoder().decode(zip['casa.json']); const payload = JSON.parse(contents);
   expect(payload.household.name).toBe('Casa delle piccole cose');
   expect(payload.data.deadlines).toHaveLength(4); expect(payload.data.deadlines.map((d: { frequency: string }) => d.frequency).sort()).toEqual(['once', 'once', 'quarterly', 'semiannual']); expect(payload.data.deadline_receipts).toHaveLength(2); expect(payload.data.meals).toHaveLength(2); expect(payload.data.transactions).toHaveLength(1);
-  expect(payload.data.shopping).toHaveLength(4); expect(payload.data.attachments).toHaveLength(1);
+  expect(payload.data.shopping).toHaveLength(5); expect(payload.data.attachments).toHaveLength(1);
   expect(new TextDecoder().decode(zip[payload.data.attachments[0].file])).toBe('Allegato da conservare');
-  expect(contents).not.toContain('password_hash'); expect(contents).not.toContain('token_hash'); expect(contents).not.toContain('pantry_usage');
+  expect(contents).not.toContain('password_hash'); expect(contents).not.toContain('token_hash'); expect(contents).not.toContain('pantry_usage'); expect(contents).not.toContain('assistant_usage');
   await page.screenshot({ path: testInfo.outputPath('backup.png'), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect(errors).toEqual([]);

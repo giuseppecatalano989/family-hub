@@ -8,7 +8,7 @@ test('separate income and expenses support optional recurrence, deletion and fix
   const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto('/');await page.getByLabel('Il tuo nome').fill('Sara');await page.getByLabel('Email',{exact:true}).fill(`planning-${info.project.name}-${Date.now()}@example.test`);await page.getByLabel('Password',{exact:true}).fill('test-password-123');await page.getByLabel('Nome del vostro spazio').fill('Famiglia pianificata');await page.getByRole('button',{name:'Entra a casa'}).click();
   await page.getByRole('navigation').waitFor({state:'attached'});
-  expect(await page.getByRole('navigation').getByRole('button').evaluateAll(buttons=>buttons.slice(0,4).map(b=>b.getAttribute('aria-label')))).toEqual(['Panoramica','Ripartizione budget','Entrate','Uscite']);
+  expect(await page.getByRole('navigation').getByRole('button').evaluateAll(buttons=>buttons.slice(0,5).map(b=>b.getAttribute('aria-label')))).toEqual(['Panoramica','Assistente','Ripartizione budget','Entrate','Uscite']);
   await expect(page.getByRole('navigation').getByRole('button',{name:'Movimenti ricorrenti',exact:true})).toHaveCount(0);
   await go(page,'Entrate');await page.getByRole('button',{name:'Nuova entrata',exact:true}).click();
   let dialog=page.getByRole('dialog');
