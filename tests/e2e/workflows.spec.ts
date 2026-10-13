@@ -154,8 +154,15 @@ test('deadlines have optional payments, weekly meals and pantry photos update sh
   await expect(page.getByRole('heading', { name: 'Chiedi all’assistente.' })).toBeVisible();
   await expect(page.locator('.assistant-panel .assistant-message.from-user')).toContainText('Aggiungi il caffè');
   await expect(page.locator('.assistant-panel .assistant-proposal')).toContainText('Fatto');
+  await page.getByLabel('Scrivi all’assistente').fill('Proponi una ripartizione con più risparmio');
+  await page.getByRole('button', { name: 'Invia' }).click();
+  const split = page.locator('.assistant-panel .assistant-proposal').last();
+  await expect(split).toContainText('Nuova ripartizione Pers.'); await expect(split).toContainText('25% → 30%');
+  await split.getByRole('button', { name: 'Conferma' }).click(); await expect(split).toContainText('Fatto');
   await page.screenshot({ path: testInfo.outputPath('assistente.png'), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await go(page, 'Ripartizione budget');
+  await expect(page.locator('.budget-category').filter({ hasText: 'Risparmio' }).locator('.percentage-badge')).toHaveText('30%');
   await go(page, 'Lista della spesa');
   await expect(page.locator('.shopping-row')).toHaveCount(5);
   await expect(page.locator('.shopping-row').filter({ hasText: 'Caffè' })).toHaveCount(1);

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createApp } from '../server/app.mjs';
 import { proposal, conversation, ASSISTANT_DAILY_LIMIT } from '../server/assistant.mjs';
 
-const categories = [{ id: 'c1', name: 'Casa' }, { id: 'c2', name: 'Alimentari' }];
+const categories = [{ id: 'c1', name: 'Casa', percentage: 6000 }, { id: 'c2', name: 'Alimentari', percentage: 4000 }];
 const invalid = (name, input) => assert.throws(() => proposal(name, input, { categories }), error => error.tool === true, `${name} ${JSON.stringify(input)}`);
 
 test('proposals are bounded to what the app accepts, and invalid ones go back to the model', () => {
@@ -26,6 +26,21 @@ test('proposals are bounded to what the app accepts, and invalid ones go back to
   invalid('proponi_movimento', { tipo: 'uscita', importo_centesimi: 12.5, categoria_id: 'c2', descrizione: 'Mercato', data: '2026-10-13' });
   invalid('proponi_movimento', { tipo: 'uscita', importo_centesimi: 1250, categoria_id: 'altra-famiglia', descrizione: 'Mercato', data: '2026-10-13' });
   invalid('proponi_qualcosa', {});
+});
+
+test('category changes name the family\'s expenses and budget splits cover every category', () => {
+  const records = [{ id: 't1', kind: 'expense', amount: '1200', category_id: null, description: 'Bar', date: '2026-10-02' }, { id: 't2', kind: 'income', amount: 5000, category_id: null, description: 'Rimborso', date: '2026-10-03' }, { id: 't3', kind: 'expense', amount: 800, category_id: 'c2', description: 'Pane', date: '2026-10-04' }];
+  assert.deepEqual(proposal('proponi_categoria', { movimenti: [{ id: 't1', categoria_id: 'c2' }, { id: 't1', categoria_id: 'c2' }, { id: 't3', categoria_id: 'c2' }] }, { categories, records }),
+    { type: 'categories', changes: [{ id: 't1', description: 'Bar', amount: 1200, date: '2026-10-02', from: null, to: 'c2' }] }, 'unchanged and repeated expenses are left out');
+  const reject = (input, list = records) => assert.throws(() => proposal('proponi_categoria', input, { categories, records: list }), error => error.tool === true);
+  reject({ movimenti: [{ id: 'altro', categoria_id: 'c2' }] });
+  reject({ movimenti: [{ id: 't2', categoria_id: 'c2' }] });
+  reject({ movimenti: [{ id: 't1', categoria_id: 'c9' }] });
+  reject({ movimenti: [{ id: 't3', categoria_id: 'c2' }] });
+  assert.deepEqual(proposal('proponi_ripartizione', { percentuali: [{ categoria_id: 'c1', percentuale: 50 }, { categoria_id: 'c2', percentuale: 50 }], motivo: 'Più spesa' }, { categories }),
+    { type: 'budget', split: [{ id: 'c1', name: 'Casa', from: 6000, to: 5000 }, { id: 'c2', name: 'Alimentari', from: 4000, to: 5000 }], reason: 'Più spesa' });
+  for (const percentuali of [[{ categoria_id: 'c1', percentuale: 60 }, { categoria_id: 'c2', percentuale: 40 }], [{ categoria_id: 'c1', percentuale: 70 }, { categoria_id: 'c2', percentuale: 40 }], [{ categoria_id: 'c1', percentuale: 100 }], [{ categoria_id: 'c1', percentuale: 50.5 }, { categoria_id: 'c2', percentuale: 49.5 }], [{ categoria_id: 'c1', percentuale: 50 }, { categoria_id: 'c1', percentuale: 50 }]])
+    invalid('proponi_ripartizione', { percentuali, motivo: '' });
 });
 
 test('the conversation from the browser is plain alternating text ending with a question', () => {
@@ -127,6 +142,12 @@ test('the model reads the family through tools and only proposes changes', async
   const proposals = seen[2].messages.at(-1).content;
   assert.equal(proposals[0].is_error, undefined);
   assert.equal(proposals[1].is_error, true); assert.match(proposals[1].content, new RegExp(cats[0].id), 'the model learns the valid categories');
+
+  // Only expenses this account may edit can be reclassified.
+  script = [{ stop_reason: 'tool_use', content: [use('c1', 'proponi_categoria', { movimenti: [{ id: hidden, categoria_id: cats[4].id }] }), use('c2', 'proponi_categoria', { movimenti: [{ id: all.movimenti[0].id, categoria_id: cats[4].id }] })] }, { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Ok' }] }];
+  const reclassified = await (await ask(alice, 'Sposta in Tempo libero')).json();
+  assert.equal(seen.at(-1).messages.at(-1).content[0].is_error, true, 'another member\'s private expense is not found');
+  assert.deepEqual(reclassified.proposals.map(p => p.changes.map(c => [c.description, c.to])), [[['Esselunga IT60X0542811101000000123456', cats[4].id]]]);
 
   // Bob asks: his own private record is his to read.
   script = [{ stop_reason: 'tool_use', content: [use('b1', 'cerca_movimenti', { dal: '2026-10-01', al: '2026-10-31', testo: 'regalo' })] }, { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Ok' }] }];

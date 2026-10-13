@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
-import { CalendarDays, Check, ChevronRight, MessageCircle, RefreshCw, RotateCcw, Send, ShoppingBasket, Sparkles, StickyNote, Utensils, Wallet, X } from 'lucide-react';
+import { CalendarDays, ChartPie, Check, ChevronRight, MessageCircle, RefreshCw, RotateCcw, Send, ShoppingBasket, Sparkles, StickyNote, Tags, Utensils, Wallet, X } from 'lucide-react';
 import { Empty } from './components';
 import { api } from './api';
 import { money, readableDate } from './finance';
@@ -29,6 +29,8 @@ function describe(p: AssistantProposal) {
   if (p.type === 'event') return `evento "${p.event.title}" il ${p.event.startDate}`;
   if (p.type === 'meal') return `${p.meal.slot === 'lunch' ? 'pranzo' : 'cena'} del ${p.meal.date}: ${p.meal.title}`;
   if (p.type === 'note') return `appunto "${p.note.title}"`;
+  if (p.type === 'categories') return `nuova categoria per ${p.changes.map(c => `"${c.description}"`).join(', ')}`;
+  if (p.type === 'budget') return `nuova ripartizione ${p.split.map(c => `${c.name} ${c.to / 100}%`).join(', ')}`;
   return `${p.transaction.kind === 'income' ? 'entrata' : 'uscita'} "${p.transaction.description}" del ${p.transaction.date}`;
 }
 const outcome = { pending: 'in attesa di conferma', done: 'confermata e applicata', dismissed: 'ignorata' };
@@ -90,6 +92,7 @@ function Rich({ text }: { text: string }) {
 function Proposal({ proposal: p, data, mutate, settle }: { proposal: AssistantProposal & { status: Status }; data: FamilyState; mutate: Mutate; settle: AssistantChat['settle'] }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const categoryName = (id: string | null) => data.categories.find(c => c.id === id)?.name || 'Da classificare';
   async function confirm() {
     setSaving(true); setError('');
     try {
@@ -97,6 +100,9 @@ function Proposal({ proposal: p, data, mutate, settle }: { proposal: AssistantPr
       else if (p.type === 'event') await mutate('/calendar', 'POST', p.event);
       else if (p.type === 'meal') await mutate('/meals', 'POST', p.meal);
       else if (p.type === 'note') await mutate('/notes', 'POST', p.note);
+      else if (p.type === 'categories') for (const c of p.changes) await mutate(`/transactions/${c.id}`, 'PUT', { kind: 'expense', amount: c.amount, categoryId: c.to, description: c.description, date: c.date });
+      // The custom split keeps the names the categories have now.
+      else if (p.type === 'budget') await mutate('/budget', 'PUT', { categories: data.categories.map(c => ({ id: c.id, name: c.name, percentage: p.split.find(s => s.id === c.id)?.to ?? -1 })) });
       else await mutate('/transactions', 'POST', p.transaction);
       settle(p.id, 'done');
     } catch (e) { setError((e as Error).message); } finally { setSaving(false); }
@@ -104,6 +110,8 @@ function Proposal({ proposal: p, data, mutate, settle }: { proposal: AssistantPr
   const view = p.type === 'shopping' ? { icon: ShoppingBasket, title: 'Aggiungere alla lista della spesa', body: <ul>{p.items.map((i, n) => <li key={n}>{i.name}{i.quantity && ` · ${i.quantity}`}<small>{i.section}</small></li>)}</ul> }
     : p.type === 'event' ? { icon: CalendarDays, title: 'Nuovo evento nel calendario', body: <><strong>{p.event.title}</strong><p>{readableDate(p.event.startDate)}{p.event.endDate !== p.event.startDate && ` – ${readableDate(p.event.endDate)}`}{p.event.startTime ? ` · ${p.event.startTime}${p.event.endTime ? `–${p.event.endTime}` : ''}` : ' · tutto il giorno'}{p.event.recurrence !== 'none' && ` · ${recurrences[p.event.recurrence]}${p.event.recurrenceUntil ? ` fino al ${readableDate(p.event.recurrenceUntil)}` : ''}`}</p><p>{p.event.personal ? 'Personale' : 'Famiglia'}{p.event.location && ` · ${p.event.location}`}</p>{p.event.notes && <p>{p.event.notes}</p>}</> }
     : p.type === 'meal' ? { icon: Utensils, title: 'Nuovo pasto nel menu', body: <><strong>{p.meal.title}</strong><p>{p.meal.slot === 'lunch' ? 'Pranzo' : 'Cena'} di {readableDate(p.meal.date)} · {p.meal.servings} {p.meal.servings === 1 ? 'porzione' : 'porzioni'}</p>{!!p.meal.ingredients.length && <p>{p.meal.ingredients.map(i => `${i.name}${i.quantity ? ` (${i.quantity})` : ''}`).join(', ')}</p>}</> }
+    : p.type === 'categories' ? { icon: Tags, title: p.changes.length === 1 ? 'Cambiare la categoria di un’uscita' : `Cambiare la categoria di ${p.changes.length} uscite`, body: <ul>{p.changes.map(c => <li key={c.id}>{c.description} · {money(c.amount)}<small>{readableDate(c.date)}</small><br /><span className="assistant-change">{categoryName(c.from)} → <b>{categoryName(c.to)}</b></span></li>)}</ul> }
+    : p.type === 'budget' ? { icon: ChartPie, title: 'Nuova ripartizione Pers. dal mese corrente', body: <>{p.reason && <p>{p.reason}</p>}<ul>{p.split.map(c => <li key={c.id}>{data.categories.find(x => x.id === c.id)?.name || c.name}: <span className="assistant-change">{c.from / 100}% → <b>{c.to / 100}%</b></span></li>)}</ul></> }
     : p.type === 'note' ? { icon: StickyNote, title: 'Nuovo appunto in lavagna', body: <><strong>{p.note.title}</strong>{p.note.content && <p className="assistant-note-preview">{p.note.content}</p>}</> }
     : { icon: Wallet, title: p.transaction.kind === 'income' ? 'Nuova entrata' : 'Nuova uscita', body: <><strong>{p.transaction.description} · {money(p.transaction.amount)}</strong><p>{readableDate(p.transaction.date)}{p.transaction.categoryId && ` · ${data.categories.find(c => c.id === p.transaction.categoryId)?.name || 'Categoria'}`}</p></> };
   return <div className={`assistant-proposal is-${p.status}`}>

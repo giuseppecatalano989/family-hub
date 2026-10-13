@@ -355,3 +355,5 @@
   .assistant-message.from-user p{max-width:90%}
   .assistant-card-heading .text-button{font-size:11.44px}
 }
+.assistant-change{color:var(--muted)}
+.assistant-change b{color:#33402f;font-weight:600}

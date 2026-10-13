@@ -58,6 +58,11 @@ function advisor(req, res) {
     if (request.tools) {
       const last = request.messages.at(-1).content;
       const message = content => json(res, 200, { id: 'msg_e2e', type: 'message', role: 'assistant', model: request.model, content, stop_reason: content.some(b => b.type === 'tool_use') ? 'tool_use' : 'end_turn', stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 } });
+      if (typeof last === 'string' && last.includes('ripartizione')) {
+        const ids = [...JSON.stringify(request.system).matchAll(/([0-9a-f-]{36}): /g)].map(m => m[1]);
+        return message([{ type: 'tool_use', id: 'toolu_split', name: 'proponi_ripartizione', input: { percentuali: [30, 20, 10, 5, 5, 30].map((percentuale, i) => ({ categoria_id: ids[i], percentuale })), motivo: 'Più spazio al risparmio.' } }]);
+      }
+      if (Array.isArray(last) && last[0].tool_use_id === 'toolu_split') return message([{ type: 'text', text: 'Ecco la proposta: confermala se ti convince.' }]);
       if (typeof last === 'string') {
         const month = JSON.stringify(request.system).match(/(\d{4}-\d{2})-\d{2} \(ora italiana\)/)[1];
         return message([{ type: 'tool_use', id: 'toolu_budget', name: 'budget_mese', input: { mese: month } }, { type: 'tool_use', id: 'toolu_spesa', name: 'proponi_spesa', input: { prodotti: [{ nome: 'Caffè', quantita: '2 confezioni', reparto: 'Dispensa' }] } }]);

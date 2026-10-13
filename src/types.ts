@@ -82,7 +82,8 @@ export interface PantryIngredient { name: string; quantity: string; section: str
 export interface PantryRecipe { title: string; servings: number; minutes: number | null; summary: string; notes: string; ingredients: PantryIngredient[] }
 export interface PantryAnalysis { notice: string; found: { name: string; amount: string }[]; shopping: { name: string; quantity: string; section: string; reason: string }[]; recipes: PantryRecipe[]; remaining: number }
 
-// Changes the assistant proposes: each one is applied through the app's own
+// Changes the assistant proposes (additions, expense categories, the custom
+// budget split): each one is applied through the app's own
 // routes only when a member confirms it.
 type ProposedItem = { name: string; quantity: string; section: string };
 export type AssistantProposal = { id: string } & (
@@ -91,4 +92,6 @@ export type AssistantProposal = { id: string } & (
   | { type: 'meal'; meal: { date: string; slot: 'lunch' | 'dinner'; title: string; servings: number; ingredients: ProposedItem[]; notes: string } }
   | { type: 'note'; note: { title: string; content: string; color: string; pinned: boolean } }
   | { type: 'transaction'; transaction: { kind: 'income' | 'expense'; amount: number; categoryId: string | null; description: string; date: string } }
+  | { type: 'categories'; changes: { id: string; description: string; amount: number; date: string; from: string | null; to: string }[] }
+  | { type: 'budget'; split: { id: string; name: string; from: number; to: number }[]; reason: string }
 );
