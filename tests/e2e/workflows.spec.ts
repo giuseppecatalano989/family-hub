@@ -115,7 +115,6 @@ test('deadlines have optional payments, weekly meals and pantry photos update sh
   await expect(page.locator('.shopping-row').filter({ hasText: 'Pomodori' })).toContainText('800 g');
 
   // Pantry analysis: recipes and products are proposals until confirmed.
-  await go(page, 'Menu settimanale');
   await page.getByRole('button', { name: 'Analizza frigo e dispensa' }).click();
   dialog = page.getByRole('dialog');
   await expect(dialog.getByRole('button', { name: 'Analizza le foto' })).toBeDisabled();
@@ -124,6 +123,8 @@ test('deadlines have optional payments, weekly meals and pantry photos update sh
   await dialog.getByLabel('Preferenze').fill('Cene veloci');
   await dialog.getByRole('button', { name: 'Analizza le foto' }).click();
   await expect(dialog.getByRole('heading', { name: 'Ecco cosa ho trovato' })).toBeVisible();
+  await expect(dialog.locator('.pantry-section').filter({ hasText: 'Con quello che hai in casa' })).toContainText('Pasta e zucchine');
+  await expect(dialog.locator('.pantry-section').filter({ hasText: 'Con qualche acquisto' })).toContainText('Frittata di zucchine');
   await expect(dialog.getByRole('button', { name: 'Conferma: 2 prodotti in lista' })).toBeVisible();
   await dialog.getByRole('checkbox', { name: /Frittata di zucchine/ }).check();
   await dialog.getByLabel('Giorno per Frittata di zucchine').fill(today);
@@ -132,7 +133,9 @@ test('deadlines have optional payments, weekly meals and pantry photos update sh
   await expect(dialog.getByText('Con la ricetta scelta')).toBeVisible();
   await dialog.getByRole('button', { name: 'Conferma: 1 pasto e 2 prodotti in lista' }).click();
   await expect(dialog).toHaveCount(0);
+  await go(page, 'Menu settimanale');
   await expect(page.locator('.meal-card-title').filter({ hasText: 'Frittata di zucchine' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Analizza frigo e dispensa' })).toBeVisible();
   await go(page, 'Lista della spesa');
   await expect(page.locator('.shopping-row')).toHaveCount(4);
   for (const name of ['Parmigiano', 'Latte']) await expect(page.locator('.shopping-row').filter({ hasText: name })).toHaveCount(1);

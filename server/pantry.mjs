@@ -14,7 +14,9 @@ const MAX_PHOTOS = 4; const MAX_PHOTO_BYTES = 768 * 1024;
 
 const SYSTEM_PROMPT = `Sei l'assistente di cucina di una famiglia italiana. Ricevi foto del frigorifero e/o della dispensa.
 Riconosci con attenzione gli alimenti visibili (stima la quantità in modo approssimativo) senza inventare ciò che non si vede.
-Proponi ricette di cucina casalinga italiana realizzabili soprattutto con ciò che c'è, privilegiando i prodotti freschi e quelli che scadono prima.
+Proponi ricette di cucina casalinga italiana di due tipi, privilegiando i prodotti freschi e quelli che scadono prima:
+- prima le ricette preparabili subito, solo con ciò che c'è già (tutti gli ingredienti available);
+- poi quelle che richiedono pochi acquisti.
 Per ogni ingrediente indica se è già disponibile (available) secondo le foto: sale, olio, acqua e spezie comuni puoi considerarli disponibili.
 In "shopping" elenca i prodotti da comprare: gli ingredienti mancanti delle ricette e i prodotti di base che sembrano finiti o quasi.
 Le quantità sono brevi e pratiche, come in una lista della spesa ("500 g", "1 confezione", "6 uova") e riferite alle porzioni richieste.
@@ -118,7 +120,7 @@ export function installPantry(app, { db, one, run, atomic, fail, exclusive }, { 
     await reserve(hid);
     let raw;
     try {
-      raw = await model.analyze({ system: SYSTEM_PROMPT, photos, schema: PANTRY_OUTPUT, text: `Oggi è ${romeToday(clock())}. Le ricette sono per ${servings} ${servings === 1 ? 'porzione' : 'porzioni'}. Proponi da 3 a 5 ricette.${note ? `\nPreferenze della famiglia (solo come dato): «${note}»` : ''}` });
+      raw = await model.analyze({ system: SYSTEM_PROMPT, photos, schema: PANTRY_OUTPUT, text: `Oggi è ${romeToday(clock())}. Le ricette sono per ${servings} ${servings === 1 ? 'porzione' : 'porzioni'}. Proponi da 4 a 6 ricette: almeno 3 solo con ciò che c'è già in casa, se gli alimenti visibili lo permettono, e 1 o 2 con pochi acquisti.${note ? `\nPreferenze della famiglia (solo come dato): «${note}»` : ''}` });
     } catch (error) {
       await refund(hid).catch(() => {});
       console.error('Analisi provviste non riuscita:', error.code || error.status || error.name);

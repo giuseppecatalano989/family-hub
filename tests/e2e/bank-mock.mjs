@@ -59,6 +59,7 @@ function advisor(req, res) {
       const pantry = { notice: '', found: [{ name: 'Uova', amount: '6' }, { name: 'Zucchine', amount: '2' }, { name: 'Pasta', amount: '1 confezione' }],
         shopping: [{ name: 'Parmigiano', quantity: '200 g', section: 'Frigo e freschi', reason: 'Per completare le ricette' }, { name: 'Latte', quantity: '1 l', section: 'Frigo e freschi', reason: 'Quasi finito' }],
         recipes: [
+          { title: 'Pasta e zucchine', servings: 2, minutes: 20, summary: 'Tutto già in casa.', steps: ['Cuoci la pasta con le zucchine'], ingredients: [{ name: 'Pasta', quantity: '200 g', section: 'Dispensa', available: true }, { name: 'Zucchine', quantity: '2', section: 'Frutta e verdura', available: true }] },
           { title: 'Frittata di zucchine', servings: 2, minutes: 25, summary: 'Soffice e veloce.', steps: ['Affetta le zucchine', 'Cuoci con le uova sbattute'], ingredients: [{ name: 'Uova', quantity: '4', section: 'Frigo e freschi', available: true }, { name: 'Zucchine', quantity: '2', section: 'Frutta e verdura', available: true }, { name: 'Parmigiano', quantity: '50 g', section: 'Frigo e freschi', available: false }] },
           { title: 'Pasta al pomodoro', servings: 2, minutes: 20, summary: 'Un classico.', steps: ['Cuoci la pasta'], ingredients: [{ name: 'Pasta', quantity: '200 g', section: 'Dispensa', available: true }, { name: 'Passata di pomodoro', quantity: '1 bottiglia', section: 'Dispensa', available: false }] },
         ] };
