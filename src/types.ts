@@ -19,7 +19,7 @@ export interface FamilyState {
   members: { id: string; name: string; role: string }[];
   recurring: RecurringRule[]; budgetTemplates: BudgetTemplate[]; activeTemplateId: string | null;
   categories: Category[]; transactions: Transaction[]; history: MonthSummary[]; budgetFallback: { month: string; amount: number } | null; budgetSplit: Record<string, number> | null; advisor: AdvisorState; goals: Goal[]; contributions: Contribution[]; shopping: ShoppingItem[]; notes: Note[];
-  deadlines: Deadline[]; waste: WasteSchedule[]; bills: Bill[]; meals: Meal[]; week: string; backups: BackupStatus | null;
+  deadlines: Deadline[]; waste: WasteSchedule[]; calendar: CalendarEvent[]; bills: Bill[]; meals: Meal[]; week: string; backups: BackupStatus | null;
   bank: BankState;
   notifications: { publicKey: string; types: Record<NotificationType, boolean>; devices: number };
   preferences: { showBankBalance: boolean; quickActions: boolean; dashboard: { order: DashboardCard[]; hidden: DashboardCard[] } };
@@ -34,6 +34,10 @@ export interface BudgetTemplate {
   entries: { id: string; name: string; percentage: number }[];
 }
 
+export interface CalendarEvent {
+  id: string; title: string; start_date: string; end_date: string; start_time: string; end_time: string;
+  location: string; notes: string; color: string; recurrence: 'none' | 'weekly' | 'monthly' | 'yearly'; recurrence_until: string | null; author: string;
+}
 export interface WasteSchedule { id: string; name: string; days: number[]; time_window: string; notes: string; color: string }
 
 export interface Deadline {
@@ -51,7 +55,7 @@ export interface BankAccount {
 export interface BankConnection { id: string; bank: string; country: string; status: 'active' | 'expired' | 'error'; valid_until: string; last_error: string | null }
 export interface BankState { configured: boolean; total: number; savingsTotal: number; accounts: BankAccount[]; connections: BankConnection[]; savingsStrategy: 'primary' | 'proportional'; savingsUnassigned: number }
 export type DashboardCard = 'income' | 'expense' | 'balance' | 'savings' | 'spending' | 'advice' | 'home' | 'goals' | 'recent' | 'comparison';
-export type NotificationType = 'notes' | 'shopping' | 'meals' | 'deadlines' | 'budget' | 'waste' | 'bank';
+export type NotificationType = 'notes' | 'shopping' | 'meals' | 'deadlines' | 'budget' | 'waste' | 'calendar' | 'bank';
 
 // Totals of a past month for the comparison; categories maps category id ('' for unclassified) to cents.
 export type MonthSummary = { month: string; income: number; budgetIncome: number; expense: number; categories: Record<string, number> };

@@ -30,7 +30,7 @@ export async function removeMember({ db, requestId, memberName, adminName, takeB
 // bank links, devices and accesses are removed. Runs inside the caller's transaction.
 export async function detachMember(run, id, adminId) {
   let preservedRecords = 0;
-  for (const table of ['transactions', 'contributions', 'shopping', 'notes', 'meals', 'recurring_rules', 'deadline_receipts']) {
+  for (const table of ['transactions', 'contributions', 'shopping', 'notes', 'meals', 'recurring_rules', 'deadline_receipts', 'calendar_events']) {
     const result = await run(`UPDATE ${table} SET author_id = ? WHERE author_id = ?`, adminId, id);
     preservedRecords += result.changes;
   }

@@ -11,6 +11,7 @@ const groups: { title: string; items: { id: NotificationType; label: string; hin
     { id: 'notes', label: 'Lavagna di famiglia', hint: 'Quando un familiare scrive o modifica un appunto.' },
     { id: 'shopping', label: 'Lista della spesa', hint: 'Quando un familiare aggiunge o spunta prodotti.' },
     { id: 'meals', label: 'Menu settimanale', hint: 'Quando un familiare programma o cambia i pasti.' },
+    { id: 'calendar', label: 'Calendario', hint: 'Quando un familiare aggiunge o cambia un evento, e la sera prima degli eventi.' },
   ] },
   { title: 'Promemoria della sera', items: [
     { id: 'deadlines', label: 'Scadenze', hint: 'In arrivo secondo il promemoria scelto, o passate senza essere gestite.' },

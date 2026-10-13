@@ -1,7 +1,7 @@
 import { Pool, types } from 'pg';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { RECOVERY_SCHEMA } from './recovery.mjs';
-import { BASE_SCHEMA, WORKFLOW_SCHEMA, UPLOAD_SCHEMA, PLANNING_SCHEMA, WASTE_SCHEMA, DEADLINE_SCHEMA, BANK_SCHEMA, NOTIFICATION_SCHEMA, ADVISOR_SCHEMA } from './schema.mjs';
+import { BASE_SCHEMA, WORKFLOW_SCHEMA, UPLOAD_SCHEMA, PLANNING_SCHEMA, WASTE_SCHEMA, CALENDAR_SCHEMA, DEADLINE_SCHEMA, BANK_SCHEMA, NOTIFICATION_SCHEMA, ADVISOR_SCHEMA } from './schema.mjs';
 
 // Epoch milliseconds and COUNT(*) fit safely in the application's integer range.
 types.setTypeParser(20, value => {
@@ -80,6 +80,7 @@ export async function openPostgres(connectionString, { local = false, requireEmp
       await query(WORKFLOW_SCHEMA);
       await query(PLANNING_SCHEMA);
       await query(WASTE_SCHEMA);
+      await query(CALENDAR_SCHEMA);
       await query(DEADLINE_SCHEMA);
       const frequency = (await query("SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = 'deadlines_frequency_check' AND conrelid = 'deadlines'::regclass")).rows[0];
       if (!frequency?.def.includes('quarterly')) await query(`ALTER TABLE deadlines DROP CONSTRAINT IF EXISTS deadlines_frequency_check;

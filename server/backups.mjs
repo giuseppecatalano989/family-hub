@@ -137,7 +137,7 @@ export function streamFamilyBackup(db, dataDir, householdId, response, next) {
   try {
     const query = (sql, ...args) => db.prepare(sql).all(...args);
     const own = table => query(`SELECT * FROM ${table} WHERE household_id = ?`, householdId);
-    const data = Object.fromEntries(['categories', 'transactions', 'goals', 'shopping', 'notes', 'bills', 'meals', 'recurring_rules', 'budget_templates', 'budget_settings', 'budget_versions', 'waste_schedules', 'deadlines', 'budget_month_overrides', 'advisor_settings', 'advisor_reports', 'advisor_assignment'].map(table => [table, own(table)]));
+    const data = Object.fromEntries(['categories', 'transactions', 'goals', 'shopping', 'notes', 'bills', 'meals', 'recurring_rules', 'budget_templates', 'budget_settings', 'budget_versions', 'waste_schedules', 'calendar_events', 'deadlines', 'budget_month_overrides', 'advisor_settings', 'advisor_reports', 'advisor_assignment'].map(table => [table, own(table)]));
     data.contributions = query('SELECT c.* FROM contributions c JOIN goals g ON g.id = c.goal_id WHERE g.household_id = ?', householdId);
     data.recurring_versions = query('SELECT v.* FROM recurring_versions v JOIN recurring_rules r ON r.id = v.rule_id WHERE r.household_id = ?', householdId);
     data.recurring_occurrences = query('SELECT o.* FROM recurring_occurrences o JOIN recurring_rules r ON r.id = o.rule_id WHERE r.household_id = ?', householdId);

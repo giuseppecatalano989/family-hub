@@ -126,6 +126,19 @@ export const WASTE_SCHEMA = `
   );
 `;
 TABLES.push('waste_schedules');
+// The family calendar: shared events, all-day or timed, one-off or repeating.
+export const CALENDAR_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS calendar_events (
+    id TEXT PRIMARY KEY, household_id TEXT NOT NULL REFERENCES households(id), title TEXT NOT NULL,
+    start_date TEXT NOT NULL, end_date TEXT NOT NULL, start_time TEXT NOT NULL, end_time TEXT NOT NULL,
+    location TEXT NOT NULL, notes TEXT NOT NULL, color TEXT NOT NULL,
+    recurrence TEXT NOT NULL CHECK(recurrence IN ('none','weekly','monthly','yearly')), recurrence_until TEXT,
+    author_id TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+    CHECK(end_date >= start_date)
+  );
+  CREATE INDEX IF NOT EXISTS calendar_events_household ON calendar_events(household_id, start_date);
+`;
+TABLES.push('calendar_events');
 
 export const DEADLINE_SCHEMA = `
   CREATE TABLE IF NOT EXISTS deadlines (

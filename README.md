@@ -58,7 +58,7 @@ Le correzioni usano `server/goal-savings.mjs` e mantengono totale e storico nell
 
 **Dove vanno le nostre uscite** mostra per ogni categoria la spesa effettiva e il massimale del mese, calcolato sulle entrate e sulla ripartizione attuale. Categoria e importi restano affiancati nella legenda; il grafico a sinistra si adatta agli schermi piccoli. Nuova entrata e Nuova uscita rimangono sulla stessa riga, con colori jade e coral, rispettivamente + e −. I testi sono ingranditi di circa il 4%. Le card delle entrate, uscite, saldo e risparmi aprono rispettivamente Entrate, Uscite, Ripartizione budget e Obiettivi. Anche i riquadri di ripartizione, traguardi e movimenti aprono le relative sezioni; i pulsanti di creazione mantengono la loro azione.
 
-**La vita di casa** offre, senza separatori, Lista della spesa, Menu settimanale, Conferimento rifiuti, Scadenze e Lavagna di famiglia. La lavagna appare solo come collegamento. I prossimi traguardi precedono gli ultimi movimenti.
+**La vita di casa** offre, senza separatori, Lista della spesa, Menu settimanale, Calendario, Conferimento rifiuti, Scadenze e Lavagna di famiglia. La lavagna appare solo come collegamento. I prossimi traguardi precedono gli ultimi movimenti.
 
 Toccare una nota nella lavagna apre il testo completo e gli allegati in sola lettura; il titolo è anche un pulsante accessibile da tastiera. La matita apre la modifica. Evidenziare una nota o scaricare un allegato dalla scheda conserva la propria azione senza aprire la consultazione.
 
@@ -140,13 +140,17 @@ Le sessioni Enable Banking sono cifrate nel database (AES-256-GCM con una chiave
 
 **Impostazioni → Notifiche** attiva le notifiche push **su ogni dispositivo** (telefono o computer) e sceglie, per il proprio account, quali ricevere:
 
-- **Dalla famiglia:** modifiche di un familiare alla lavagna, alla lista della spesa o ai pasti programmati, al massimo una ogni 15 minuti per persona e sezione. Le proprie modifiche non generano notifiche.
-- **Promemoria della sera:** scadenze in arrivo secondo il loro promemoria o passate senza essere gestite, e il conferimento rifiuti del giorno dopo con l’orario.
+- **Dalla famiglia:** modifiche di un familiare alla lavagna, alla lista della spesa, ai pasti programmati o al calendario, al massimo una ogni 15 minuti per persona e sezione. Le proprie modifiche non generano notifiche.
+- **Promemoria della sera:** scadenze in arrivo secondo il loro promemoria o passate senza essere gestite, il conferimento rifiuti del giorno dopo con l’orario e gli eventi del calendario che iniziano il giorno dopo (con la scelta Calendario).
 - **Soldi:** budget di una categoria superato (una volta per categoria e mese, solo con entrate ricorrenti impostate) e banca: nuove uscite importate da classificare, consenso in scadenza entro 7 giorni, collegamento scaduto o in errore. Le uscite dei conti con movimenti privati arrivano solo al titolare.
 
 Su Android e sui computer basta il browser. Su **iPhone e iPad** le notifiche arrivano solo dall’app aggiunta alla schermata Home (Safari → Condividi → Aggiungi alla schermata Home, iOS 16.4 o successivo); la sezione lo spiega quando serve. **Invia una notifica di prova** verifica il dispositivo. Le notifiche mostrano il logo di Family Hub; su Android la piccola icona nella barra di stato è la sagoma del logo (`public/family-hub-badge.png`, bianca su trasparente, come richiesto dal sistema). Su iPhone l’icona è quella dell’app sulla schermata Home. Le notifiche immediate partono dopo la modifica che le causa; i promemoria della sera partono dal cron giornaliero di Vercel alle 17:00 UTC (in serata in Italia; su Hobby l’orario è indicativo nell’ora) oppure, in locale, dal timer del server dalle 19.
 
 Le chiavi VAPID possono essere impostate in `VAPID_PUBLIC_KEY` e `VAPID_PRIVATE_KEY` (con `VAPID_SUBJECT`, un `mailto:` o un indirizzo `https://`); se mancano, il server ne crea una coppia al primo uso e la conserva nel database, condivisa da tutte le istanze, senza configurazione. Cambiare chiavi richiede di riattivare le notifiche sui dispositivi. Il server invia soltanto ai servizi push dei browser (Google, Mozilla, Apple, Microsoft), mai a indirizzi scelti dal client, e dimentica i dispositivi che il servizio non riconosce più. Indirizzi e chiavi dei dispositivi non escono dal server né entrano nello ZIP familiare; ogni notifica è registrata una sola volta per persona, e il registro si svuota dopo 60 giorni. Rimuovere un membro elimina i suoi dispositivi e le sue scelte.
+
+## Calendario
+
+La sezione **Calendario** è condivisa da tutta la famiglia. Mostra il mese scelto con il selettore in alto: gli eventi, le scadenze del mese (che rimandano a Scadenze) e, nel programma del giorno selezionato, anche il conferimento rifiuti. Ogni evento ha titolo, data, eventuale data di fine (fino a 60 giorni), tutto il giorno oppure ora di inizio e di fine facoltativa, luogo, note e colore. Può ripetersi ogni settimana, ogni mese o ogni anno, con una data di fine facoltativa; gli eventi mensili o annuali su un giorno che manca (il 31, il 29 febbraio) cadono l’ultimo giorno del mese. Modifiche ed eliminazione valgono per tutte le ripetizioni. Il riquadro **In arrivo** elenca i prossimi 30 giorni e la Panoramica mostra gli eventi di oggi o il prossimo.
 
 ## Conferimento rifiuti
 
@@ -326,6 +330,7 @@ server/deadlines.mjs     Scadenze e gestioni con eventuale uscita
 server/goal-savings.mjs  Accantonamenti degli obiettivi
 server/workflows.mjs     Menu, collegamenti alla spesa e compatibilità bollette
 server/waste.mjs         Calendario del conferimento rifiuti
+server/calendar.mjs      Calendario di famiglia: eventi e ripetizioni
 server/uploads.mjs       Allegati della lavagna caricati a parti
 server/recovery.mjs      Recupero password con link monouso
 server/bank.mjs          Conti bancari in sola lettura tramite Enable Banking
