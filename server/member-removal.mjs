@@ -35,6 +35,9 @@ export async function detachMember(run, id, adminId) {
     preservedRecords += result.changes;
   }
   await run('DELETE FROM file_uploads WHERE user_id = ?', id);
+  // The member's personal events become the family's.
+  await run('DELETE FROM calendar_owners WHERE user_id = ?', id);
+  await run('DELETE FROM member_colors WHERE user_id = ?', id);
   // Removes the member's bank links, balances and copied movements; imported records stay.
   await run('DELETE FROM bank_auth_requests WHERE user_id = ?', id);
   await run('DELETE FROM bank_account_exclusions WHERE user_id = ?', id);

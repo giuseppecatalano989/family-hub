@@ -293,3 +293,11 @@
 .calendar-date-badge{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:none;width:44px;height:46px;border-radius:9px;color:#fff;font-size:10.3px;text-transform:uppercase;line-height:1.2}.calendar-date-badge b{font-size:16.02px}
 @media(max-width:1030px){.calendar-columns{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:650px){.calendar-grid{padding:0 10px 14px}.calendar-row{gap:3px}.calendar-row+.calendar-row{margin-top:3px}.calendar-day{min-height:52px;padding:4px 2px;align-items:center;border-radius:7px}.calendar-chips{display:none}.calendar-dots{display:flex}.calendar-weekday{font-size:10.3px;letter-spacing:0}.calendar-month .section-heading{flex-wrap:wrap}}
+.calendar-legend{display:flex;flex-wrap:wrap;gap:8px 16px;padding:0 23px 14px;font-size:12.58px;color:#55625a}.calendar-legend span{display:inline-flex;align-items:center;gap:6px}.calendar-legend i,.calendar-scope i{width:10px;height:10px;border-radius:50%;flex:none}
+.calendar-owner{font-size:11.44px;font-weight:600}
+.calendar-scope legend{margin-bottom:8px}.calendar-scope .checkbox-label{gap:8px;justify-content:flex-start;position:relative;cursor:pointer}.calendar-scope input[type=radio]{position:absolute;opacity:0;width:1px;height:1px;margin:0}.calendar-scope .checkbox-label:focus-within{outline:2px solid var(--green);outline-offset:1px}
+.calendar-delete-choices{display:grid;gap:10px;margin-bottom:14px}.calendar-delete-choices .button{white-space:normal}
+.member-color-picker{border:0;padding:0;margin:16px 0 20px;min-width:0}.member-color-picker legend{font-size:14.87px;font-weight:600;margin-bottom:8px}.member-color-picker>div{display:flex;flex-wrap:wrap;gap:10px}
+.member-color{width:34px;height:34px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 1px var(--line);cursor:pointer}.member-color.selected{box-shadow:0 0 0 2px var(--green)}.member-color:disabled{opacity:.25;cursor:not-allowed}
+.share-members .member-dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+@media(max-width:650px){.calendar-legend{padding:0 20px 12px}}

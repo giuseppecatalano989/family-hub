@@ -363,7 +363,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
     const deadlines = installDeadlines(app, { db, one, all, run, atomic, owned, fail, text, cents, date, now });
     const planning = installPlanning(app, { db, one, all, run, atomic, owned, fail, text, cents, now, ...(clock ? { clock } : {}) });
     const waste = installWaste(app, { db, all, run, owned, fail, text });
-    const calendar = installCalendar(app, { db, all, run, owned, fail, text, date, now });
+    const calendar = installCalendar(app, { db, one, all, run, atomic, owned, fail, text, date, now });
     const advisor = installAdvisor(app, { db, one, all, run, atomic, fail, exclusive, splitFor: planning.splitFor, budgetBase, notifications }, { model: advisorModel, schedule: scheduleBackground, ...(clock ? { clock } : {}) });
     advisor.routes();
     const savings = installGoalSavings(app, { one, all, run, atomic, owned, fail, cents, now, reconcile: bank.reconcileSavings });
@@ -425,7 +425,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
             return {
                 deadlines: await deadlines.state(req.user, month),
                 waste: await waste.state(hid),
-                calendar: await calendar.state(hid),
+                ...await calendar.state(hid),
                 ...await planning.state(req.user, month),
                 ...await workflows.state(req.user, month, req.query.week),
                 backups: req.user.role === 'admin' ? await backups.status() : null,

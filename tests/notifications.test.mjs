@@ -150,7 +150,7 @@ test('calendar events reach the family once: changes by others and the evening b
   await start();
   const { alice, bob } = await family();
   await subscribe(alice, 'alice'); await subscribe(bob, 'bob');
-  const event = { title: 'Pediatra', startDate: '2026-10-16', startTime: '17:30', endTime: '', recurrence: 'none', location: 'Via Roma 1', notes: '', color: '#176854' };
+  const event = { title: 'Pediatra', startDate: '2026-10-16', startTime: '17:30', endTime: '', recurrence: 'none', location: 'Via Roma 1', notes: '', personal: false };
   await request('/calendar', { method: 'POST', session: alice, body: event });
   await request('/calendar', { method: 'POST', session: alice, body: { ...event, title: 'Calcetto', startDate: '2026-10-02', startTime: '', location: '', recurrence: 'weekly' } });
   await request('/calendar', { method: 'POST', session: alice, body: { ...event, title: 'Gita', startDate: '2026-10-15', endDate: '2026-10-17', startTime: '' } });

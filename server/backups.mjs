@@ -156,6 +156,9 @@ export function streamFamilyBackup(db, dataDir, householdId, response, next) {
       data.savings_settings = query('SELECT * FROM savings_settings WHERE household_id = ?', householdId);
       data.bank_movements = query("SELECT m.id, m.account_id, m.kind, m.amount, m.date, m.description, m.status, m.transaction_id, m.created_at FROM bank_movements m JOIN bank_accounts a ON a.id = m.account_id WHERE m.household_id = ? AND a.visibility = 'shared'", householdId);
     }
+    data.calendar_owners = query('SELECT o.* FROM calendar_owners o JOIN calendar_events e ON e.id = o.event_id WHERE e.household_id = ?', householdId);
+    data.calendar_skips = query('SELECT s.* FROM calendar_skips s JOIN calendar_events e ON e.id = s.event_id WHERE e.household_id = ?', householdId);
+    data.member_colors = query('SELECT c.* FROM member_colors c JOIN users u ON u.id = c.user_id WHERE u.household_id = ?', householdId);
     data.meal_shopping = query('SELECT s.* FROM meal_shopping s JOIN meals m ON m.id = s.meal_id WHERE m.household_id = ?', householdId);
     const attachments = query('SELECT a.* FROM attachments a JOIN notes n ON n.id = a.note_id WHERE n.household_id = ?', householdId);
     data.attachments = attachments.map(({ storage_name, ...attachment }) => {

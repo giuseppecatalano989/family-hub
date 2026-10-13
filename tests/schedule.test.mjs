@@ -30,6 +30,7 @@ test('calendar repetitions agree between interface and server', () => {
     [event('monthly', '2026-01-31'), '2026-02-28', '2026-02-28'], [event('monthly', '2026-01-31'), '2026-03-31', '2026-03-31'], [event('monthly', '2026-01-31'), '2026-03-30', null],
     [event('monthly', '2026-01-30', '2026-02-01'), '2026-03-01', '2026-02-28'],
     [event('yearly', '2024-02-29'), '2026-02-28', '2026-02-28'], [event('yearly', '2024-02-29'), '2028-02-29', '2028-02-29'], [event('yearly', '2025-12-31', '2026-01-01'), '2027-01-01', '2026-12-31'],
+    [{ ...event('weekly', '2026-10-02'), skipped: ['2026-10-16'] }, '2026-10-16', null], [{ ...event('weekly', '2026-10-02'), skipped: ['2026-10-16'] }, '2026-10-23', '2026-10-23'],
   ];
   for (const [e, date, expected] of cases) {
     assert.equal(occurrenceOn(e, date), expected, `${e.recurrence} ${e.start_date} on ${date}`);

@@ -34,7 +34,7 @@ export function eventOccurrence(event: CalendarEvent, date: string) {
   const day = Number(event.start_date.slice(8));
   for (let back = 0; back <= span; back++) {
     const start = iso(stamp(date) - back * 86400_000);
-    if (start < event.start_date || (event.recurrence_until && start > event.recurrence_until)) continue;
+    if (start < event.start_date || (event.recurrence_until && start > event.recurrence_until) || event.skipped?.includes(start)) continue;
     const [year, month] = start.split('-').map(Number);
     const clamped = iso(Date.UTC(year, month - 1, Math.min(day, new Date(Date.UTC(year, month, 0)).getUTCDate())));
     const matches = event.recurrence === 'none' ? start === event.start_date

@@ -10,7 +10,7 @@ export const NOTIFICATION_TYPES = ['notes', 'shopping', 'meals', 'deadlines', 'b
 // the client's choosing.
 const PUSH_HOSTS = [/^fcm\.googleapis\.com$/, /^android\.googleapis\.com$/, /^updates\.push\.services\.mozilla\.com$/, /^push\.services\.mozilla\.com$/, /^web\.push\.apple\.com$/, /^[a-z0-9-]+\.push\.apple\.com$/, /^[a-z0-9-]+\.notify\.windows\.com$/];
 const FAMILY_WINDOW = 15 * 60000;
-const FAMILY_ROUTES = [[/^\/api\/meals\/[^/]+\/shopping$/, 'shopping'], [/^\/api\/shopping(\/|$)/, 'shopping'], [/^\/api\/notes(\/|$)/, 'notes'], [/^\/api\/meals(\/|$)/, 'meals'], [/^\/api\/calendar(\/|$)/, 'calendar']];
+const FAMILY_ROUTES = [[/^\/api\/meals\/[^/]+\/shopping$/, 'shopping'], [/^\/api\/shopping(\/|$)/, 'shopping'], [/^\/api\/notes(\/|$)/, 'notes'], [/^\/api\/meals(\/|$)/, 'meals'], [/^\/api\/calendar(\/(?!color$)|$)/, 'calendar']];
 const euro = cents => new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(cents / 100);
 const day = value => new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(`${value}T12:00:00Z`));
 const weekday = value => (new Date(`${value}T12:00:00Z`).getUTCDay() + 6) % 7;
@@ -151,7 +151,9 @@ export function installNotifications(app, { db, one, all, run, atomic, fail, exc
       if (await claim(userId, `waste:${tomorrow}`)) messages.push({ userId, title: `Domani: ${collections.map(w => w.name).join(', ')}`,
         body: collections.map(w => w.time_window ? `${w.name}: ${w.time_window}` : w.name).join(' · '), url: '#waste', tag: 'waste' });
     }
-    const events = (await all('SELECT * FROM calendar_events WHERE household_id = ? AND start_date <= ? ORDER BY start_time, title', householdId, tomorrow)).filter(e => occurrenceOn(e, tomorrow) === tomorrow);
+    const skips = await all('SELECT s.event_id, s.start_date FROM calendar_skips s JOIN calendar_events e ON e.id = s.event_id WHERE e.household_id = ? AND s.start_date = ?', householdId, tomorrow);
+    const events = (await all('SELECT * FROM calendar_events WHERE household_id = ? AND start_date <= ? ORDER BY start_time, title', householdId, tomorrow))
+      .filter(e => occurrenceOn({ ...e, skipped: skips.filter(s => s.event_id === e.id).map(s => s.start_date) }, tomorrow) === tomorrow);
     if (events.length) for (const userId of await recipients(householdId, 'calendar')) {
       if (await claim(userId, `calendar:${tomorrow}`)) messages.push({ userId, title: events.length === 1 ? `Domani: ${events[0].title}` : `Domani: ${events.length} eventi in calendario`,
         body: events.map(e => `${e.start_time ? `${e.start_time} ` : ''}${e.title}${e.location ? ` (${e.location})` : ''}`).join(' · '), url: '#calendar', tag: 'calendar' });

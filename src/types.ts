@@ -19,7 +19,7 @@ export interface FamilyState {
   members: { id: string; name: string; role: string }[];
   recurring: RecurringRule[]; budgetTemplates: BudgetTemplate[]; activeTemplateId: string | null;
   categories: Category[]; transactions: Transaction[]; history: MonthSummary[]; budgetFallback: { month: string; amount: number } | null; budgetSplit: Record<string, number> | null; advisor: AdvisorState; goals: Goal[]; contributions: Contribution[]; shopping: ShoppingItem[]; notes: Note[];
-  deadlines: Deadline[]; waste: WasteSchedule[]; calendar: CalendarEvent[]; bills: Bill[]; meals: Meal[]; week: string; backups: BackupStatus | null;
+  deadlines: Deadline[]; waste: WasteSchedule[]; calendar: CalendarEvent[]; calendarColors: Record<string, string>; bills: Bill[]; meals: Meal[]; week: string; backups: BackupStatus | null;
   bank: BankState;
   notifications: { publicKey: string; types: Record<NotificationType, boolean>; devices: number };
   preferences: { showBankBalance: boolean; quickActions: boolean; dashboard: { order: DashboardCard[]; hidden: DashboardCard[] } };
@@ -36,7 +36,7 @@ export interface BudgetTemplate {
 
 export interface CalendarEvent {
   id: string; title: string; start_date: string; end_date: string; start_time: string; end_time: string;
-  location: string; notes: string; color: string; recurrence: 'none' | 'weekly' | 'monthly' | 'yearly'; recurrence_until: string | null; author: string;
+  location: string; notes: string; recurrence: 'none' | 'weekly' | 'monthly' | 'yearly'; recurrence_until: string | null; owner_id: string | null; skipped: string[]; author: string;
 }
 export interface WasteSchedule { id: string; name: string; days: number[]; time_window: string; notes: string; color: string }
 

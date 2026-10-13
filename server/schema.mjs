@@ -137,8 +137,19 @@ export const CALENDAR_SCHEMA = `
     CHECK(end_date >= start_date)
   );
   CREATE INDEX IF NOT EXISTS calendar_events_household ON calendar_events(household_id, start_date);
+  CREATE TABLE IF NOT EXISTS calendar_owners (
+    event_id TEXT PRIMARY KEY REFERENCES calendar_events(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id)
+  );
+  CREATE TABLE IF NOT EXISTS calendar_skips (
+    event_id TEXT NOT NULL REFERENCES calendar_events(id) ON DELETE CASCADE, start_date TEXT NOT NULL, PRIMARY KEY(event_id, start_date)
+  );
+  CREATE TABLE IF NOT EXISTS member_colors (
+    user_id TEXT PRIMARY KEY REFERENCES users(id), color TEXT NOT NULL
+  );
 `;
-TABLES.push('calendar_events');
+// Personal events belong to one member (otherwise they are the family's); skipped
+// dates remove single occurrences of a repeating event.
+TABLES.push('calendar_events', 'calendar_owners', 'calendar_skips', 'member_colors');
 
 export const DEADLINE_SCHEMA = `
   CREATE TABLE IF NOT EXISTS deadlines (

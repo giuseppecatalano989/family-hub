@@ -21,10 +21,10 @@ test('a family configures waste days and plans shared calendar events on desktop
   // The same family plans shared events in the calendar (one account keeps the suite under the sign-in limit).
   await goTo(page,'Calendario');await expect(page.getByRole('heading',{name:'Il calendario di famiglia.'})).toBeVisible();await expect(page.getByRole('heading',{name:'Il calendario di casa'})).toBeVisible();
   await page.getByRole('button',{name:'Nuovo evento'}).click();dialog=page.getByRole('dialog');
-  await dialog.getByLabel('Titolo').fill('Pediatra');await dialog.getByRole('checkbox',{name:'Tutto il giorno'}).uncheck();await dialog.getByLabel('Ora di inizio').fill('17:30');await dialog.getByLabel('Ora di fine').fill('18:15');
+  await dialog.getByLabel('Titolo').fill('Pediatra');await expect(dialog.getByRole('radio',{name:'Famiglia'})).toBeChecked();await dialog.getByRole('radio',{name:'Personale'}).check();await dialog.getByRole('checkbox',{name:'Tutto il giorno'}).uncheck();await dialog.getByLabel('Ora di inizio').fill('17:30');await dialog.getByLabel('Ora di fine').fill('18:15');
   await dialog.getByLabel('Luogo').fill('Studio Bianchi');await dialog.getByLabel('Note').fill('Portare il libretto');await dialog.getByRole('button',{name:'Aggiungi evento'}).click();
   const agenda=page.getByRole('region',{name:'Programma del giorno'});
-  await expect(agenda).toContainText('Pediatra');await expect(agenda).toContainText('17:30–18:15');await expect(agenda).toContainText('Studio Bianchi');await expect(agenda).toContainText('Aggiunto da Giuseppe');
+  await expect(agenda).toContainText('Pediatra');await expect(agenda).toContainText('17:30–18:15');await expect(agenda).toContainText('Studio Bianchi');await expect(agenda).toContainText('Aggiunto da Giuseppe');await expect(agenda).toContainText('Personale · Giuseppe');await expect(page.getByLabel('Colori del calendario')).toContainText('Giuseppe');
   await expect(page.getByRole('region',{name:'Prossimi eventi'})).toContainText('Pediatra');
   await page.getByRole('button',{name:'Aggiungi un evento in questo giorno'}).click();dialog=page.getByRole('dialog');
   await dialog.getByLabel('Titolo').fill('Calcetto');await dialog.getByLabel('Ripetizione').selectOption('weekly');await dialog.getByRole('button',{name:'Aggiungi evento'}).click();
@@ -33,6 +33,6 @@ test('a family configures waste days and plans shared calendar events on desktop
   await expect(agenda).toContainText('Visita dal pediatra');
   await page.reload();await expect(page.getByRole('region',{name:'Programma del giorno'})).toContainText('Visita dal pediatra');
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:info.outputPath('calendario.png'),fullPage:true});
-  page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'Elimina evento Calcetto'}).click();await expect(page.getByRole('region',{name:'Programma del giorno'}).locator('.calendar-event')).toHaveCount(1);
+  await page.getByRole('button',{name:'Elimina evento Calcetto'}).click();await page.getByRole('dialog').getByRole('button',{name:'Solo questo evento'}).click();await expect(page.getByRole('region',{name:'Programma del giorno'}).locator('.calendar-event')).toHaveCount(1);await expect(page.getByRole('region',{name:'Prossimi eventi'})).toContainText('Calcetto');
   await goTo(page,'Panoramica');await expect(page.getByRole('main').getByRole('button',{name:'Calendario',exact:true})).toContainText('Oggi: Visita dal pediatra');expect(errors).toEqual([]);
 });
