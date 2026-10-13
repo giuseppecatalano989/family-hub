@@ -1,12 +1,13 @@
 import { Fragment, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
-import { ArrowDownLeft, ArrowUpRight, Wallet, PiggyBank, Target, ShoppingBasket, StickyNote, Plus, Pencil, Trash2, Pin, Paperclip, Check, Search, Download, ChevronRight, CircleCheck, TrendingUp, AlertCircle, Recycle, Utensils, CalendarClock, LayoutDashboard, Sparkles, Camera } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Wallet, PiggyBank, Target, ShoppingBasket, StickyNote, Plus, Pencil, Trash2, Pin, Paperclip, Check, Search, Download, ChevronRight, CircleCheck, TrendingUp, AlertCircle, Recycle, Utensils, CalendarClock, CalendarDays, LayoutDashboard, Sparkles, Camera } from 'lucide-react';
 import { Empty, Modal, Progress, SectionHeading } from './components';
 import { AdvisorCard } from './Advisor';
+import { calendarCaption } from './Calendar';
 import { allocateBudget, budgetBase, budgetIncome, monthCategories, localDate, money, readableDate, totals } from './finance';
-import type { DashboardCard, FamilyState, MonthSummary, Transaction, Goal, Note, Meal, RecurringRule, WasteSchedule, Deadline } from './types';
+import type { DashboardCard, FamilyState, MonthSummary, Transaction, Goal, Note, Meal, RecurringRule, WasteSchedule, Deadline, CalendarEvent } from './types';
 
-export type Page = 'settings' | 'waste' | 'incomes' | 'expenses' | 'account' | 'overview' | 'budget' | 'goals' | 'shopping' | 'notes' | 'bills' | 'meals';
-export type Dialog = { type: 'deadline'; deadline?: Deadline } | { type: 'manage'; deadline: Deadline } | { type: 'waste'; schedule?: WasteSchedule; name?: string; color?: string } | { type: 'recurring'; rule?: RecurringRule; kind?: 'income' | 'expense'; name?: string; categoryId?: string } | { type: 'transaction'; transaction?: Transaction; kind?: 'income' | 'expense' } | { type: 'budget' } | { type: 'goal'; goal?: Goal } | { type: 'contribution'; goal: Goal } | { type: 'note'; note?: Note } | { type: 'viewNote'; note: Note } | { type: 'meal'; meal?: Meal; date?: string; slot?: 'lunch' | 'dinner' } | { type: 'pantry' } | null;
+export type Page = 'settings' | 'waste' | 'calendar' | 'incomes' | 'expenses' | 'account' | 'overview' | 'budget' | 'goals' | 'shopping' | 'notes' | 'bills' | 'meals';
+export type Dialog = { type: 'deadline'; deadline?: Deadline } | { type: 'manage'; deadline: Deadline } | { type: 'waste'; schedule?: WasteSchedule; name?: string; color?: string } | { type: 'event'; event?: CalendarEvent; date?: string } | { type: 'recurring'; rule?: RecurringRule; kind?: 'income' | 'expense'; name?: string; categoryId?: string } | { type: 'transaction'; transaction?: Transaction; kind?: 'income' | 'expense' } | { type: 'budget' } | { type: 'goal'; goal?: Goal } | { type: 'contribution'; goal: Goal } | { type: 'note'; note?: Note } | { type: 'viewNote'; note: Note } | { type: 'meal'; meal?: Meal; date?: string; slot?: 'lunch' | 'dinner' } | { type: 'pantry' } | null;
 type Props = { data: FamilyState; open: (dialog: Dialog) => void; navigate: (page: Page) => void; act: (path: string, method: string, body?: unknown) => Promise<void>; busy: boolean; toggleShopping?: (id: string, checked: boolean) => void };
 const STAT_CARDS: DashboardCard[] = ['income', 'expense', 'balance', 'savings'];
 const horizons = { short: 'Breve termine', medium: 'Medio termine', long: 'Lungo termine' };
@@ -75,6 +76,7 @@ export function Overview({ data, open, navigate, act, busy }: Props) {
     home: <section className="panel daily-panel"><SectionHeading title="La vita di casa" />{[
     { page: 'shopping' as const, title: 'Lista della spesa', icon: ShoppingBasket, color: 'amber', caption: pending.length ? `${pending.length} ${pending.length === 1 ? 'cosa da acquistare' : 'cose da acquistare'}` : 'La prossima spesa comincia qui' },
     { page: 'meals' as const, title: 'Menu settimanale', icon: Utensils, color: 'mint', caption: `${data.meals.length} pasti pianificati · settimana dal ${readableDate(data.week)}` },
+    { page: 'calendar' as const, title: 'Calendario', icon: CalendarDays, color: 'lavender', caption: calendarCaption(data.calendar) },
     { page: 'waste' as const, title: 'Conferimento rifiuti', icon: Recycle, color: 'mint', caption: wasteToday.length ? `Oggi: ${wasteToday.map(w => w.name).join(', ')}` : data.waste.length ? 'Nessun conferimento previsto oggi' : 'Imposta i giorni di conferimento' },
     { page: 'bills' as const, title: 'Scadenze', icon: CalendarClock, color: 'mint', caption: `${pendingDeadlines.length} da gestire nel mese selezionato${pendingDeadlines[0] ? ` · ${pendingDeadlines[0].name}` : ''}` },
     { page: 'notes' as const, title: 'Lavagna di famiglia', icon: StickyNote, color: 'lavender', caption: '' },

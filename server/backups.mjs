@@ -137,7 +137,7 @@ export function streamFamilyBackup(db, dataDir, householdId, response, next) {
   try {
     const query = (sql, ...args) => db.prepare(sql).all(...args);
     const own = table => query(`SELECT * FROM ${table} WHERE household_id = ?`, householdId);
-    const data = Object.fromEntries(['categories', 'transactions', 'goals', 'shopping', 'notes', 'bills', 'meals', 'recurring_rules', 'budget_templates', 'budget_settings', 'budget_versions', 'waste_schedules', 'deadlines', 'budget_month_overrides', 'advisor_settings', 'advisor_reports', 'advisor_assignment'].map(table => [table, own(table)]));
+    const data = Object.fromEntries(['categories', 'transactions', 'goals', 'shopping', 'notes', 'bills', 'meals', 'recurring_rules', 'budget_templates', 'budget_settings', 'budget_versions', 'waste_schedules', 'calendar_events', 'deadlines', 'budget_month_overrides', 'advisor_settings', 'advisor_reports', 'advisor_assignment'].map(table => [table, own(table)]));
     data.contributions = query('SELECT c.* FROM contributions c JOIN goals g ON g.id = c.goal_id WHERE g.household_id = ?', householdId);
     data.recurring_versions = query('SELECT v.* FROM recurring_versions v JOIN recurring_rules r ON r.id = v.rule_id WHERE r.household_id = ?', householdId);
     data.recurring_occurrences = query('SELECT o.* FROM recurring_occurrences o JOIN recurring_rules r ON r.id = o.rule_id WHERE r.household_id = ?', householdId);
@@ -156,6 +156,9 @@ export function streamFamilyBackup(db, dataDir, householdId, response, next) {
       data.savings_settings = query('SELECT * FROM savings_settings WHERE household_id = ?', householdId);
       data.bank_movements = query("SELECT m.id, m.account_id, m.kind, m.amount, m.date, m.description, m.status, m.transaction_id, m.created_at FROM bank_movements m JOIN bank_accounts a ON a.id = m.account_id WHERE m.household_id = ? AND a.visibility = 'shared'", householdId);
     }
+    data.calendar_owners = query('SELECT o.* FROM calendar_owners o JOIN calendar_events e ON e.id = o.event_id WHERE e.household_id = ?', householdId);
+    data.calendar_skips = query('SELECT s.* FROM calendar_skips s JOIN calendar_events e ON e.id = s.event_id WHERE e.household_id = ?', householdId);
+    data.member_colors = query('SELECT c.* FROM member_colors c JOIN users u ON u.id = c.user_id WHERE u.household_id = ?', householdId);
     data.meal_shopping = query('SELECT s.* FROM meal_shopping s JOIN meals m ON m.id = s.meal_id WHERE m.household_id = ?', householdId);
     const attachments = query('SELECT a.* FROM attachments a JOIN notes n ON n.id = a.note_id WHERE n.household_id = ?', householdId);
     data.attachments = attachments.map(({ storage_name, ...attachment }) => {

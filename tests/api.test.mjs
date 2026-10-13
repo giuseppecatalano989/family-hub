@@ -462,6 +462,57 @@ test('waste schedules support multiple days, validation, family sharing and priv
   assert.equal((await request(`/waste/${schedule.id}`,{method:'DELETE',session:member})).status,200);assert.equal((await state(owner)).waste.length,0);
 });
 
+test('the family calendar validates events, shares them only with the family and follows member removal', async () => {
+  const owner = await register(); const invitation = await (await request('/invitation', { method:'POST', session:owner })).json();
+  const member = await register('calendar-member@example.it', { inviteCode:invitation.code }); const stranger = await register('calendar-stranger@example.it');
+  const body = { title:'Colloquio a scuola', startDate:'2026-10-20', startTime:'17:00', endTime:'18:00', recurrence:'none', location:'Scuola Verdi', notes:'Portare la pagella', personal:false };
+  const created = await create('/calendar', body, member);
+  const shared = await state(owner);
+  assert.equal(shared.calendar.length,1); assert.equal(shared.calendar[0].end_date,'2026-10-20'); assert.equal(shared.calendar[0].author,'Alice'); assert.equal(shared.calendar[0].owner_id,null); assert.equal('household_id' in shared.calendar[0],false);
+  assert.equal((await state(stranger)).calendar.length,0);
+  assert.equal((await request(`/calendar/${created.id}`,{method:'PUT',session:stranger,body})).status,404);
+  assert.equal((await request(`/calendar/${created.id}`,{method:'DELETE',session:stranger})).status,404);
+  for (const invalid of [{title:' '},{startDate:'2026-02-30'},{endDate:'2026-10-19'},{startTime:'25:00'},{endTime:'16:00'},{startTime:'',endTime:'18:00'},{recurrence:'daily'},{personal:'yes'},
+    {endDate:'2026-12-31'},{recurrence:'weekly',endDate:'2026-10-27'},{recurrence:'monthly',recurrenceUntil:'2026-10-01'}])
+    assert.equal((await request('/calendar',{method:'POST',session:owner,body:{...body,...invalid}})).status,400,JSON.stringify(invalid));
+  // Members get distinct colours; each changes only their own.
+  const colors = shared.calendarColors; assert.equal(Object.keys(colors).length,2); assert.notEqual(colors[owner.user.id],colors[member.user.id]);
+  assert.equal((await request('/calendar/color',{method:'PUT',session:owner,body:{color:colors[member.user.id]}})).status,409);
+  assert.equal((await request('/calendar/color',{method:'PUT',session:owner,body:{color:'#000000'}})).status,400);
+  assert.equal((await request('/calendar/color',{method:'PUT',session:owner,body:{color:'#d1495b'}})).status,200);
+  assert.equal((await state(member)).calendarColors[owner.user.id],'#d1495b');
+  // A personal event stays its member's when someone else edits it.
+  assert.equal((await request(`/calendar/${created.id}`,{method:'PUT',session:member,body:{...body,personal:true}})).status,200);
+  assert.equal((await request(`/calendar/${created.id}`,{method:'PUT',session:owner,body:{...body,title:'Colloquio',personal:true}})).status,200);
+  assert.equal((await state(owner)).calendar[0].owner_id,member.user.id);
+  assert.equal((await request(`/calendar/${created.id}`,{method:'PUT',session:owner,body:{...body,title:'Compleanno della nonna',startDate:'2026-10-25',startTime:'',endTime:'',recurrence:'yearly',recurrenceUntil:'',location:'',notes:'',personal:true}})).status,200);
+  const changed=(await state(member)).calendar[0];
+  assert.deepEqual([changed.title,changed.start_date,changed.start_time,changed.recurrence,changed.recurrence_until,changed.owner_id],['Compleanno della nonna','2026-10-25','','yearly',null,member.user.id]);
+  const exported=await request('/backups/export',{session:owner});const zip=unzipSync(new Uint8Array(await exported.arrayBuffer()));const payload=JSON.parse(Buffer.from(zip['casa.json']));
+  assert.equal(payload.data.calendar_events.length,1);assert.equal(payload.data.calendar_owners.length,1);assert.equal(payload.data.member_colors.length,2);
+  assert.equal((await request(`/members/${member.user.id}`,{method:'DELETE',session:owner,body:{currentPassword:'password-test-123'}})).status,200);
+  const kept=(await state(owner)).calendar[0]; assert.equal(kept.title,'Compleanno della nonna','the member’s events stay with the family'); assert.equal(kept.owner_id,null);
+  assert.equal((await request(`/calendar/${created.id}`,{method:'DELETE',session:owner})).status,200);assert.equal((await state(owner)).calendar.length,0);
+});
+
+test('a repeating event loses one occurrence or the following ones', async () => {
+  const owner = await register(); const stranger = await register('calendar-other@example.it');
+  const weekly = await create('/calendar', { title:'Calcetto', startDate:'2026-10-06', recurrence:'weekly', personal:false }, owner);
+  const remove = (id, body, session = owner) => request(`/calendar/${id}`,{method:'DELETE',session,body});
+  assert.equal((await remove(weekly.id,{scope:'one',date:'2026-10-14'})).status,400,'not an occurrence');
+  assert.equal((await remove(weekly.id,{scope:'sometimes',date:'2026-10-13'})).status,400);
+  assert.equal((await remove(weekly.id,{scope:'one',date:'2026-10-13'},stranger)).status,404);
+  assert.equal((await remove(weekly.id,{scope:'one',date:'2026-10-13'})).status,200);
+  let event=(await state(owner)).calendar[0]; assert.deepEqual(event.skipped,['2026-10-13']);
+  assert.equal((await remove(weekly.id,{scope:'one',date:'2026-10-13'})).status,400,'already removed');
+  assert.equal((await remove(weekly.id,{scope:'following',date:'2026-10-27'})).status,200);
+  event=(await state(owner)).calendar[0]; assert.equal(event.recurrence_until,'2026-10-26'); assert.deepEqual(event.skipped,['2026-10-13']);
+  assert.equal((await remove(weekly.id,{scope:'one',date:'2026-10-06'})).status,200);
+  event=(await state(owner)).calendar[0]; assert.deepEqual([event.start_date,event.skipped.sort()],['2026-10-06',['2026-10-06','2026-10-13']]);
+  assert.equal((await remove(weekly.id,{scope:'following',date:'2026-10-20'})).status,200,'from the first remaining occurrence on removes the series');
+  assert.equal((await state(owner)).calendar.length,0);
+});
+
 test('deadlines support optional payments, safe undo, expense deletion and family isolation', async () => {
   const owner = await register(); const categoryId = (await state(owner)).categories[0].id;
   const stranger = await register('stranger@example.it');

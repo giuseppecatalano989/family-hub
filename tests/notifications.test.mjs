@@ -59,7 +59,7 @@ test('devices subscribe only to browser push services; choices are personal and 
   const { alice, bob } = await family();
   const initial = (await state(alice)).notifications;
   assert.match(initial.publicKey, /^[A-Za-z0-9_-]{80,}$/);
-  assert.deepEqual(initial.types, { notes: true, shopping: true, meals: true, deadlines: true, budget: true, waste: true, bank: true });
+  assert.deepEqual(initial.types, { notes: true, shopping: true, meals: true, deadlines: true, budget: true, waste: true, calendar: true, bank: true });
   assert.equal(initial.devices, 0);
   assert.equal((await state(bob)).notifications.publicKey, initial.publicKey, 'one key pair for the whole instance');
   assert.equal((await request('/notifications/subscriptions', { method: 'POST', body: device('x') })).status, 401);
@@ -144,6 +144,26 @@ test('the evening round warns about tomorrow’s collection and deadlines, once'
   assert.deepEqual(to('bob').filter(m => m.url === '#bills').map(m => m.title).sort(), ['In scadenza: Assicurazione', 'Scaduta: Bollo auto']);
   await instance.notifications.evening();
   assert.equal(to('alice').length, 3, 'nothing is repeated');
+});
+
+test('calendar events reach the family once: changes by others and the evening before', async () => {
+  await start();
+  const { alice, bob } = await family();
+  await subscribe(alice, 'alice'); await subscribe(bob, 'bob');
+  const event = { title: 'Pediatra', startDate: '2026-10-16', startTime: '17:30', endTime: '', recurrence: 'none', location: 'Via Roma 1', notes: '', personal: false };
+  await request('/calendar', { method: 'POST', session: alice, body: event });
+  await request('/calendar', { method: 'POST', session: alice, body: { ...event, title: 'Calcetto', startDate: '2026-10-02', startTime: '', location: '', recurrence: 'weekly' } });
+  await request('/calendar', { method: 'POST', session: alice, body: { ...event, title: 'Gita', startDate: '2026-10-15', endDate: '2026-10-17', startTime: '' } });
+  assert.deepEqual(to('bob').filter(m => m.url === '#calendar').map(m => m.body), ['alice ha aggiornato il calendario.'], 'one notice every 15 minutes');
+  assert.equal(to('alice').filter(m => m.url === '#calendar').length, 0, 'never to the author');
+  sent.length = 0;
+  await instance.notifications.evening();
+  // Tomorrow is Friday 16: the weekly event and the timed one; the trip started today.
+  assert.deepEqual(to('bob').filter(m => m.url === '#calendar').map(m => [m.title, m.body]), [['Domani: 2 eventi in calendario', 'Calcetto · 17:30 Pediatra (Via Roma 1)']]);
+  await request('/notifications/preferences', { method: 'PUT', session: alice, body: { types: { calendar: false } } });
+  now += 86400000; sent.length = 0;
+  await instance.notifications.evening();
+  assert.equal(sent.filter(m => m.url === '#calendar').length, 0, 'nothing starts on Saturday 17');
 });
 
 test('notice tables follow the member and the endpoint is not public', async () => {
