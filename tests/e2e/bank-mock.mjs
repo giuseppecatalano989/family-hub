@@ -22,6 +22,11 @@ http.createServer((req, res) => {
     return res.end();
   }
   if (url.pathname === '/v1/messages') return advisor(req, res);
+  // Photon double for the calendar's place suggestions.
+  if (url.pathname === '/photon/api') return json(res, 200, { type: 'FeatureCollection', features: url.searchParams.get('q').includes('bian') ? [
+    { type: 'Feature', geometry: { type: 'Point', coordinates: [9.19, 45.46] }, properties: { name: 'Studio Bianchi', street: 'Via Roma', housenumber: '12', city: 'Milano', state: 'Lombardia', country: 'Italia' } },
+    { type: 'Feature', geometry: { type: 'Point', coordinates: [12.49, 41.89] }, properties: { name: 'Studio Bianchi', street: 'Via Nazionale', housenumber: '5', city: 'Roma', state: 'Lazio', country: 'Italia' } },
+  ] : [] });
   if (!authorized(req)) return json(res, 401, { error: 'unauthorized' });
   let body = '';
   req.on('data', chunk => { body += chunk; });

@@ -21,6 +21,7 @@ import { installBank, enableBankingProvider, presentTransactions } from './bank.
 import { installAdvisor, anthropicAdvisor } from './advisor.mjs';
 import { installPantry, anthropicPantry } from './pantry.mjs';
 import { installAssistant, anthropicAssistant } from './assistant.mjs';
+import { installPlaces, photonPlaces } from './places.mjs';
 const MAX_CENTS = 1000000000;
 const COLORS = ['mint', 'amber', 'blue', 'rose', 'neutral'];
 const SESSION_MS = 14 * 86400000;
@@ -74,7 +75,7 @@ function passwordMatches(password, stored) {
     const candidate = scryptSync(password, salt, 64);
     return timingSafeEqual(candidate, Buffer.from(key, 'hex'));
 }
-export function createApp({ dataDir, production = false, trustProxy = false, distDir, automaticBackups = false, backupDir, database, cloudBackups, cronSecret, resetMailer = resetEmailSender(), appUrl = DEFAULT_APP_URL, scheduleResetDelivery, bankProvider = enableBankingProvider(), bankRedirectUrl = process.env.ENABLE_BANKING_REDIRECT_URL || `${appUrl}/api/bank/callback`, clock, pushSender, scheduleBackground, advisorModel = anthropicAdvisor(), pantryModel = anthropicPantry(), assistantModel = anthropicAssistant() } = {}) {
+export function createApp({ dataDir, production = false, trustProxy = false, distDir, automaticBackups = false, backupDir, database, cloudBackups, cronSecret, resetMailer = resetEmailSender(), appUrl = DEFAULT_APP_URL, scheduleResetDelivery, bankProvider = enableBankingProvider(), bankRedirectUrl = process.env.ENABLE_BANKING_REDIRECT_URL || `${appUrl}/api/bank/callback`, clock, pushSender, scheduleBackground, advisorModel = anthropicAdvisor(), pantryModel = anthropicPantry(), assistantModel = anthropicAssistant(), placesProvider = photonPlaces() } = {}) {
     if (!dataDir)
         throw new Error('dataDir is required');
     mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -368,6 +369,7 @@ export function createApp({ dataDir, production = false, trustProxy = false, dis
     const planning = installPlanning(app, { db, one, all, run, atomic, owned, fail, text, cents, now, ...(clock ? { clock } : {}) });
     const waste = installWaste(app, { db, all, run, owned, fail, text });
     const calendar = installCalendar(app, { db, one, all, run, atomic, owned, fail, text, date, now });
+    installPlaces(app, { fail }, { provider: placesProvider, ...(clock ? { clock } : {}) });
     const advisor = installAdvisor(app, { db, one, all, run, atomic, fail, exclusive, splitFor: planning.splitFor, budgetBase, notifications }, { model: advisorModel, schedule: scheduleBackground, ...(clock ? { clock } : {}) });
     advisor.routes();
     const pantry = installPantry(app, { db, one, run, atomic, fail, exclusive }, { model: pantryModel, ...(clock ? { clock } : {}) });

@@ -150,7 +150,7 @@ Le chiavi VAPID possono essere impostate in `VAPID_PUBLIC_KEY` e `VAPID_PRIVATE_
 
 ## Calendario
 
-La sezione **Calendario** è condivisa da tutta la famiglia. Mostra il mese scelto con il selettore in alto: gli eventi, le scadenze del mese (che rimandano a Scadenze) e, nel programma del giorno selezionato, anche il conferimento rifiuti. Ogni evento ha titolo, data, eventuale data di fine (fino a 60 giorni), tutto il giorno oppure ora di inizio e di fine facoltativa, luogo e note. È della **Famiglia** (predefinito, colore della casa) oppure **Personale**, con il colore del membro: ognuno sceglie il proprio in Impostazioni, Casa e famiglia, diverso da quello degli altri. Può ripetersi ogni settimana, ogni mese o ogni anno, con una data di fine facoltativa; gli eventi mensili o annuali su un giorno che manca (il 31, il 29 febbraio) cadono l’ultimo giorno del mese. Le modifiche valgono per tutte le ripetizioni; eliminando una ripetizione si sceglie se togliere solo quella o anche tutte le successive. Il riquadro **In arrivo** elenca i prossimi 30 giorni e la Panoramica mostra gli eventi di oggi o il prossimo.
+La sezione **Calendario** è condivisa da tutta la famiglia. Mostra il mese scelto con il selettore in alto: gli eventi, le scadenze del mese (che rimandano a Scadenze) e, nel programma del giorno selezionato, anche il conferimento rifiuti. Ogni evento ha titolo, data, eventuale data di fine (fino a 60 giorni), tutto il giorno oppure ora di inizio e di fine facoltativa, luogo e note. Mentre si scrive il luogo (da 3 lettere) compaiono fino a cinque luoghi della mappa da selezionare con il tocco o con le frecce e Invio; resta possibile scrivere qualunque testo. I suggerimenti arrivano da [Photon](https://photon.komoot.io) (dati OpenStreetMap) tramite il server: al servizio arriva solo il testo digitato, mai nomi, account o indirizzo IP del dispositivo, e nulla viene salvato o registrato nei log. È della **Famiglia** (predefinito, colore della casa) oppure **Personale**, con il colore del membro: ognuno sceglie il proprio in Impostazioni, Casa e famiglia, diverso da quello degli altri. Può ripetersi ogni settimana, ogni mese o ogni anno, con una data di fine facoltativa; gli eventi mensili o annuali su un giorno che manca (il 31, il 29 febbraio) cadono l’ultimo giorno del mese. Le modifiche valgono per tutte le ripetizioni; eliminando una ripetizione si sceglie se togliere solo quella o anche tutte le successive. Il riquadro **In arrivo** elenca i prossimi 30 giorni e la Panoramica mostra gli eventi di oggi o il prossimo.
 
 ## Conferimento rifiuti
 
@@ -199,6 +199,7 @@ Il server legge facoltativamente `.env`. Per configurarlo, copia `.env.example` 
 | `AUTO_BACKUPS` | attivo | Impostare `0` per disattivare la pianificazione automatica. |
 | `TRUST_PROXY` | disattivato | Impostare `1` solo dietro un reverse proxy HTTPS fidato a un singolo hop. |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | create e salvate nel database | Chiavi facoltative delle notifiche push; la privata resta sul backend, senza prefisso `VITE_`. |
+| `PLACES_API_URL` | `https://photon.komoot.io` | Servizio Photon per i luoghi suggeriti nel Calendario (HTTPS, o HTTP solo su loopback); `off` li disattiva. |
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | non impostata, `claude-opus-5-5` | Consigli del budget e analisi provviste con Claude; la chiave resta sul backend, senza prefisso `VITE_`. |
 
 ## Build e avvio
@@ -332,6 +333,7 @@ server/goal-savings.mjs  Accantonamenti degli obiettivi
 server/workflows.mjs     Menu, collegamenti alla spesa e compatibilità bollette
 server/waste.mjs         Calendario del conferimento rifiuti
 server/calendar.mjs      Calendario di famiglia: eventi e ripetizioni
+server/places.mjs        Luoghi suggeriti del calendario (Photon)
 server/uploads.mjs       Allegati della lavagna caricati a parti
 server/recovery.mjs      Recupero password con link monouso
 server/bank.mjs          Conti bancari in sola lettura tramite Enable Banking

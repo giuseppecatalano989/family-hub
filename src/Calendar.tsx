@@ -1,5 +1,6 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { CalendarDays, CalendarClock, Clock, MapPin, Pencil, Plus, Recycle, Repeat, Trash2 } from 'lucide-react';
+import { api } from './api';
 import { Empty, Modal } from './components';
 import { localDate } from './finance';
 import { addDays, eventOccurrence, monday } from './schedule';
@@ -120,6 +121,40 @@ export function Calendar({ data, month, open, navigate, act, busy }: Props) {
   </>;
 }
 
+// The location field suggests places from the map (through the server) while typing;
+// any text can still be written by hand.
+type Place = { label: string; detail: string };
+function PlaceInput({ defaultValue }: { defaultValue?: string }) {
+  const [value, setValue] = useState(defaultValue || '');
+  const [places, setPlaces] = useState<Place[]>([]);
+  const [active, setActive] = useState(-1); const [open, setOpen] = useState(false);
+  const chosen = useRef(defaultValue || '');
+  useEffect(() => {
+    const query = value.trim();
+    if (query.length < 3 || query === chosen.current) { setPlaces([]); return; }
+    let stale = false;
+    const timer = setTimeout(() => { api<{ places: Place[] }>(`/places?q=${encodeURIComponent(query)}`).then(r => { if (!stale) { setPlaces(r.places); setActive(-1); } }).catch(() => { if (!stale) setPlaces([]); }); }, 300);
+    return () => { stale = true; clearTimeout(timer); };
+  }, [value]);
+  const shown = open && places.length > 0;
+  // The field sits low in the dialog: the suggestions scroll into view when they open.
+  const list = useRef<HTMLUListElement>(null);
+  useEffect(() => { if (shown) list.current?.scrollIntoView({ block: 'nearest' }); }, [shown]);
+  const pick = (place: Place) => { chosen.current = place.label; setValue(place.label); setPlaces([]); };
+  function keys(e: KeyboardEvent<HTMLInputElement>) {
+    if (!shown) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); const down = e.key === 'ArrowDown'; setActive(i => down ? (i + 1) % places.length : i <= 0 ? places.length - 1 : i - 1); }
+    else if (e.key === 'Enter' && active >= 0) { e.preventDefault(); pick(places[active]); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setOpen(false); }
+  }
+  return <span className="place-field">
+    <input name="location" aria-label="Luogo" role="combobox" aria-autocomplete="list" aria-expanded={shown} aria-controls="place-options" aria-activedescendant={shown && active >= 0 ? `place-option-${active}` : undefined} autoComplete="off"
+      value={value} onChange={e => { setValue(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setOpen(false)} onKeyDown={keys} placeholder="Cerca un luogo o un indirizzo, ad esempio via Roma 12" maxLength={120} />
+    {shown && <ul ref={list} className="place-options" id="place-options" role="listbox" aria-label="Luoghi suggeriti">{places.map((place, i) => <li key={place.label} id={`place-option-${i}`} role="option" aria-selected={i === active} className={i === active ? 'active' : ''}
+      onMouseDown={e => { e.preventDefault(); pick(place); }} onMouseEnter={() => setActive(i)}><MapPin size={15} /><span><strong>{place.label}</strong>{place.detail && <small>{place.detail}</small>}</span></li>)}</ul>}
+  </span>;
+}
+
 type EventValue = Extract<NonNullable<Dialog>, { type: 'event' }>;
 export function CalendarDialog({ dialog, data, user, onClose, mutate }: { dialog: EventValue; data: FamilyState; user: User; onClose: () => void; mutate: <T>(path: string, method: string, body?: unknown) => Promise<T> }) {
   const event = dialog.event;
@@ -150,7 +185,7 @@ export function CalendarDialog({ dialog, data, user, onClose, mutate }: { dialog
     {!allDay && <div className="form-columns"><label>Ora di inizio<input name="startTime" type="time" defaultValue={event?.start_time || '09:00'} required /></label><label>Ora di fine <span className="optional">facoltativa</span><input name="endTime" type="time" defaultValue={event?.end_time} /></label></div>}
     <div className="form-columns"><label>Ripetizione<select value={recurrence} onChange={e => setRecurrence(e.target.value as CalendarEvent['recurrence'])}>{Object.entries(recurrences).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       {recurrence !== 'none' && <label>Ripeti fino al <span className="optional">facoltativo</span><input name="recurrenceUntil" type="date" defaultValue={event?.recurrence_until || ''} min={startDate} max="2199-12-31" /></label>}</div>
-    <label>Luogo <span className="optional">facoltativo</span><input name="location" defaultValue={event?.location} placeholder="Ad esempio: studio medico, via Roma 12" maxLength={120} /></label>
+    <label>Luogo <span className="optional">facoltativo</span><PlaceInput defaultValue={event?.location} /></label>
     <label>Note <span className="optional">facoltative</span><textarea name="notes" defaultValue={event?.notes} placeholder="Cosa portare, chi accompagna…" maxLength={1000} rows={3} /></label>
     {event && event.recurrence !== 'none' && <p className="form-hint">Le modifiche valgono per tutte le ripetizioni dell’evento.</p>}
     {error && <div className="form-error" role="alert">{error}</div>}
