@@ -121,31 +121,45 @@ export function Calendar({ data, month, open, navigate, act, busy }: Props) {
   </>;
 }
 
-// The location field suggests places from the map (through the server) while typing;
-// any text can still be written by hand.
-type Place = { label: string; detail: string };
+// The location field suggests places from the map (through the server) from the first
+// letter, the nearest first when the member shares the position; any text can still be written by hand.
+type Place = { label: string; name: string; detail: string; distance?: number };
+type Near = { lat: number; lon: number };
+let locating: Promise<Near | null> | null = null;
+// The device's position, asked once per page and only when the location field is used,
+// rounded to about 100 m before it leaves the browser.
+function locate() {
+  locating ||= new Promise(resolve => {
+    if (!navigator.geolocation) return resolve(null);
+    const round = (n: number) => Math.round(n * 1000) / 1000;
+    navigator.geolocation.getCurrentPosition(p => resolve({ lat: round(p.coords.latitude), lon: round(p.coords.longitude) }), () => resolve(null), { maximumAge: 600000, timeout: 10000 });
+  });
+  return locating;
+}
+const metres = (d: number) => d < 1000 ? `${Math.max(10, Math.round(d / 10) * 10)} m` : `${(d / 1000).toLocaleString('it-IT', { maximumFractionDigits: d < 10000 ? 1 : 0 })} km`;
 function PlaceInput({ defaultValue }: { defaultValue?: string }) {
   const [value, setValue] = useState(defaultValue || '');
-  const [places, setPlaces] = useState<Place[]>([]);
+  const [places, setPlaces] = useState<Place[]>([]); const [source, setSource] = useState('');
   const [active, setActive] = useState(-1); const [open, setOpen] = useState(false);
+  const [near, setNear] = useState<Near | null>(null);
   // What the search is doing when there is nothing to pick: searching, no result or unavailable.
   const [note, setNote] = useState('');
   const chosen = useRef(defaultValue || '');
   useEffect(() => {
     const query = value.trim();
-    if (query.length < 3 || query === chosen.current) { setPlaces([]); setNote(''); return; }
+    if (!query || query === chosen.current) { setPlaces([]); setNote(''); return; }
     let stale = false;
     const timer = setTimeout(() => {
       setNote('Ricerca dei luoghi…');
-      api<{ places: Place[] }>(`/places?q=${encodeURIComponent(query)}`)
-        .then(r => { if (!stale) { setPlaces(r.places); setActive(-1); setNote(r.places.length ? '' : 'Nessun luogo trovato: puoi scriverlo a mano.'); } })
+      api<{ places: Place[]; source: string }>(`/places?q=${encodeURIComponent(query)}${near ? `&lat=${near.lat}&lon=${near.lon}` : ''}`)
+        .then(r => { if (!stale) { setPlaces(r.places); setSource(r.source); setActive(-1); setNote(r.places.length ? '' : 'Nessun luogo trovato: puoi scriverlo a mano.'); } })
         .catch((err: Error) => { if (!stale) { setPlaces([]); setNote(err.message); } });
-    }, 300);
+    }, 250);
     return () => { stale = true; clearTimeout(timer); };
-  }, [value]);
+  }, [value, near]);
   const shown = open && places.length > 0;
   // The field sits low in the dialog: the suggestions scroll into view when they open.
-  const list = useRef<HTMLUListElement>(null);
+  const list = useRef<HTMLDivElement>(null);
   useEffect(() => { if (shown) list.current?.scrollIntoView({ block: 'nearest' }); }, [shown]);
   const pick = (place: Place) => { chosen.current = place.label; setValue(place.label); setPlaces([]); setNote(''); };
   function keys(e: KeyboardEvent<HTMLInputElement>) {
@@ -156,9 +170,10 @@ function PlaceInput({ defaultValue }: { defaultValue?: string }) {
   }
   return <span className="place-field">
     <input name="location" aria-label="Luogo" role="combobox" aria-autocomplete="list" aria-expanded={shown} aria-controls="place-options" aria-activedescendant={shown && active >= 0 ? `place-option-${active}` : undefined} autoComplete="off"
-      value={value} onChange={e => { setValue(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setOpen(false)} onKeyDown={keys} placeholder="Cerca un luogo o un indirizzo, ad esempio via Roma 12" maxLength={120} />
-    {shown && <ul ref={list} className="place-options" id="place-options" role="listbox" aria-label="Luoghi suggeriti">{places.map((place, i) => <li key={place.label} id={`place-option-${i}`} role="option" aria-selected={i === active} className={i === active ? 'active' : ''}
-      onMouseDown={e => { e.preventDefault(); pick(place); }} onMouseEnter={() => setActive(i)}><MapPin size={15} /><span><strong>{place.label}</strong>{place.detail && <small>{place.detail}</small>}</span></li>)}</ul>}
+      value={value} onChange={e => { setValue(e.target.value); setOpen(true); }} onFocus={() => { setOpen(true); void locate().then(setNear); }} onBlur={() => setOpen(false)} onKeyDown={keys} placeholder="Cerca un negozio, un luogo o un indirizzo" maxLength={120} />
+    {shown && <div ref={list} className="place-options"><ul id="place-options" role="listbox" aria-label="Luoghi suggeriti">{places.map((place, i) => <li key={place.label} id={`place-option-${i}`} role="option" aria-selected={i === active} className={i === active ? 'active' : ''}
+      onMouseDown={e => { e.preventDefault(); pick(place); }} onMouseEnter={() => setActive(i)}><MapPin size={15} /><span><strong>{place.name}</strong>{(place.detail || place.distance !== undefined) && <small>{[place.distance !== undefined && metres(place.distance), place.detail].filter(Boolean).join(' · ')}</small>}</span></li>)}</ul>
+      <small className="place-source">{source === 'google' ? 'Risultati da Google Maps' : 'Dati © OpenStreetMap'}</small></div>}
     {open && !shown && note && <span className="place-note" role="status">{note}</span>}
   </span>;
 }

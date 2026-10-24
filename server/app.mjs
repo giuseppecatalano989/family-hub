@@ -21,7 +21,7 @@ import { installBank, enableBankingProvider, presentTransactions } from './bank.
 import { installAdvisor, anthropicAdvisor } from './advisor.mjs';
 import { installPantry, anthropicPantry } from './pantry.mjs';
 import { installAssistant, anthropicAssistant } from './assistant.mjs';
-import { installPlaces, photonPlaces } from './places.mjs';
+import { installPlaces, googlePlaces, photonPlaces } from './places.mjs';
 const MAX_CENTS = 1000000000;
 const COLORS = ['mint', 'amber', 'blue', 'rose', 'neutral'];
 const SESSION_MS = 14 * 86400000;
@@ -75,7 +75,7 @@ function passwordMatches(password, stored) {
     const candidate = scryptSync(password, salt, 64);
     return timingSafeEqual(candidate, Buffer.from(key, 'hex'));
 }
-export function createApp({ dataDir, production = false, trustProxy = false, distDir, automaticBackups = false, backupDir, database, cloudBackups, cronSecret, resetMailer = resetEmailSender(), appUrl = DEFAULT_APP_URL, scheduleResetDelivery, bankProvider = enableBankingProvider(), bankRedirectUrl = process.env.ENABLE_BANKING_REDIRECT_URL || `${appUrl}/api/bank/callback`, clock, pushSender, scheduleBackground, advisorModel = anthropicAdvisor(), pantryModel = anthropicPantry(), assistantModel = anthropicAssistant(), placesProvider = photonPlaces() } = {}) {
+export function createApp({ dataDir, production = false, trustProxy = false, distDir, automaticBackups = false, backupDir, database, cloudBackups, cronSecret, resetMailer = resetEmailSender(), appUrl = DEFAULT_APP_URL, scheduleResetDelivery, bankProvider = enableBankingProvider(), bankRedirectUrl = process.env.ENABLE_BANKING_REDIRECT_URL || `${appUrl}/api/bank/callback`, clock, pushSender, scheduleBackground, advisorModel = anthropicAdvisor(), pantryModel = anthropicPantry(), assistantModel = anthropicAssistant(), placesProvider = googlePlaces() || photonPlaces() } = {}) {
     if (!dataDir)
         throw new Error('dataDir is required');
     mkdirSync(dataDir, { recursive: true, mode: 0o700 });
