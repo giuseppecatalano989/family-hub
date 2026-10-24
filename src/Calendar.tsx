@@ -128,19 +128,26 @@ function PlaceInput({ defaultValue }: { defaultValue?: string }) {
   const [value, setValue] = useState(defaultValue || '');
   const [places, setPlaces] = useState<Place[]>([]);
   const [active, setActive] = useState(-1); const [open, setOpen] = useState(false);
+  // What the search is doing when there is nothing to pick: searching, no result or unavailable.
+  const [note, setNote] = useState('');
   const chosen = useRef(defaultValue || '');
   useEffect(() => {
     const query = value.trim();
-    if (query.length < 3 || query === chosen.current) { setPlaces([]); return; }
+    if (query.length < 3 || query === chosen.current) { setPlaces([]); setNote(''); return; }
     let stale = false;
-    const timer = setTimeout(() => { api<{ places: Place[] }>(`/places?q=${encodeURIComponent(query)}`).then(r => { if (!stale) { setPlaces(r.places); setActive(-1); } }).catch(() => { if (!stale) setPlaces([]); }); }, 300);
+    const timer = setTimeout(() => {
+      setNote('Ricerca dei luoghi…');
+      api<{ places: Place[] }>(`/places?q=${encodeURIComponent(query)}`)
+        .then(r => { if (!stale) { setPlaces(r.places); setActive(-1); setNote(r.places.length ? '' : 'Nessun luogo trovato: puoi scriverlo a mano.'); } })
+        .catch((err: Error) => { if (!stale) { setPlaces([]); setNote(err.message); } });
+    }, 300);
     return () => { stale = true; clearTimeout(timer); };
   }, [value]);
   const shown = open && places.length > 0;
   // The field sits low in the dialog: the suggestions scroll into view when they open.
   const list = useRef<HTMLUListElement>(null);
   useEffect(() => { if (shown) list.current?.scrollIntoView({ block: 'nearest' }); }, [shown]);
-  const pick = (place: Place) => { chosen.current = place.label; setValue(place.label); setPlaces([]); };
+  const pick = (place: Place) => { chosen.current = place.label; setValue(place.label); setPlaces([]); setNote(''); };
   function keys(e: KeyboardEvent<HTMLInputElement>) {
     if (!shown) return;
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); const down = e.key === 'ArrowDown'; setActive(i => down ? (i + 1) % places.length : i <= 0 ? places.length - 1 : i - 1); }
@@ -152,6 +159,7 @@ function PlaceInput({ defaultValue }: { defaultValue?: string }) {
       value={value} onChange={e => { setValue(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setOpen(false)} onKeyDown={keys} placeholder="Cerca un luogo o un indirizzo, ad esempio via Roma 12" maxLength={120} />
     {shown && <ul ref={list} className="place-options" id="place-options" role="listbox" aria-label="Luoghi suggeriti">{places.map((place, i) => <li key={place.label} id={`place-option-${i}`} role="option" aria-selected={i === active} className={i === active ? 'active' : ''}
       onMouseDown={e => { e.preventDefault(); pick(place); }} onMouseEnter={() => setActive(i)}><MapPin size={15} /><span><strong>{place.label}</strong>{place.detail && <small>{place.detail}</small>}</span></li>)}</ul>}
+    {open && !shown && note && <span className="place-note" role="status">{note}</span>}
   </span>;
 }
 

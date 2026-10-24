@@ -366,3 +366,4 @@
 .place-options span{display:grid;gap:2px;min-width:0}
 .place-options strong{font-size:13.73px;font-weight:500;overflow-wrap:anywhere}
 .place-options small{font-size:12px;color:var(--muted);font-weight:400}
+.place-note{display:block;margin-top:6px;font-size:12px;font-weight:400;color:var(--muted);white-space:normal}

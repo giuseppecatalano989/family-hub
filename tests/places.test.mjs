@@ -29,6 +29,10 @@ test('Photon is reached over HTTPS with the typed text only', async () => {
   assert.equal(url.searchParams.get('q'), 'duomo milano');
   assert.equal(url.searchParams.get('lat'), '42.5');
   assert.ok(calls[0].options.signal, 'requests time out');
+  const plain = [];
+  const strict = photonPlaces({ baseUrl: 'https://photon.example.com', fetcher: async url => { plain.push(url); return url.searchParams.has('lat') ? new Response('bad parameter', { status: 400 }) : Response.json({ features: [{ properties: { name: 'Duomo' } }] }); } });
+  assert.deepEqual(await strict.search('duomo'), [{ name: 'Duomo' }], 'without the bias when the instance refuses it');
+  assert.deepEqual([...plain[1].searchParams.keys()], ['q', 'limit']);
   const failing = photonPlaces({ baseUrl: 'https://photon.example.com', fetcher: async () => new Response('busy', { status: 429 }) });
   await assert.rejects(failing.search('duomo'), error => error.status === 429);
 });

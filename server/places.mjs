@@ -27,9 +27,14 @@ export function photonPlaces({ baseUrl = process.env.PLACES_API_URL || 'https://
   if (!safeProviderUrl(baseUrl)) { console.error('Configurazione dei luoghi non valida: indirizzo non sicuro.'); return null; }
   return {
     async search(query) {
-      const url = new URL(`${baseUrl.replace(/\/$/, '')}/api`);
-      url.search = new URLSearchParams({ q: query, limit: String(LIMIT + 3), ...BIAS }).toString();
-      const response = await fetcher(url, { headers: { accept: 'application/json', 'user-agent': 'FamilyHub/0.1 (calendario di famiglia)' }, signal: AbortSignal.timeout(5000) });
+      const ask = params => {
+        const url = new URL(`${baseUrl.replace(/\/$/, '')}/api`);
+        url.search = new URLSearchParams({ q: query, limit: String(LIMIT + 3), ...params }).toString();
+        return fetcher(url, { headers: { accept: 'application/json', 'user-agent': 'FamilyHub/0.1 (calendario di famiglia)' }, signal: AbortSignal.timeout(5000) });
+      };
+      // An instance that does not accept the bias still answers the plain search.
+      let response = await ask(BIAS);
+      if (response.status === 400) response = await ask({});
       if (!response.ok) throw Object.assign(new Error('Ricerca dei luoghi non riuscita.'), { status: response.status });
       const body = await response.json();
       return (Array.isArray(body?.features) ? body.features : []).map(feature => feature?.properties);
