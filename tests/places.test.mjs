@@ -4,37 +4,45 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createApp } from '../server/app.mjs';
-import { presentPlace, photonPlaces, PLACES_PER_MINUTE } from '../server/places.mjs';
+import { presentPlace, googlePlaces, PLACES_PER_MINUTE } from '../server/places.mjs';
 
-test('places get a short label to save and the area that tells them apart', () => {
-  assert.deepEqual(presentPlace({ name: 'Ospedale Niguarda', street: 'Piazza dell’Ospedale Maggiore', housenumber: '3', city: 'Milano', county: 'Milano', state: 'Lombardia', country: 'Italia' }),
-    { label: 'Ospedale Niguarda, Piazza dell’Ospedale Maggiore 3, Milano', detail: 'Lombardia, Italia' });
-  assert.deepEqual(presentPlace({ street: 'Via Roma', housenumber: '12', city: 'Torino', state: 'Piemonte', country: 'Italia' }), { label: 'Via Roma 12, Torino', detail: 'Piemonte, Italia' });
-  assert.deepEqual(presentPlace({ name: 'Bologna', city: 'Bologna', state: 'Emilia-Romagna', country: 'Italia' }), { label: 'Bologna', detail: 'Emilia-Romagna, Italia' });
-  assert.equal(presentPlace({ name: 'x'.repeat(100), street: 'y'.repeat(30), city: 'Roma' }).label, `${'x'.repeat(100)}, Roma`, 'labels fit the 120 characters of the location');
-  assert.equal(presentPlace({ country: 'Italia' }), null);
+const prediction = (label, detail = '') => ({ text: { text: label }, structuredFormat: { secondaryText: { text: detail } } });
+
+test('Google predictions keep detailed addresses within the event location limit', () => {
+  assert.deepEqual(presentPlace(prediction('Studio Bianchi, Via Roma 12, Milano', 'Lombardia, Italia')), { label: 'Studio Bianchi, Via Roma 12, Milano', detail: 'Lombardia, Italia' });
+  assert.equal(presentPlace(prediction('x'.repeat(140))).label.length, 120);
+  assert.equal(presentPlace({}), null);
   assert.equal(presentPlace(undefined), null);
+  assert.equal(presentPlace(null), null);
 });
 
-test('Photon is reached over HTTPS with the typed text only', async () => {
-  assert.equal(photonPlaces({ baseUrl: 'off' }), null);
+test('Google Autocomplete uses a private header, Italian results and a bounded request', async () => {
+  assert.equal(googlePlaces({ apiKey: '', baseUrl: 'https://places.googleapis.com' }), null);
+  assert.equal(googlePlaces({ apiKey: 'test-only', baseUrl: 'off' }), null);
   const errors = []; const original = console.error; console.error = (...args) => errors.push(args.join(' '));
-  try { assert.equal(photonPlaces({ baseUrl: 'http://photon.example.com' }), null); } finally { console.error = original; }
-  assert.equal(errors.length, 1);
+  try {
+    assert.equal(googlePlaces({ apiKey: 'test-only', baseUrl: 'http://places.googleapis.com' }), null);
+    assert.equal(googlePlaces({ apiKey: 'test-only', baseUrl: 'https://untrusted.example.com' }), null);
+  } finally { console.error = original; }
+  assert.equal(errors.length, 2);
   const calls = [];
-  const provider = photonPlaces({ baseUrl: 'https://photon.example.com/', fetcher: async (url, options) => { calls.push({ url, options }); return Response.json({ features: [{ properties: { name: 'Duomo' } }, null] }); } });
-  assert.deepEqual(await provider.search('duomo milano'), [{ name: 'Duomo' }, undefined]);
-  const url = calls[0].url;
-  assert.equal(`${url.origin}${url.pathname}`, 'https://photon.example.com/api');
-  assert.equal(url.searchParams.get('q'), 'duomo milano');
-  assert.equal(url.searchParams.get('lat'), '42.5');
-  assert.ok(calls[0].options.signal, 'requests time out');
-  const plain = [];
-  const strict = photonPlaces({ baseUrl: 'https://photon.example.com', fetcher: async url => { plain.push(url); return url.searchParams.has('lat') ? new Response('bad parameter', { status: 400 }) : Response.json({ features: [{ properties: { name: 'Duomo' } }] }); } });
-  assert.deepEqual(await strict.search('duomo'), [{ name: 'Duomo' }], 'without the bias when the instance refuses it');
-  assert.deepEqual([...plain[1].searchParams.keys()], ['q', 'limit']);
-  const failing = photonPlaces({ baseUrl: 'https://photon.example.com', fetcher: async () => new Response('busy', { status: 429 }) });
-  await assert.rejects(failing.search('duomo'), error => error.status === 429);
+  const result = prediction('Duomo di Milano, Milano, Italia', 'Milano, Italia');
+  const provider = googlePlaces({ apiKey: 'test-only', fetcher: async (url, options) => {
+    calls.push({ url, options }); return Response.json({ suggestions: [{ placePrediction: result }, { queryPrediction: {} }] });
+  } });
+  assert.deepEqual(await provider.search('D'), [result, undefined]);
+  assert.equal(calls[0].url.href, 'https://places.googleapis.com/v1/places:autocomplete');
+  const options = calls[0].options;
+  assert.equal(options.method, 'POST');
+  assert.equal(options.headers['X-Goog-Api-Key'], 'test-only');
+  assert.equal(options.redirect, 'error', 'credentials are not forwarded through redirects');
+  assert.deepEqual(JSON.parse(options.body), { input: 'D', languageCode: 'it', regionCode: 'it', includeQueryPredictions: false });
+  assert.ok(options.signal);
+  assert.doesNotMatch(options.body, /test-only/);
+  const failing = googlePlaces({ apiKey: 'test-only', fetcher: async () => new Response('sensitive provider error', { status: 403 }) });
+  await assert.rejects(failing.search('duomo'), error => error.status === 403 && !error.message.includes('sensitive'));
+  const empty = googlePlaces({ apiKey: 'test-only', fetcher: async () => Response.json({}) });
+  assert.deepEqual(await empty.search('a'), []);
 });
 
 let instance; let server; let dataDir; let base;
@@ -62,30 +70,35 @@ async function register(email) {
 }
 const search = (session, q) => request(`/places?q=${encodeURIComponent(q)}`, { session });
 
-test('signed-in members get deduplicated suggestions, cached and limited per family', async () => {
+test('signed-in members search from one character without caching, with deduplication and family limits', async () => {
   const queries = [];
   const placesProvider = { async search(query) {
     queries.push(query);
     if (query.includes('guasto')) throw Object.assign(new Error(`errore per ${query}`), { status: 500 });
-    return [{ name: 'Studio Bianchi', street: 'Via Roma', housenumber: '12', city: 'Milano', country: 'Italia' }, { name: 'Studio Bianchi', street: 'Via Roma', housenumber: '12', city: 'Milano' },
-      ...Array.from({ length: 8 }, (_, i) => ({ name: `Luogo ${i}`, city: 'Roma' })), { country: 'Italia' }];
+    return [prediction('Studio Bianchi, Via Roma 12, Milano', 'Italia'), prediction('Studio Bianchi, Via Roma 12, Milano'),
+      ...Array.from({ length: 8 }, (_, i) => prediction(`Luogo ${i}, Roma`)), {}];
   } };
   let now = Date.parse('2026-10-24T10:00:00Z');
   await start({ placesProvider, clock: () => now });
   assert.equal((await search(null, 'studio bianchi')).status, 401);
   const alice = await register('alice@example.it'); const bob = await register('bob@example.it');
-  assert.deepEqual(await (await search(alice, 'st')).json(), { places: [] }, 'short queries do not reach the service');
+  assert.deepEqual(await (await search(alice, '  ')).json(), { places: [] });
+  assert.deepEqual(await (await search(alice, 'x'.repeat(121))).json(), { places: [] });
+  assert.equal(queries.length, 0);
+  assert.equal((await search(alice, 'S')).status, 200);
+  assert.deepEqual(queries, ['S'], 'the first character reaches Google');
   const response = await search(alice, '  Studio   Bianchi ');
   assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
   const { places } = await response.json();
   assert.equal(places.length, 5);
   assert.deepEqual(places[0], { label: 'Studio Bianchi, Via Roma 12, Milano', detail: 'Italia' });
   assert.equal(new Set(places.map(p => p.label)).size, 5);
-  assert.deepEqual(queries, ['studio bianchi']);
+  assert.deepEqual(queries, ['S', 'Studio Bianchi']);
   assert.equal((await search(bob, 'studio bianchi')).status, 200);
-  assert.equal(queries.length, 1, 'the same text is answered from the cache');
+  assert.equal(queries.length, 3, 'predictions are not cached, even for another family');
 
-  for (let i = 1; i < PLACES_PER_MINUTE; i++) assert.equal((await search(alice, `via numero ${i}`)).status, 200);
+  for (let i = 2; i < PLACES_PER_MINUTE; i++) assert.equal((await search(alice, `via numero ${i}`)).status, 200);
   const limited = await search(alice, 'via oltre il limite');
   assert.equal(limited.status, 429);
   assert.match((await limited.json()).error, /Riprova tra un minuto/);

@@ -133,7 +133,8 @@ function PlaceInput({ defaultValue }: { defaultValue?: string }) {
   const chosen = useRef(defaultValue || '');
   useEffect(() => {
     const query = value.trim();
-    if (query.length < 3 || query === chosen.current) { setPlaces([]); setNote(''); return; }
+    if (!query.length || query === chosen.current) { setPlaces([]); setNote(''); return; }
+    setPlaces([]); setActive(-1); setNote('');
     let stale = false;
     const timer = setTimeout(() => {
       setNote('Ricerca dei luoghi…');
@@ -159,6 +160,7 @@ function PlaceInput({ defaultValue }: { defaultValue?: string }) {
       value={value} onChange={e => { setValue(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setOpen(false)} onKeyDown={keys} placeholder="Cerca un luogo o un indirizzo, ad esempio via Roma 12" maxLength={120} />
     {shown && <ul ref={list} className="place-options" id="place-options" role="listbox" aria-label="Luoghi suggeriti">{places.map((place, i) => <li key={place.label} id={`place-option-${i}`} role="option" aria-selected={i === active} className={i === active ? 'active' : ''}
       onMouseDown={e => { e.preventDefault(); pick(place); }} onMouseEnter={() => setActive(i)}><MapPin size={15} /><span><strong>{place.label}</strong>{place.detail && <small>{place.detail}</small>}</span></li>)}</ul>}
+    {shown && <span className="place-attribution">Google Maps</span>}
     {open && !shown && note && <span className="place-note" role="status">{note}</span>}
   </span>;
 }

@@ -22,11 +22,20 @@ http.createServer((req, res) => {
     return res.end();
   }
   if (url.pathname === '/v1/messages') return advisor(req, res);
-  // Photon double for the calendar's place suggestions.
-  if (url.pathname === '/photon/api') return json(res, 200, { type: 'FeatureCollection', features: url.searchParams.get('q').includes('bian') ? [
-    { type: 'Feature', geometry: { type: 'Point', coordinates: [9.19, 45.46] }, properties: { name: 'Studio Bianchi', street: 'Via Roma', housenumber: '12', city: 'Milano', state: 'Lombardia', country: 'Italia' } },
-    { type: 'Feature', geometry: { type: 'Point', coordinates: [12.49, 41.89] }, properties: { name: 'Studio Bianchi', street: 'Via Nazionale', housenumber: '5', city: 'Roma', state: 'Lazio', country: 'Italia' } },
-  ] : [] });
+  // Google Places Autocomplete (New) double; no real credentials or requests.
+  if (url.pathname === '/v1/places:autocomplete' && req.method === 'POST') {
+    if (req.headers['x-goog-api-key'] !== 'e2e-google-key') return json(res, 403, {});
+    let raw = ''; req.on('data', chunk => { raw += chunk; });
+    req.on('end', () => {
+      const { input } = JSON.parse(raw);
+      const places = input.toLowerCase() === 's' || input.toLowerCase().includes('bian') ? [
+        ['Studio Bianchi, Via Roma 12, Milano', 'Lombardia, Italia'],
+        ['Studio Bianchi, Via Nazionale 5, Roma', 'Lazio, Italia'],
+      ] : [];
+      json(res, 200, { suggestions: places.map(([label, detail]) => ({ placePrediction: { text: { text: label }, structuredFormat: { secondaryText: { text: detail } } } })) });
+    });
+    return;
+  }
   if (!authorized(req)) return json(res, 401, { error: 'unauthorized' });
   let body = '';
   req.on('data', chunk => { body += chunk; });

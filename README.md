@@ -150,7 +150,7 @@ Le chiavi VAPID possono essere impostate in `VAPID_PUBLIC_KEY` e `VAPID_PRIVATE_
 
 ## Calendario
 
-La sezione **Calendario** è condivisa da tutta la famiglia. Mostra il mese scelto con il selettore in alto: gli eventi, le scadenze del mese (che rimandano a Scadenze) e, nel programma del giorno selezionato, anche il conferimento rifiuti. Ogni evento ha titolo, data, eventuale data di fine (fino a 60 giorni), tutto il giorno oppure ora di inizio e di fine facoltativa, luogo e note. Mentre si scrive il luogo (da 3 lettere) compaiono fino a cinque luoghi della mappa da selezionare con il tocco o con le frecce e Invio; resta possibile scrivere qualunque testo. I suggerimenti arrivano da [Photon](https://photon.komoot.io) (dati OpenStreetMap) tramite il server: al servizio arriva solo il testo digitato, mai nomi, account o indirizzo IP del dispositivo, e nulla viene salvato o registrato nei log. È della **Famiglia** (predefinito, colore della casa) oppure **Personale**, con il colore del membro: ognuno sceglie il proprio in Impostazioni, Casa e famiglia, diverso da quello degli altri. Può ripetersi ogni settimana, ogni mese o ogni anno, con una data di fine facoltativa; gli eventi mensili o annuali su un giorno che manca (il 31, il 29 febbraio) cadono l’ultimo giorno del mese. Le modifiche valgono per tutte le ripetizioni; eliminando una ripetizione si sceglie se togliere solo quella o anche tutte le successive. Il riquadro **In arrivo** elenca i prossimi 30 giorni e la Panoramica mostra gli eventi di oggi o il prossimo.
+La sezione **Calendario** è condivisa da tutta la famiglia. Mostra il mese scelto con il selettore in alto: gli eventi, le scadenze del mese (che rimandano a Scadenze) e, nel programma del giorno selezionato, anche il conferimento rifiuti. Ogni evento ha titolo, data, eventuale data di fine (fino a 60 giorni), tutto il giorno oppure ora di inizio e di fine facoltativa, luogo e note. Mentre si scrive il luogo (già dal primo carattere, dopo una breve pausa) compaiono fino a cinque luoghi della mappa da selezionare con il tocco o con le frecce e Invio; resta possibile scrivere qualunque testo. I suggerimenti arrivano da Google Places Autocomplete (New) tramite il server: al servizio arriva solo il testo digitato, mai nomi, account o indirizzo IP del dispositivo, e le ricerche e le risposte non vengono salvate, memorizzate in cache o registrate nei log; nell’evento resta il testo del luogo scelto. È della **Famiglia** (predefinito, colore della casa) oppure **Personale**, con il colore del membro: ognuno sceglie il proprio in Impostazioni, Casa e famiglia, diverso da quello degli altri. Può ripetersi ogni settimana, ogni mese o ogni anno, con una data di fine facoltativa; gli eventi mensili o annuali su un giorno che manca (il 31, il 29 febbraio) cadono l’ultimo giorno del mese. Le modifiche valgono per tutte le ripetizioni; eliminando una ripetizione si sceglie se togliere solo quella o anche tutte le successive. Il riquadro **In arrivo** elenca i prossimi 30 giorni e la Panoramica mostra gli eventi di oggi o il prossimo.
 
 ## Conferimento rifiuti
 
@@ -199,8 +199,15 @@ Il server legge facoltativamente `.env`. Per configurarlo, copia `.env.example` 
 | `AUTO_BACKUPS` | attivo | Impostare `0` per disattivare la pianificazione automatica. |
 | `TRUST_PROXY` | disattivato | Impostare `1` solo dietro un reverse proxy HTTPS fidato a un singolo hop. |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | create e salvate nel database | Chiavi facoltative delle notifiche push; la privata resta sul backend, senza prefisso `VITE_`. |
-| `PLACES_API_URL` | `https://photon.komoot.io` | Servizio Photon per i luoghi suggeriti nel Calendario (HTTPS, o HTTP solo su loopback); `off` li disattiva. |
+| `GOOGLE_PLACES_API_KEY` | non impostata | Chiave privata backend di Google Places API (New) per i luoghi del Calendario; senza chiave resta disponibile il testo libero. Mai usare un prefisso `VITE_`. |
+| `PLACES_API_URL` | `https://places.googleapis.com` | Endpoint Google Places; `off` disattiva i suggerimenti. L’override HTTP su loopback è riservato ai test. |
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | non impostata, `claude-opus-5-5` | Consigli del budget e analisi provviste con Claude; la chiave resta sul backend, senza prefisso `VITE_`. |
+
+### Configurare i luoghi di Google Places
+
+In Google Cloud abilita **Places API (New)** in un progetto con fatturazione attiva, crea una chiave API e limitane l’uso a questa API (e agli IP del backend se fissi). Imposta `GOOGLE_PLACES_API_KEY` nell’ambiente privato del server o, su Vercel, nelle variabili del progetto e ridistribuisci. In locale puoi inserirla nel tuo `.env` ignorato da Git e riavviare l’API. Non inserirla nel frontend né nel repository.
+
+Il server chiama `https://places.googleapis.com/v1/places:autocomplete`; la rete deve consentire `places.googleapis.com`. Le richieste Google possono comportare costi: configura quote e avvisi di spesa nel progetto Google Cloud. La ricerca offre fino a cinque suggerimenti, con attribuzione Google Maps, dal primo carattere dopo 300 ms di pausa, e mantiene il limite di 30 ricerche al minuto per famiglia. Il campo rimane testo libero anche quando il servizio non è configurato o non risponde. I test usano un servizio Google simulato su loopback e non consumano quote reali.
 
 ## Build e avvio
 
@@ -333,7 +340,7 @@ server/goal-savings.mjs  Accantonamenti degli obiettivi
 server/workflows.mjs     Menu, collegamenti alla spesa e compatibilità bollette
 server/waste.mjs         Calendario del conferimento rifiuti
 server/calendar.mjs      Calendario di famiglia: eventi e ripetizioni
-server/places.mjs        Luoghi suggeriti del calendario (Photon)
+server/places.mjs        Luoghi suggeriti del calendario (Google Places)
 server/uploads.mjs       Allegati della lavagna caricati a parti
 server/recovery.mjs      Recupero password con link monouso
 server/bank.mjs          Conti bancari in sola lettura tramite Enable Banking
