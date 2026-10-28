@@ -130,20 +130,34 @@ function PlaceInput({ defaultValue }: { defaultValue?: string }) {
   const [active, setActive] = useState(-1); const [open, setOpen] = useState(false);
   // What the search is doing when there is nothing to pick: searching, no result or unavailable.
   const [note, setNote] = useState('');
+  const [position, setPosition] = useState<{ latitude: number; longitude: number }>();
+  // Watch only while the location field is in use. The browser manages consent;
+  // a refusal, timeout or unavailable GPS leaves the ordinary search working.
+  useEffect(() => {
+    if (!open || !navigator.geolocation) { setPosition(undefined); return; }
+    let stale = false;
+    const watch = navigator.geolocation.watchPosition(({ coords }) => {
+      if (stale) return;
+      const latitude = Number(coords.latitude.toFixed(4));
+      const longitude = Number(coords.longitude.toFixed(4));
+      setPosition(previous => previous?.latitude === latitude && previous.longitude === longitude ? previous : { latitude, longitude });
+    }, () => { if (!stale) setPosition(undefined); }, { enableHighAccuracy: true, maximumAge: 0, timeout: 8000 });
+    return () => { stale = true; navigator.geolocation.clearWatch(watch); };
+  }, [open]);
   const chosen = useRef(defaultValue || '');
   useEffect(() => {
     const query = value.trim();
-    if (!query.length || query === chosen.current) { setPlaces([]); setNote(''); return; }
+    if (!open || !query.length || query === chosen.current) { setPlaces([]); setNote(''); return; }
     setPlaces([]); setActive(-1); setNote('');
     let stale = false;
     const timer = setTimeout(() => {
       setNote('Ricerca dei luoghi…');
-      api<{ places: Place[] }>(`/places?q=${encodeURIComponent(query)}`)
+      api<{ places: Place[] }>('/places', 'POST', { q: query, location: position })
         .then(r => { if (!stale) { setPlaces(r.places); setActive(-1); setNote(r.places.length ? '' : 'Nessun luogo trovato: puoi scriverlo a mano.'); } })
         .catch((err: Error) => { if (!stale) { setPlaces([]); setNote(err.message); } });
     }, 300);
     return () => { stale = true; clearTimeout(timer); };
-  }, [value]);
+  }, [value, position, open]);
   const shown = open && places.length > 0;
   // The field sits low in the dialog: the suggestions scroll into view when they open.
   const list = useRef<HTMLUListElement>(null);

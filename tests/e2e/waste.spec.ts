@@ -36,3 +36,47 @@ test('a family configures waste days and plans shared calendar events on desktop
   await page.getByRole('button',{name:'Elimina evento Calcetto'}).click();await page.getByRole('dialog').getByRole('button',{name:'Solo questo evento'}).click();await expect(page.getByRole('region',{name:'Programma del giorno'}).locator('.calendar-event')).toHaveCount(1);await expect(page.getByRole('region',{name:'Prossimi eventi'})).toContainText('Calcetto');
   await goTo(page,'Panoramica');await expect(page.getByRole('main').getByRole('button',{name:'Calendario',exact:true})).toContainText('Oggi: Visita dal pediatra');expect(errors).toEqual([]);
 });
+
+for (const mode of ['nearby', 'denied', 'unavailable'] as const) {
+  test(`calendar place search with geolocation ${mode}`, async ({ page, context }, info) => {
+    if (mode === 'nearby') {
+      await context.grantPermissions(['geolocation']);
+      await context.setGeolocation({ latitude: 41.89, longitude: 12.49 });
+    } else {
+      await page.addInitScript(mode => {
+        Object.defineProperty(navigator, 'geolocation', { configurable: true, value: mode === 'unavailable' ? undefined : {
+          watchPosition(_ok: unknown, fail: (error: { code: number }) => void) { setTimeout(() => fail({ code: 1 }), 0); return 1; },
+          clearWatch() {},
+        } });
+      }, mode);
+    }
+    await page.goto('/');
+    await page.getByLabel('Il tuo nome').fill('Verifica luoghi');
+    await page.getByLabel('Email', { exact: true }).fill(`places-${mode}-${info.project.name}-${Date.now()}@example.test`);
+    await page.getByLabel('Password', { exact: true }).fill('test-password-123');
+    await page.getByLabel('Nome del vostro spazio').fill('Verifica luoghi');
+    await page.getByRole('button', { name: 'Entra a casa' }).click();
+    await goTo(page, 'Calendario');
+    await page.getByRole('button', { name: 'Nuovo evento' }).click();
+    const dialog = page.getByRole('dialog');
+    const requests: { url: string; body: { location?: { latitude: number; longitude: number } } }[] = [];
+    page.on('request', request => {
+      if (new URL(request.url()).pathname === '/api/places') requests.push({ url: request.url(), body: request.postDataJSON() });
+    });
+    await dialog.getByLabel('Luogo').fill('S');
+    const places = dialog.getByRole('listbox', { name: 'Luoghi suggeriti' });
+    await expect(places.getByRole('option')).toHaveCount(2);
+    await expect(places.getByRole('option').first()).toContainText(mode === 'nearby' ? 'Roma' : 'Milano');
+    if (mode === 'nearby') {
+      expect(requests.some(r => r.body.location?.latitude === 41.89)).toBe(true);
+      await context.setGeolocation({ latitude: 45.46, longitude: 9.19 });
+      await expect(places.getByRole('option').first()).toContainText('Milano');
+      expect(requests.some(r => r.body.location?.latitude === 45.46)).toBe(true);
+    } else {
+      expect(requests.every(r => r.body.location === undefined)).toBe(true);
+    }
+    expect(requests.every(r => !new URL(r.url).search)).toBe(true);
+    await places.getByRole('option').first().click();
+    await expect(dialog.getByLabel('Luogo')).toHaveValue(/Studio Bianchi/);
+  });
+}

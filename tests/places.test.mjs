@@ -37,6 +37,12 @@ test('Google Autocomplete uses a private header, Italian results and a bounded r
   assert.equal(options.headers['X-Goog-Api-Key'], 'test-only');
   assert.equal(options.redirect, 'error', 'credentials are not forwarded through redirects');
   assert.deepEqual(JSON.parse(options.body), { input: 'D', languageCode: 'it', regionCode: 'it', includeQueryPredictions: false });
+  const location = { latitude: 41.89, longitude: 12.49 };
+  await provider.search('Studio', location);
+  const nearby = JSON.parse(calls[1].options.body);
+  assert.deepEqual(nearby.origin, location);
+  assert.deepEqual(nearby.locationBias, { circle: { center: location, radius: 25000 } });
+  assert.match(options.headers['X-Goog-FieldMask'], /distanceMeters/);
   assert.ok(options.signal);
   assert.doesNotMatch(options.body, /test-only/);
   const failing = googlePlaces({ apiKey: 'test-only', fetcher: async () => new Response('sensitive provider error', { status: 403 }) });
@@ -118,4 +124,35 @@ test('without a service the suggestions are not offered', async () => {
   await start({ placesProvider: null });
   const alice = await register('alice@example.it');
   assert.equal((await search(alice, 'via roma')).status, 503);
+});
+
+test('device coordinates are validated, used transiently and order nearby predictions first', async () => {
+  const calls = [];
+  await start({ placesProvider: { async search(query, location) {
+    calls.push({ query, location });
+    return [
+      { ...prediction('Lontano'), distanceMeters: 400000 },
+      prediction('Distanza non disponibile'),
+      { ...prediction('Vicino'), distanceMeters: 300 },
+      { ...prediction('Intermedio'), distanceMeters: 1500 },
+    ];
+  } } });
+  const session = await register('nearby@example.test');
+  const post = body => request('/places', { method: 'POST', body, session });
+  const location = { latitude: 41.89, longitude: 12.49 };
+  const response = await post({ q: 'S', location: { ...location, accuracy: 25, extra: 'do-not-forward' } });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  const result = await response.json();
+  assert.deepEqual(result.places.map(p => p.label), ['Vicino', 'Intermedio', 'Lontano', 'Distanza non disponibile']);
+  assert.deepEqual(calls, [{ query: 'S', location }]);
+  assert.ok(result.places.every(p => Object.keys(p).sort().join(',') === 'detail,label'), 'responses expose no coordinates');
+  const ordinary = await post({ q: 'S' });
+  assert.equal((await ordinary.json()).places[0].label, 'Lontano', 'no location preserves Google relevance');
+  assert.equal(calls[1].location, undefined);
+  for (const location of [null, {}, { latitude: 91, longitude: 0 }, { latitude: 0, longitude: -181 }, { latitude: '41.89', longitude: 12.49 }, { latitude: 0, longitude: null }]) {
+    assert.equal((await post({ q: 'S', location })).status, 400);
+  }
+  assert.equal(calls.length, 2, 'invalid coordinates never reach the provider');
+  assert.equal((await request('/places', { method: 'POST', body: { q: 'S', location } })).status, 401);
 });

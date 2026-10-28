@@ -27,12 +27,13 @@ http.createServer((req, res) => {
     if (req.headers['x-goog-api-key'] !== 'e2e-google-key') return json(res, 403, {});
     let raw = ''; req.on('data', chunk => { raw += chunk; });
     req.on('end', () => {
-      const { input } = JSON.parse(raw);
+      const { input, origin, locationBias } = JSON.parse(raw);
+      if (origin && (!locationBias?.circle || locationBias.circle.center.latitude !== origin.latitude || locationBias.circle.center.longitude !== origin.longitude)) return json(res, 400, {});
       const places = input.toLowerCase() === 's' || input.toLowerCase().includes('bian') ? [
         ['Studio Bianchi, Via Roma 12, Milano', 'Lombardia, Italia'],
         ['Studio Bianchi, Via Nazionale 5, Roma', 'Lazio, Italia'],
       ] : [];
-      json(res, 200, { suggestions: places.map(([label, detail]) => ({ placePrediction: { text: { text: label }, structuredFormat: { secondaryText: { text: detail } } } })) });
+      json(res, 200, { suggestions: places.map(([label, detail], index) => ({ placePrediction: { ...(origin ? { distanceMeters: (origin.latitude > 44 ? index === 0 : index === 1) ? 300 : 477000 } : {}), text: { text: label }, structuredFormat: { secondaryText: { text: detail } } } })) });
     });
     return;
   }
